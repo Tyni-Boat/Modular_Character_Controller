@@ -105,20 +105,20 @@ void UBaseAction::OnEnterInner_PartTwo(UAnimInstance* animInstance, bool& succes
 {
 	if (animInstance == nullptr)
 		return;
-	const float duration = animInstance->Montage_Play(Montage.Montage.Get(), 1, EMontagePlayReturnType::Duration);
+	const float duration = animInstance->Montage_Play(Montage.Montage, 1, EMontagePlayReturnType::Duration);
 	if (duration <= 0)
 		return;
 	if (!Montage.MontageSection.IsNone())
 	{
 		//Jumps to a section
-		animInstance->Montage_JumpToSection(Montage.MontageSection, Montage.Montage.Get());
+		animInstance->Montage_JumpToSection(Montage.MontageSection, Montage.Montage);
 	}
 
 	_actionTimer = duration;
 	success = true;
 	isActionActive = true;
 	if (asSimulation)
-		animInstance->Montage_Stop(0, Montage.Montage.Get());
+		animInstance->Montage_Stop(0, Montage.Montage);
 }
 
 

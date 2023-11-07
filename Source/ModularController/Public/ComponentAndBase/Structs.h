@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright Â© 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
 #include "CoreMinimal.h"
@@ -116,15 +116,15 @@ public:
 	FORCEINLINE FInputEntry() {}
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-		TEnumAsByte<EInputEntryNature> Nature = EInputEntryNature::InputEntryNature_Button;
+	TEnumAsByte<EInputEntryNature> Nature = EInputEntryNature::InputEntryNature_Button;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-		TEnumAsByte<EInputEntryType> Type = EInputEntryType::InputEntryType_Simple;
+	TEnumAsByte<EInputEntryType> Type = EInputEntryType::InputEntryType_Simple;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-		FVector_NetQuantize Axis;
+	FVector_NetQuantize Axis;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-		float InputBuffer = 0.2f;
+	float InputBuffer = 0.2f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-		TEnumAsByte<EInputEntryPhase> Phase = EInputEntryPhase::InputEntryPhase_None;
+	TEnumAsByte<EInputEntryPhase> Phase = EInputEntryPhase::InputEntryPhase_None;
 
 
 	float _bufferChrono = 0;
@@ -190,10 +190,11 @@ public:
 		Value = entry;
 	}
 
-	UPROPERTY()
-		FName Key;
-	UPROPERTY()
-		FInputEntry Value;
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="Inputs")
+	FName Key;
+	
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="Inputs")
+	FInputEntry Value;
 };
 
 
@@ -307,7 +308,7 @@ public:
 	{
 		FInputEntry entry = FInputEntry();
 		entry = ReadInput(key);
-		if(_inputPool_last.Contains(key))
+		if (_inputPool_last.Contains(key))
 			_inputPool_last.Remove(key);
 		return entry;
 	}
@@ -366,7 +367,7 @@ public:
 /// Special input type only for network transmission.
 /// </summary>
 USTRUCT(BlueprintType)
-struct FNetInputsPool
+struct FNetInputs
 {
 	GENERATED_BODY()
 
@@ -374,7 +375,7 @@ public:
 
 	//The input pool (network)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "network")
-		TArray<FNetInputPair> _inputPool_net;
+	TArray<FNetInputPair> _inputPool_net;
 
 	FORCEINLINE void FromInputs(const FInputEntryPool& referenceInputs)
 	{
@@ -396,6 +397,30 @@ public:
 			referenceInputs.AddOrReplace(pair.Key, entry);
 		}
 	}
+};
+
+
+
+/// <summary>
+/// Encoded input for net transmission.
+/// </summary>
+USTRUCT(BlueprintType)
+struct FTranscodedInput
+{
+	GENERATED_BODY()
+
+public:
+
+	FTranscodedInput();
+
+	UPROPERTY()
+	double axisCode;
+
+	UPROPERTY()
+	double valuesCode;
+	
+	UPROPERTY()
+	int buttonsCode;
 };
 
 
@@ -564,30 +589,30 @@ public:
 
 	//the surface hit raycast
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-		FHitResult _surfaceHitResult;
+	FHitResult _surfaceHitResult;
 
 protected:
 	//------------------------------------------------------------------------------------------
 
 	//the current surface
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-		TSoftObjectPtr<UPrimitiveComponent> _currentSurface;
+	TSoftObjectPtr<UPrimitiveComponent> _currentSurface;
 
 	//the surface linear velocity
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-		FVector _surfaceLinearCompositeVelocity = FVector(0);
+	FVector _surfaceLinearCompositeVelocity = FVector(0);
 
 	//the surface angular velocity
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-		FVector _surfaceAngularCompositeVelocity = FVector(0);
+	FVector _surfaceAngularCompositeVelocity = FVector(0);
 
 	//the surface normal
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-		FVector _surfaceNormal = FVector(0);
+	FVector _surfaceNormal = FVector(0);
 
 	//the surface angular velocity
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-		FQuat _surfaceAngularVelocity = FQuat(0);
+	FQuat _surfaceAngularVelocity = FQuat(0);
 
 	//the surface velocity
 	FVector _surfaceLocalHitPoint;
@@ -617,7 +642,7 @@ public:
 
 	//the surface hit raycast
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Network Values")
-		FHitResult SurfaceHitResult;
+	FHitResult SurfaceHitResult;
 
 	/// <summary>
 	/// Copy params from a surface
@@ -661,17 +686,17 @@ public:
 	}
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocity")
-		FVector_NetQuantize ConstantLinearVelocity = FVector(0);
+	FVector_NetQuantize ConstantLinearVelocity = FVector(0);
 
 	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "Velocity")
-		FVector_NetQuantize InstantLinearVelocity = FVector(0);
+	FVector_NetQuantize InstantLinearVelocity = FVector(0);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocity")
-		FQuat Rotation = FQuat(0);
+	FQuat Rotation = FQuat(0);
 
 	//to scale the root motion or actiate/desactivate it
 	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "Velocity")
-		float _rooMotionScale = 1;
+	float _rooMotionScale = 1;
 
 
 
@@ -794,13 +819,13 @@ public:
 	/// The velocities component, containing both velocities and accelerations at the initial position
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-		FVelocity InitialVelocities;
+	FVelocity InitialVelocities;
 
 	/// <summary>
 	/// The velocities component, containing both velocities and accelerations at the final state
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-		FVelocity FinalVelocities;
+	FVelocity FinalVelocities;
 
 
 	//Positionning *************************************************************************************
@@ -809,13 +834,13 @@ public:
 	/// The final position, rotation, scale after movement
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-		FTransform FinalTransform = FTransform::Identity;
+	FTransform FinalTransform = FTransform::Identity;
 
 	/// <summary>
 	/// The initial position, rotation, scale before movement
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-		FTransform InitialTransform = FTransform::Identity;
+	FTransform InitialTransform = FTransform::Identity;
 
 
 	//Surfaces *************************************************************************************
@@ -824,13 +849,13 @@ public:
 	/// The final surface
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Surfaces")
-		FSurfaceInfos FinalSurface;
+	FSurfaceInfos FinalSurface;
 
 	/// <summary>
 	/// The initial surface
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Surfaces")
-		FSurfaceInfos InitialSurface;
+	FSurfaceInfos InitialSurface;
 
 
 	//State and Actions *************************************************************************************
@@ -839,38 +864,38 @@ public:
 	/// The initial state index
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-		int InitialStateIndex = -1;
+	int InitialStateIndex = -1;
 
 	/// <summary>
 	/// The final state index
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-		int FinalStateIndex = -1;
+	int FinalStateIndex = -1;
 
 	/// <summary>
 	/// The current state's flag, often used as binary. to relay this behaviour's state over the network. Can be used for things like behaviour phase.
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Behaviours")
-		int FinalStateFlag = 0;
+	int FinalStateFlag = 0;
 
 	/// <summary>
 	/// The initial actions indexes
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-		TArray<int> InitialActionsIndexes;
+	TArray<int> InitialActionsIndexes;
 
 	/// <summary>
 	/// The final actions indexes
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-		TArray<int> FinalActionsIndexes;
+	TArray<int> FinalActionsIndexes;
 
 
 	//Physic *************************************************************************************
 
 	//Do we use physic interractions?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Physics")
-		bool bUsePhysic;
+	bool bUsePhysic;
 
 	//Others *************************************************************************************
 
@@ -987,7 +1012,7 @@ public:
 	/// The velocities component, containing both velocities and accelerations at the initial position
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-		FVelocity Velocities;
+	FVelocity Velocities;
 
 
 	//Transform *************************************************************************************
@@ -996,7 +1021,7 @@ public:
 	/// The position.
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-		FVector_NetQuantize Location;
+	FVector_NetQuantize Location;
 
 	/// <summary>
 	/// The rotation.
@@ -1020,19 +1045,19 @@ public:
 	/// The state index
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-		int StateIndex = -1;
+	int StateIndex = -1;
 
 	/// <summary>
 	/// The current state's flag, often used as binary. to relay this behaviour's state over the network. Can be used for things like behaviour phase.
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Behaviours")
-		int StateFlag = 0;
+	int StateFlag = 0;
 
 	/// <summary>
 	/// The initial actions indexes. is used as binary representing indexes on an array
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-		int ActionsIndexes_BinaryRepresentation;
+	int ActionsIndexes_BinaryRepresentation;
 
 public:
 
@@ -1088,15 +1113,15 @@ public:
 
 	//The override translation rootMotion mode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-		TEnumAsByte<ERootMotionType> OverrideTranslationRootMotionMode = ERootMotionType::RootMotionType_No_RootMotion;
+	TEnumAsByte<ERootMotionType> OverrideTranslationRootMotionMode = ERootMotionType::RootMotionType_No_RootMotion;
 
 	//The override rotation rootMotion mode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-		TEnumAsByte<ERootMotionType> OverrideRotationRootMotionMode = ERootMotionType::RootMotionType_No_RootMotion;
+	TEnumAsByte<ERootMotionType> OverrideRotationRootMotionMode = ERootMotionType::RootMotionType_No_RootMotion;
 
 	//The chrono to switch back override root motion
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-		float OverrideRootMotionChrono = 0;
+	float OverrideRootMotionChrono = 0;
 };
 
 
@@ -1115,22 +1140,22 @@ public:
 	{
 	}
 
-	FORCEINLINE FSyncMoveRequest(FKinematicInfos& move, FInputEntryPool& inputsMade, long timeStamp, float deltaTime)
+	FORCEINLINE FSyncMoveRequest(FKinematicInfos& move, FTranscodedInput inputsMade, long timeStamp, float deltaTime)
 	{
 		MoveInfos.FromKinematicMove(move);
-		Inputs.FromInputs(inputsMade);
+		Inputs = inputsMade;
 		TimeStamp = timeStamp;
 		DeltaTime = deltaTime;
 	}
 
 	UPROPERTY()
-		FNetKinematicMoveInfos MoveInfos;
+	FNetKinematicMoveInfos MoveInfos;
 	UPROPERTY()
-		FNetInputsPool Inputs;
+	FTranscodedInput Inputs;
 	UPROPERTY()
-		int TimeStamp = 0;
+	int TimeStamp = 0;
 	UPROPERTY()
-		double DeltaTime = 0;
+	double DeltaTime = 0;
 };
 
 
@@ -1150,21 +1175,20 @@ struct MODULARCONTROLLER_API FActionMotionMontage
 	GENERATED_BODY()
 
 public:
-	FORCEINLINE FActionMotionMontage()
-	{
-	}
+	FORCEINLINE FActionMotionMontage() {}
 
 	/// <summary>
 	/// The Animation Montages to play
 	/// </summary>
 	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
-		TSoftObjectPtr<UAnimMontage> Montage;
+	//TSoftObjectPtr<UAnimMontage> Montage;
+	UAnimMontage* Montage;
 
 	/// <summary>
 	/// The Animation Montages section to play
 	/// </summary>
 	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
-		FName MontageSection;
+	FName MontageSection;
 };
 
 
@@ -1182,7 +1206,7 @@ class UStructExtensions : public UObject
 public:
 
 	UFUNCTION(BlueprintCallable, Category = "FInputEntry")
-		static bool IsObsolete(FInputEntry input, FInputEntry& output, float d)
+	static bool IsObsolete(FInputEntry input, FInputEntry& output, float d)
 	{
 		bool ret = input.IsObsolete(d);
 		output = input;
@@ -1190,7 +1214,7 @@ public:
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FInputEntryPool")
-		static bool ListenInput(FInputEntryPool input, FInputEntryPool& output, FName key, FInputEntry entry)
+	static bool ListenInput(FInputEntryPool input, FInputEntryPool& output, FName key, FInputEntry entry)
 	{
 		bool ret = input.AddOrReplace(key, entry);
 		output = input;
@@ -1198,79 +1222,79 @@ public:
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FInputEntryPool")
-		static FInputEntry ReadInput(const FInputEntryPool MyStructRef, FName key)
+	static FInputEntry ReadInput(const FInputEntryPool MyStructRef, FName key)
 	{
 		return MyStructRef.ReadInput(key);
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FInputEntryPool")
-		static FInputEntry ConsumeInput(FInputEntryPool MyStructRef, FName key)
+	static FInputEntry ConsumeInput(FInputEntryPool MyStructRef, FName key)
 	{
 		return MyStructRef.ConsumeInput(key);
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FSurfaceInfos")
-		static FVector GetSurfaceLinearVelocity(const FSurfaceInfos MyStructRef, bool linear = true, bool angular = true)
+	static FVector GetSurfaceLinearVelocity(const FSurfaceInfos MyStructRef, bool linear = true, bool angular = true)
 	{
 		return MyStructRef.GetSurfaceLinearVelocity(linear, angular);
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FSurfaceInfos")
-		static FQuat GetSurfaceAngularVelocity(const FSurfaceInfos MyStructRef)
+	static FQuat GetSurfaceAngularVelocity(const FSurfaceInfos MyStructRef)
 	{
 		return MyStructRef.GetSurfaceAngularVelocity();
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FSurfaceInfos")
-		static FHitResult GetSurfaceHitInfos(const FSurfaceInfos MyStructRef)
+	static FHitResult GetSurfaceHitInfos(const FSurfaceInfos MyStructRef)
 	{
 		return MyStructRef.GetHitResult();
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FVelocity")
-		static FVector AngularVelocityFromRotation(const FVelocity MyStructRef, FQuat rot)
+	static FVector AngularVelocityFromRotation(const FVelocity MyStructRef, FQuat rot)
 	{
 		return FVelocity::AngularVelocityFromRotation(rot);
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FVelocity")
-		static FQuat RotationDeltaFromAngularVelocity(const FVelocity MyStructRef, FVector angularRot)
+	static FQuat RotationDeltaFromAngularVelocity(const FVelocity MyStructRef, FVector angularRot)
 	{
 		return FVelocity::RotationDeltaFromAngularVelocity(angularRot);
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-		static AActor* GetActor(const FKinematicInfos MyStructRef)
+	static AActor* GetActor(const FKinematicInfos MyStructRef)
 	{
 		return MyStructRef.GetActor();
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-		static float GetMass(const FKinematicInfos MyStructRef)
+	static float GetMass(const FKinematicInfos MyStructRef)
 	{
 		return MyStructRef.GetMass();
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-		static float GetInitialAscensionScale(const FKinematicInfos& MyStructRef)
+	static float GetInitialAscensionScale(const FKinematicInfos& MyStructRef)
 	{
 		return MyStructRef.GetInitialAscensionScale();
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-		static FVector GetInitialMomentum(const FKinematicInfos MyStructRef)
+	static FVector GetInitialMomentum(const FKinematicInfos MyStructRef)
 	{
 		return MyStructRef.GetInitialMomentum();
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-		static FVector GetFinalMomentum(const FKinematicInfos MyStructRef)
+	static FVector GetFinalMomentum(const FKinematicInfos MyStructRef)
 	{
 		return MyStructRef.GetFinalMomentum();
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-		static FVector GetGravity(const FKinematicInfos MyStructRef)
+	static FVector GetGravity(const FKinematicInfos MyStructRef)
 	{
 		return MyStructRef.Gravity;
 	}

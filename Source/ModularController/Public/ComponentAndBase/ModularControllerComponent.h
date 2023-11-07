@@ -3,9 +3,12 @@
 #pragma once
 #include "Animation/AnimMontage.h"
 #include "CoreMinimal.h"
+#include "InputTranscoderConfig.h"
 #include "Structs.h"
+#include "Containers/Queue.h"
 #include "GameFramework/MovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/GameStateBase.h"
 
 #ifndef BASE_ACTION
 #define BASE_ACTION
@@ -71,15 +74,15 @@ protected:
 
 	//Use this to offset rotation. useful when using skeletal mesh without as root primitive.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Core")
-		FRotator RotationOffset;
+	FRotator RotationOffset;
 
 	//When using a skeletal mesh, This is the name of the bone used as primitive for the movement
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Core")
-		FName BoneName;
+	FName BoneName;
 
 	//The component owner class, casted to pawn
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadWrite, category = "Core")
-		TSoftObjectPtr<APawn> _ownerPawn;
+	TSoftObjectPtr<APawn> _ownerPawn;
 
 public:
 
@@ -90,37 +93,37 @@ public:
 
 	// Get the controller's actor custom Transform
 	UFUNCTION(BlueprintGetter, Category = "Controllers|Core")
-		FORCEINLINE FTransform GetTransfrom() { return FTransform(GetRotation(), GetLocation(), GetScale()); }
+	FORCEINLINE FTransform GetTransfrom() { return FTransform(GetRotation(), GetLocation(), GetScale()); }
 
 
 	// Get the controller's actor position
 	UFUNCTION(BlueprintGetter, Category = "Controllers|Core")
-		FORCEINLINE FVector GetLocation() { return GetOwner()->GetActorLocation(); }
+	FORCEINLINE FVector GetLocation() { return GetOwner()->GetActorLocation(); }
 
 
 	// Get the controller's actor Rotation.
 	UFUNCTION(BlueprintGetter, Category = "Controllers|Core")
-		FORCEINLINE FQuat GetRotation() { return GetOwner()->GetActorQuat() * RotationOffset.Quaternion().Inverse(); }
+	FORCEINLINE FQuat GetRotation() { return GetOwner()->GetActorQuat() * RotationOffset.Quaternion().Inverse(); }
 
 
 	// Get the controller's actor Scale.
 	UFUNCTION(BlueprintGetter, Category = "Controllers|Core")
-		FORCEINLINE FVector GetScale() { return GetOwner()->GetActorScale(); }
+	FORCEINLINE FVector GetScale() { return GetOwner()->GetActorScale(); }
 
 
 	// Get the component's actor Forward vector
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Core")
-		FORCEINLINE FVector GetForwardVector() { return GetRotation().GetForwardVector(); }
+	FORCEINLINE FVector GetForwardVector() { return GetRotation().GetForwardVector(); }
 
 
 	// Get the component's actor Up vector
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Core")
-		FORCEINLINE FVector GetUpVector() { return GetRotation().GetUpVector(); }
+	FORCEINLINE FVector GetUpVector() { return GetRotation().GetUpVector(); }
 
 
 	// Get the component's actor Right vector
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Core")
-		FORCEINLINE FVector GetRightVector() { return GetRotation().GetRightVector(); }
+	FORCEINLINE FVector GetRightVector() { return GetRotation().GetRightVector(); }
 
 
 #pragma endregion
@@ -136,14 +139,18 @@ private:
 
 public:
 
+	//Use this to offset rotation. useful when using skeletal mesh without as root primitive.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Core")
+	TSubclassOf<UInputTranscoderConfig> InputTranscoder;
+	
 	// Lister to user input and Add input to the inputs pool
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
-		void ListenInput(const FName key, const FInputEntry entry);
+	void ListenInput(const FName key, const FInputEntry entry);
 
 
 	// Read an input from the pool
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
-		FInputEntry ReadInput(const FName key) const;
+	FInputEntry ReadInput(const FName key) const;
 
 
 #pragma endregion
@@ -156,9 +163,6 @@ public:
 
 private:
 
-	//The time stamp for synchronisation
-	int _timeStamp = 0;
-
 	//Describe the current synchronisation state of the controller. useful to enforce synchronisation.
 	TEnumAsByte<ENetSyncState> _netSyncState = NetSyncState_WaitingFirstSync;
 
@@ -167,29 +171,37 @@ public:
 
 	// The distance of the client from the server position to make a correction on client
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-		float CorrectionDistance = 50;
+	float CorrectionDistance = 50;
 
 	// The speed the client adjust his position to match the server's. negative values instantly match position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-		float AdjustmentSpeed = 1;
+	float AdjustmentSpeed = 1;
 
 	// The maximum size of client's move history buffer
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-		int MaxClientHistoryBufferSize = 500;
+	int MaxClientHistoryBufferSize = 500;
 
 
 	// Used to replicate some properties.
-	virtual  void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 
 	// Get the network local role
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Network")
-		ENetRole GetNetRole();
+	ENetRole GetNetRole();
 
 
 	// Get the network local role, as debug FName
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Network")
-		FName GetNetRoleDebug(ENetRole role);
+	FName GetNetRoleDebug(ENetRole role);
+
+
+	// Get the component time clock. It's the server time + offset
+	UFUNCTION(BlueprintGetter, Category = "Controllers|Network")
+	FORCEINLINE double GetNetworkTime() const
+	{
+		return GetWorld()->GetGameState()->GetServerWorldTimeSeconds() + _serverTimeOffset;
+	}
 
 
 protected:
@@ -208,7 +220,7 @@ public:
 
 	/// Replicate server's movement to all clients
 	UFUNCTION(NetMulticast, Unreliable, Category = "Controllers|Network|Server To CLient|RPC")
-		void MultiCastMoveSync(FSyncMoveRequest movementRequest);
+	void MultiCastMoveSync(FSyncMoveRequest movementRequest);
 
 	/// Replicate server's movement to all clients
 	void MultiCastMoveSync_Implementation(FSyncMoveRequest movementRequest);
@@ -244,9 +256,16 @@ private:
 
 public:
 
+	// Return server time to client id who ask for it.
+	UFUNCTION(NetMulticast, Reliable, Category = "Network|Server To CLient|RPC")
+	void MultiCastTimeSync(int clientID, double serverTime);
+
+	// Replicate Correction to all clients.
+	void MultiCastTimeSync_Implementation(int clientID, double serverTime);
+
 	// Replicate Correction to all clients.
 	UFUNCTION(NetMulticast, Reliable, Category = "Network|Server To CLient|RPC")
-		void MultiCastCorrectionSync(FSyncMoveRequest movementRequest);
+	void MultiCastCorrectionSync(FSyncMoveRequest movementRequest);
 
 	// Replicate Correction to all clients.
 	void MultiCastCorrectionSync_Implementation(FSyncMoveRequest movementRequest);
@@ -265,6 +284,12 @@ protected:
 
 #pragma region Client Logic
 private:
+
+	//The offset from the server time for simulation.
+	double _serverTimeOffset = 0;
+
+	//The time at wich the client strted syncing time with the server
+	double _startSyncTimeDate = 0;
 
 	// The Correction comming from the server to a client.
 	FSyncMoveRequest _serverToClient_CorrectionSync;
@@ -287,16 +312,23 @@ private:
 
 public:
 
+	// Request the Time from the server
+	UFUNCTION(Server, Unreliable, Category = "Controllers|Network|Client To Server|RPC")
+	void ServerTimeSyncRequest(int clientID, double startTime);
+
+	// Request the Time from the server implementation
+	void ServerTimeSyncRequest_Implementation(int clientID, double startTime);
+
 	// Send movement to the dedicated server.
 	UFUNCTION(Server, Unreliable, Category = "Controllers|Network|Client To Server|RPC")
-		void ServerMoveSync(FSyncMoveRequest movementRequest);
+	void ServerMoveSync(FSyncMoveRequest movementRequest);
 
 	// Send movement to the dedicated server.
 	void ServerMoveSync_Implementation(FSyncMoveRequest movementRequest);
 
 	// Acknowledge the last server correction.
 	UFUNCTION(Server, Reliable, Category = "Controllers|Network|Client To Server|RPC")
-		void ServerCorrectionAcknowledge(FSyncMoveRequest movementRequest);
+	void ServerCorrectionAcknowledge(FSyncMoveRequest movementRequest);
 
 
 	// Acknowledge the last server correction.
@@ -345,26 +377,26 @@ public:
 
 	// The Mass of the object. use negative values to auto calculate.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
-		float Mass = 80;
+	float Mass = 80;
 
 	// Use physic sub-stepping?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
-		bool bUseSubStepping = false;
+	bool bUseSubStepping = false;
 
 	// Use physic interractions on server and stand alone?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
-		bool bUsePhysicAuthority = true;
+	bool bUsePhysicAuthority = true;
 
 	// Use physic interractions on clients
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
-		bool bUsePhysicClients = false;
+	bool bUsePhysicClients = false;
 
 
 	// The physic substep tick function delegate.
 	FCalculateCustomPhysics OnCalculateCustomPhysics;
 
 	// The component's current gravity vector
-	FVector _gravityVector;
+	FVector _gravityVector = FVector::UpVector;
 
 	// The collision velocity vector.
 	FVector _collisionForces;
@@ -413,11 +445,11 @@ public:
 
 	// called When overlap occurs.
 	UFUNCTION()
-		void BeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+	void BeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	// called When Collision occurs.
 	UFUNCTION()
-		void BeginCollision(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+	void BeginCollision(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
 
 #pragma endregion
@@ -441,7 +473,7 @@ public:
 	/// <param name="rotationMode">Override in Rotation Mode</param>
 	/// <returns></returns>
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Behaviours")
-		void SetOverrideRootMotionMode(USkeletalMeshComponent* caller, const ERootMotionType translationMode, const ERootMotionType rotationMode);
+	void SetOverrideRootMotionMode(USkeletalMeshComponent* caller, const ERootMotionType translationMode, const ERootMotionType rotationMode);
 
 
 #pragma endregion
@@ -454,21 +486,21 @@ public:
 
 	// The State types used on this controller by default
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, category = "Controllers|StateBehaviours")
-		TArray<TSubclassOf<UBaseState>> StateClasses;
+	TArray<TSubclassOf<UBaseState>> StateClasses;
 
 	// The states instances used on this controller.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|StateBehaviours")
-		TArray<UBaseState*> StatesInstances;
+	TArray<UBaseState*> StatesInstances;
 
 	// The state Behaviour changed event
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|StateBehaviours|Events")
-		FBehaviourChangedSignature OnBehaviourChangedEvent;
+	FBehaviourChangedSignature OnBehaviourChangedEvent;
 
 public:
 
 	// Get the current state behaviour instance
 	UFUNCTION(BlueprintCallable, Category = "Controllers|StateBehaviours")
-		FORCEINLINE UBaseState* GetCurrentStateBehaviour()
+	FORCEINLINE UBaseState* GetCurrentStateBehaviour()
 	{
 		if (StatesInstances.IsValidIndex(LastMoveMade.FinalStateIndex))
 			return StatesInstances[LastMoveMade.FinalStateIndex];
@@ -478,43 +510,43 @@ public:
 
 	/// Check if we have a state behaviour by type
 	UFUNCTION(BlueprintCallable, Category = "Controllers|StateBehaviours")
-		bool CheckStateBehaviourByType(TSubclassOf<UBaseState> moduleType);
+	bool CheckStateBehaviourByType(TSubclassOf<UBaseState> moduleType);
 
 
 	/// Check if we have a state behaviour. by name
 	UFUNCTION(BlueprintCallable, Category = "Controllers|StateBehaviours")
-		bool CheckStateBehaviourByName(FName moduleName);
+	bool CheckStateBehaviourByName(FName moduleName);
 
 	/// Check if we have a state behaviour. by priority
 	UFUNCTION(BlueprintCallable, Category = "Controllers|StateBehaviours")
-		bool CheckStateBehaviourByPriority(int modulePriority);
+	bool CheckStateBehaviourByPriority(int modulePriority);
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	/// Add a state behaviour
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|StateBehaviours")
-		void AddStateBehaviour(TSubclassOf<UBaseState> moduleType);
+	void AddStateBehaviour(TSubclassOf<UBaseState> moduleType);
 
 	/// Add a state behaviour
 	void AddStateBehaviour_Implementation(TSubclassOf<UBaseState> moduleType);
 
 	/// Get reference to a state by type
 	UFUNCTION(BlueprintCallable, Category = "Controllers|StateBehaviours")
-		UBaseState* GetStateByType(TSubclassOf<UBaseState> moduleType);
+	UBaseState* GetStateByType(TSubclassOf<UBaseState> moduleType);
 
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	/// Remove a state behaviour by type
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|StateBehaviours")
-		void RemoveStateBehaviourByType(TSubclassOf<UBaseState> moduleType);
+	void RemoveStateBehaviourByType(TSubclassOf<UBaseState> moduleType);
 
 	/// Remove a state behaviour by type
 	void RemoveStateBehaviourByType_Implementation(TSubclassOf<UBaseState> moduleType);
 
 	/// Remove a state behaviour by name
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|StateBehaviours")
-		void RemoveStateBehaviourByName(FName moduleName);
+	void RemoveStateBehaviourByName(FName moduleName);
 
 	/// Remove a state behaviour by name
 	void RemoveStateBehaviourByName_Implementation(FName moduleName);
@@ -522,7 +554,7 @@ public:
 
 	/// Remove a state behaviour by priority
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|StateBehaviours")
-		void RemoveStateBehaviourByPriority(int modulePriority);
+	void RemoveStateBehaviourByPriority(int modulePriority);
 
 	/// Remove a state behaviour by priority
 	void RemoveStateBehaviourByPriority_Implementation(int modulePriority);
@@ -531,13 +563,13 @@ public:
 
 	/// When the controller change a state, it call this function
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|StateBehaviours|Events")
-		void OnBehaviourChanged(UBaseState* OldOne, UBaseState* NewOne);
+	void OnBehaviourChanged(UBaseState* OldOne, UBaseState* NewOne);
 
 protected:
 
 	/// Evaluate the component state
 	UFUNCTION(BlueprintCallable, Category = "Controllers|StateBehaviours|Events")
-		FVelocity EvaluateState(FKinematicInfos& inDatas, const FInputEntryPool inputs, const float inDelta, const bool asSimulation = false);
+	FVelocity EvaluateState(FKinematicInfos& inDatas, const FInputEntryPool inputs, const float inDelta, const bool asSimulation = false);
 
 
 	/// <summary>
@@ -557,24 +589,24 @@ public:
 
 	/// The actions types used on this controller.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, category = "Controllers|ActionBehaviours")
-		TArray<TSubclassOf<UBaseAction>> ActionClasses;
+	TArray<TSubclassOf<UBaseAction>> ActionClasses;
 
 	/// The actions instances used on this controller.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|ActionBehaviours")
-		TArray<UBaseAction*> ActionInstances;
+	TArray<UBaseAction*> ActionInstances;
 
 	/// The action begins event
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|ActionBehaviours|Events")
-		FActionBeginsSignature OnActionBeginsEvent;
+	FActionBeginsSignature OnActionBeginsEvent;
 
 
 	/// The action Ends event
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|ActionBehaviours|Events")
-		FActionEndsSignature OnActionEndsEvent;
+	FActionEndsSignature OnActionEndsEvent;
 
 	/// The action cancelled event
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|ActionBehaviours|Events")
-		FActionCancelledSignature OnActionCancelledEvent;
+	FActionCancelledSignature OnActionCancelledEvent;
 
 
 public:
@@ -582,7 +614,7 @@ public:
 
 	/// Get the current action behaviour instance
 	UFUNCTION(BlueprintCallable, Category = "Controllers|ActionBehaviours")
-		FORCEINLINE TArray<UBaseAction*> GetCurrentActions()
+	FORCEINLINE TArray<UBaseAction*> GetCurrentActions()
 	{
 		TArray<UBaseAction*> actions;
 		for (int i = 0; i < LastMoveMade.FinalActionsIndexes.Num(); i++)
@@ -599,22 +631,22 @@ public:
 
 	/// Check if we have an action behaviour by type
 	UFUNCTION(BlueprintCallable, Category = "Controllers|ActionBehaviours")
-		bool CheckActionBehaviourByType(TSubclassOf<UBaseAction> moduleType);
+	bool CheckActionBehaviourByType(TSubclassOf<UBaseAction> moduleType);
 
 	/// Check if we have an action behaviour by name
 	UFUNCTION(BlueprintCallable, Category = "Controllers|ActionBehaviours")
-		bool CheckActionBehaviourByName(FName moduleName);
+	bool CheckActionBehaviourByName(FName moduleName);
 
 	/// Check if we have an action behaviour by priority
 	UFUNCTION(BlueprintCallable, Category = "Controllers|ActionBehaviours")
-		bool CheckActionBehaviourByPriority(int modulePriority);
+	bool CheckActionBehaviourByPriority(int modulePriority);
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 	/// Add an action behaviour
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|ActionBehaviours")
-		void AddActionBehaviour(TSubclassOf<UBaseAction> moduleType);
+	void AddActionBehaviour(TSubclassOf<UBaseAction> moduleType);
 
 
 	/// Add an action behaviour
@@ -622,21 +654,21 @@ public:
 
 	/// Get an action behaviour by type
 	UFUNCTION(BlueprintCallable, Category = "Controllers|ActionBehaviours")
-		UBaseAction* GetActionByType(TSubclassOf<UBaseAction> moduleType);
+	UBaseAction* GetActionByType(TSubclassOf<UBaseAction> moduleType);
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 	/// Remove an action behaviour by type
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|ActionBehaviours")
-		void RemoveActionBehaviourByType(TSubclassOf<UBaseAction> moduleType);
+	void RemoveActionBehaviourByType(TSubclassOf<UBaseAction> moduleType);
 
 	/// Remove an action behaviour by type
 	void RemoveActionBehaviourByType_Implementation(TSubclassOf<UBaseAction> moduleType);
 
 	/// Remove an action behaviour by name
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|ActionBehaviours")
-		void RemoveActionBehaviourByName(FName moduleName);
+	void RemoveActionBehaviourByName(FName moduleName);
 
 	/// Remove an action behaviour by name
 	void RemoveActionBehaviourByName_Implementation(FName moduleName);
@@ -644,7 +676,7 @@ public:
 
 	/// Remove an action behaviour by priority
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|ActionBehaviours")
-		void RemoveActionBehaviourByPriority(int modulePriority);
+	void RemoveActionBehaviourByPriority(int modulePriority);
 
 	/// Remove an action behaviour by priority
 	void RemoveActionBehaviourByPriority_Implementation(int modulePriority);
@@ -653,24 +685,24 @@ public:
 
 	/// When an action begins this controller, it call this function
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Controllers|ActionBehaviours|Events")
-		void OnActionBegins(UBaseAction* action);
+	void OnActionBegins(UBaseAction* action);
 
 
 	/// When an action Ends this controller, it call this function
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|ActionBehaviours|Events")
-		void OnActionEnds(UBaseAction* action);
+	void OnActionEnds(UBaseAction* action);
 
 
 	/// When an action is Cancelled or repeated this controller, it call this function
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|ActionBehaviours|Events")
-		void OnActionCancelled(UBaseAction* action);
+	void OnActionCancelled(UBaseAction* action);
 
 protected:
 
 
 	/// Evaluate the component movement through it's beheviours
 	UFUNCTION(BlueprintCallable, Category = "Controllers|ActionBehaviours|Events")
-		FVelocity EvaluateAction(const FVelocity inVelocities, FKinematicInfos& inDatas, const FInputEntryPool inputs, const float inDelta, const bool asSimulation = false);
+	FVelocity EvaluateAction(const FVelocity inVelocities, FKinematicInfos& inDatas, const FInputEntryPool inputs, const float inDelta, const bool asSimulation = false);
 
 
 	/// When an action begins this controller, it call this function
@@ -700,28 +732,28 @@ public:
 
 	/// The Skinned mesh component reference. used to play montages and switch anim linked instances based on current state.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Controllers|Animation Component", meta = (UseComponentPicker, AllowedClasses = "SkeletalMeshComponent"))
-		FComponentReference MainSkeletal;
+	FComponentReference MainSkeletal;
 
 
 	/// The Root motion scale. some times the root motion doesn't macth the actual movement and movement. this scale the movement ot match the animation.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Animation Component")
-		float RootMotionScale = 1;
+	float RootMotionScale = 1;
 
 
 
 
 	/// Get Root motion vector. the motion is not consumed after this
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
-		FVector GetRootMotionVector(USkeletalMeshComponent* skeletalMeshReference);
+	FVector GetRootMotionVector(USkeletalMeshComponent* skeletalMeshReference);
 
 	/// Get Root motion rotation. the motion is not consumed after this
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
-		FQuat GetRootMotionQuat(USkeletalMeshComponent* skeletalMeshReference);
+	FQuat GetRootMotionQuat(USkeletalMeshComponent* skeletalMeshReference);
 
 
 	/// Get the controller's Skeletal Mesh
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
-		USkeletalMeshComponent* GetSkeletalMesh();
+	USkeletalMeshComponent* GetSkeletalMesh();
 
 private:
 
@@ -758,7 +790,7 @@ public:
 
 	/// The last frame's movement informations. Can easilly provide a way to compute values like acceleration.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadWrite, category = "Controllers|Movement")
-		FKinematicInfos LastMoveMade;
+	FKinematicInfos LastMoveMade;
 
 
 public:
@@ -766,7 +798,7 @@ public:
 
 	/// Move the owner in a direction. return the displacement actually made. it can be different from the input movement if collision occured.
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Movement|Events")
-		FVelocity Move(const FKinematicInfos& inDatas, FVelocity movement, float delta);
+	FVelocity Move(const FKinematicInfos& inDatas, FVelocity movement, float delta);
 
 
 protected:
@@ -798,27 +830,27 @@ public:
 
 	/// Show the debugs traces and logs
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Debug")
-		bool ShowDebug;
+	bool ShowDebug;
 
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		bool ComponentTraceCastMulti(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel = ECC_Visibility);
+	bool ComponentTraceCastMulti(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel = ECC_Visibility);
 
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		bool ComponentTraceCastMultiByInflation(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, ECollisionChannel channel = ECC_Visibility);
+	bool ComponentTraceCastMultiByInflation(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, ECollisionChannel channel = ECC_Visibility);
 
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		bool ComponentTraceCastSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel = ECC_Visibility);
+	bool ComponentTraceCastSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel = ECC_Visibility);
 
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		bool ComponentTraceCastSingleByInflation(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, ECollisionChannel channel = ECC_Visibility);
+	bool ComponentTraceCastSingleByInflation(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, ECollisionChannel channel = ECC_Visibility);
 
 
 	/// <summary>
@@ -833,7 +865,7 @@ public:
 	/// <param name="debugRay">visulize the path?</param>
 	/// <param name="rotateAlongPath">should the component rotation follow the path?</param>
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		void PathCastComponent(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, ECollisionChannel channel, bool stopOnHit = true, float skinWeight = 0, bool debugRay = false, bool rotateAlongPath = false, bool bendOnCollision = false);
+	void PathCastComponent(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, ECollisionChannel channel, bool stopOnHit = true, float skinWeight = 0, bool debugRay = false, bool rotateAlongPath = false, bool bendOnCollision = false);
 
 
 	/// <summary>
@@ -846,17 +878,17 @@ public:
 	/// <param name="stopOnHit">should the trace stop when hit obstacle?</param>
 	/// <param name="debugRay">visulize the path?</param>
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		void PathCastLine(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, ECollisionChannel channel, bool stopOnHit = true, bool debugRay = false, bool bendOnCollision = false);
+	void PathCastLine(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, ECollisionChannel channel, bool stopOnHit = true, bool debugRay = false, bool bendOnCollision = false);
 
 
 	/// Check for Overlap at a position and rotation and return the force needed for depenetration.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		bool CheckPenetrationAt(FVector& force, FVector position, FQuat NewRotationQuat, UPrimitiveComponent* onlyThisComponent = nullptr, ECollisionChannel channel = ECC_Camera, bool debugHit = false);
+	bool CheckPenetrationAt(FVector& force, FVector position, FQuat NewRotationQuat, UPrimitiveComponent* onlyThisComponent = nullptr, ECollisionChannel channel = ECC_Camera, bool debugHit = false);
 
 
 	/// Return a point on the surface of the collider.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-		FVector PointOnShape(FVector direction, const FVector inLocation, bool debugPoint = false);
+	FVector PointOnShape(FVector direction, const FVector inLocation, bool debugPoint = false);
 
 
 #pragma endregion
