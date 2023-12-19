@@ -17,7 +17,7 @@ class MODULARCONTROLLER_API UInputTranscoderConfig : public UDataAsset
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Inputs")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Inputs")
 	TArray<FNetInputPair> InputEntries;
 
 
@@ -27,7 +27,7 @@ public:
 	FTranscodedInput EncodeInputs(const FInputEntryPool& inputPool);
 
 	UFUNCTION(BlueprintCallable, Category="Inputs")
-	bool DecodeInputs(const FInputEntryPool& inputPool, FTranscodedInput encodedInputs);
+	bool DecodeInputs(FInputEntryPool& inputPool, FTranscodedInput encodedInputs);
 
 private:
 	const double DIGITS_DOUBLE_COUNT = 14;
@@ -42,11 +42,11 @@ private:
 
 	void InitializeTranscoder();
 
-	//Convert a number from 0-1 to a number from 0-10pow(precision)
-	double ToXDigitFloatingPoint(double input, double precision);
+	//Convert a number from -1-1 to a number from 0-10pow(precision)
+	double ToXDigitFloatingPoint(const double input, const double precision) const;
 
-	//Convert a number from 0-10pow(precision) to a number from 0-1
-	double FromXDigitFloatingPoint(double input, double precision);
+	//Convert a number from 0-10pow(precision) to a number from -1-1
+	double FromXDigitFloatingPoint(const double input, const double precision) const;
 
 	//Get a value from a serialized array
 	double DeserializeValueAtIndex(double serializedArray, int index, int digitCount = 2);

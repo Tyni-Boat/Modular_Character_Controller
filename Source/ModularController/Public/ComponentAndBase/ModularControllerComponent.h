@@ -139,10 +139,14 @@ private:
 
 public:
 
-	//Use this to offset rotation. useful when using skeletal mesh without as root primitive.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Core")
-	TSubclassOf<UInputTranscoderConfig> InputTranscoder;
-	
+	//The transcoder class that will be created to transmit inputs over the network
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Inputs")
+	TSubclassOf<UInputTranscoderConfig> InputTranscoderClass;
+
+	//The transcoder object instance that will be used to transmit inputs over the network
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Inputs")
+	UInputTranscoderConfig* InputTranscoder;
+
 	// Lister to user input and Add input to the inputs pool
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
 	void ListenInput(const FName key, const FInputEntry entry);
@@ -163,10 +167,12 @@ public:
 
 private:
 
-	//Describe the current synchronisation state of the controller. useful to enforce synchronisation.
-	TEnumAsByte<ENetSyncState> _netSyncState = NetSyncState_WaitingFirstSync;
+	//The time elapsed since the object is active in scene.
+	double _timeElapsed = 0;
 
-
+	//The average network latency
+	double _timeNetLatency = 0;
+	
 public:
 
 	// The distance of the client from the server position to make a correction on client
@@ -175,7 +181,7 @@ public:
 
 	// The speed the client adjust his position to match the server's. negative values instantly match position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-	float AdjustmentSpeed = 1;
+	float AdjustmentSpeed = 10;
 
 	// The maximum size of client's move history buffer
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
@@ -196,18 +202,10 @@ public:
 	FName GetNetRoleDebug(ENetRole role);
 
 
-	// Get the component time clock. It's the server time + offset
-	UFUNCTION(BlueprintGetter, Category = "Controllers|Network")
-	FORCEINLINE double GetNetworkTime() const
-	{
-		return GetWorld()->GetGameState()->GetServerWorldTimeSeconds() + _serverTimeOffset;
-	}
-
-
 protected:
 
 	// Called to Update the component logic in standAlone Mode. it's also used in other mode with parameters.
-	FKinematicInfos StandAloneUpdateComponent(FKinematicInfos& movementInfos, FInputEntryPool& usedInputPool, float delta, FVelocity overrideVelocity, bool bOverrideMove = false, bool bOverrideRotation = false, bool noInputsUpdate = false);
+	FKinematicInfos StandAloneUpdateComponent(FKinematicInfos& movementInfos, FInputEntryPool& usedInputPool, float delta, FVelocity overrideVelocity, bool bOverrideMove = false, bool bOverrideRotation = false, bool noInputsUpdate = false, bool simulate = false);
 
 
 #pragma endregion
@@ -220,11 +218,10 @@ public:
 
 	/// Replicate server's movement to all clients
 	UFUNCTION(NetMulticast, Unreliable, Category = "Controllers|Network|Server To CLient|RPC")
-	void MultiCastMoveSync(FSyncMoveRequest movementRequest);
+	void MultiCastMoveSync(FSyncMoveRequest movementRequest, double clientSentTime);
 
 	/// Replicate server's movement to all clients
-	void MultiCastMoveSync_Implementation(FSyncMoveRequest movementRequest);
-
+	void MultiCastMoveSync_Implementation(FSyncMoveRequest movementRequest, double clientSentTime);
 
 
 #pragma region Listened
@@ -242,33 +239,8 @@ protected:
 private:
 
 	// The list of client's movements received by the dedicated server. the server will check and try them one after the other and remove from the list each time.
-	TArray<FSyncMoveRequest> _clientToServer_MoveRequestList;
+	TQueue<TTuple<FSyncMoveRequest, double>> _clientToServer_MoveRequestList;
 
-	// The last valid client movement's time stamp. used to simulated movement on packet loss.
-	int _lastClientTimeStamp = 0;
-
-	// The dedicated server requets temp array. to batch several movement commands at once.
-	TArray<FSyncMoveRequest> _dedicatedServerSyncRequests;
-
-	// The latency, time elapsed from the last received move command reception
-	float _clientToServerLatency;
-
-
-public:
-
-	// Return server time to client id who ask for it.
-	UFUNCTION(NetMulticast, Reliable, Category = "Network|Server To CLient|RPC")
-	void MultiCastTimeSync(int clientID, double serverTime);
-
-	// Replicate Correction to all clients.
-	void MultiCastTimeSync_Implementation(int clientID, double serverTime);
-
-	// Replicate Correction to all clients.
-	UFUNCTION(NetMulticast, Reliable, Category = "Network|Server To CLient|RPC")
-	void MultiCastCorrectionSync(FSyncMoveRequest movementRequest);
-
-	// Replicate Correction to all clients.
-	void MultiCastCorrectionSync_Implementation(FSyncMoveRequest movementRequest);
 
 protected:
 
@@ -283,65 +255,24 @@ protected:
 
 
 #pragma region Client Logic
-private:
-
-	//The offset from the server time for simulation.
-	double _serverTimeOffset = 0;
-
-	//The time at wich the client strted syncing time with the server
-	double _startSyncTimeDate = 0;
-
-	// The Correction comming from the server to a client.
-	FSyncMoveRequest _serverToClient_CorrectionSync;
-
-	// The movement comming from the server to a client for a  lite ajustment
-	TQueue<FSyncMoveRequest> _serverToClient_AdjustmentSync;
-
-protected:
-
-	// Apply server correction to clients
-	bool ApplyServerMovementCorrection(FKinematicInfos& outCorrected);
-
 
 #pragma region Automonous Proxy
-private:
-
-	// The history of client's movements. it's size is controlled by MaxClientHistoryBufferSize
-	TArray<FSyncMoveRequest> _clientSelf_MoveHistory;
-
 
 public:
 
-	// Request the Time from the server
-	UFUNCTION(Server, Unreliable, Category = "Controllers|Network|Client To Server|RPC")
-	void ServerTimeSyncRequest(int clientID, double startTime);
-
-	// Request the Time from the server implementation
-	void ServerTimeSyncRequest_Implementation(int clientID, double startTime);
-
 	// Send movement to the dedicated server.
 	UFUNCTION(Server, Unreliable, Category = "Controllers|Network|Client To Server|RPC")
-	void ServerMoveSync(FSyncMoveRequest movementRequest);
+	void ServerMoveSync(FSyncMoveRequest movementRequest, double localTime);
 
 	// Send movement to the dedicated server.
-	void ServerMoveSync_Implementation(FSyncMoveRequest movementRequest);
+	void ServerMoveSync_Implementation(FSyncMoveRequest movementRequest, double localTime);
 
-	// Acknowledge the last server correction.
-	UFUNCTION(Server, Reliable, Category = "Controllers|Network|Client To Server|RPC")
-	void ServerCorrectionAcknowledge(FSyncMoveRequest movementRequest);
-
-
-	// Acknowledge the last server correction.
-	void ServerCorrectionAcknowledge_Implementation(FSyncMoveRequest movementRequest);
 
 protected:
 
 	// Called to Update the component logic in Autonomous Proxy Mode
 	void AutonomousProxyUpdateComponent(float delta);
 
-
-	// Apply server correction to clients
-	bool ApplyServerMovementAdjustments(FVector& offset);
 
 #pragma endregion
 
@@ -350,10 +281,7 @@ protected:
 private:
 
 	// The queue of server's movements the simulted proxy client have to execute.
-	TQueue<FSyncMoveRequest> _serverToClient_MoveCommandQueue;
-
-	// The last server movement made.
-	FSyncMoveRequest _lastServerResquest;
+	TQueue<TTuple<FSyncMoveRequest, double>> _serverToClient_MoveCommandQueue;
 
 protected:
 
@@ -396,7 +324,7 @@ public:
 	FCalculateCustomPhysics OnCalculateCustomPhysics;
 
 	// The component's current gravity vector
-	FVector _gravityVector = FVector::UpVector;
+	FVector _gravityVector = -FVector::UpVector;
 
 	// The collision velocity vector.
 	FVector _collisionForces;
@@ -485,7 +413,7 @@ public:
 public:
 
 	// The State types used on this controller by default
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, category = "Controllers|StateBehaviours")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|StateBehaviours")
 	TArray<TSubclassOf<UBaseState>> StateClasses;
 
 	// The states instances used on this controller.
@@ -588,7 +516,7 @@ public:
 
 
 	/// The actions types used on this controller.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, category = "Controllers|ActionBehaviours")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|ActionBehaviours")
 	TArray<TSubclassOf<UBaseAction>> ActionClasses;
 
 	/// The actions instances used on this controller.
@@ -808,7 +736,7 @@ protected:
 
 
 	/// Operation to update the last movement made
-	void PostMoveUpdate(FKinematicInfos& inDatas, const FVelocity moveMade, const float inDelta);
+	void PostMoveUpdate(FKinematicInfos& inDatas, const FVelocity moveMade, const float inDelta, bool simulate);
 
 
 	/// Hadle the controller rotation to always stay Up aligned with gravity
@@ -816,7 +744,7 @@ protected:
 
 
 	/// Simulate A slide along a surface at a position with a rotation. Returns the position after slide.
-	FVector SlideAlongSurfaceAt(const FVector& Position, const FQuat& Rotation, const FVector& Delta, float Time, const FVector& Normal, FHitResult& Hit);
+	FVector SlideAlongSurfaceAt(const FVector& Position, const FQuat& Rotation, const FVector& Delta, float Time, const FVector& Normal, FHitResult& Hit, int& depth);
 
 
 #pragma endregion
@@ -845,7 +773,7 @@ public:
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	bool ComponentTraceCastSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel = ECC_Visibility);
+	bool ComponentTraceCastSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel = ECC_Visibility, bool traceComplex = false);
 
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs

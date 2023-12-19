@@ -58,19 +58,6 @@ enum ERootMotionType
 
 
 /// <summary>
-/// The Network synchronisation state
-/// </summary>
-UENUM(BlueprintType)
-enum ENetSyncState
-{
-	NetSyncState_WaitingFirstSync,
-	NetSyncState_Synchronisation,
-	NetSyncState_WaitingClientCorrectioncknowledge,
-};
-
-
-
-/// <summary>
 /// The ground state
 /// </summary>
 UENUM(BlueprintType)

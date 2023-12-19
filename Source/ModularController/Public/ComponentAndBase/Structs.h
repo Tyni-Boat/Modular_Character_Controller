@@ -7,6 +7,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/MovementComponent.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "Structs.generated.h"
 
 
@@ -95,6 +96,23 @@ public:
 		return bools;
 	}
 
+	/// <summary>
+	/// Returns a power of ten.
+	/// </summary>
+	/// <param name="exponent"></param>
+	/// <returns></returns>
+	FORCEINLINE static double TenPowX(const unsigned int exponent)
+	{
+		if (exponent == 0)
+			return 1;
+		if (exponent == 1)
+			return 10;
+		double result = 10;
+		for (unsigned int i = 1; i < exponent; i++)
+			result *= 10;
+		return result;
+	}
+
 };
 
 
@@ -120,7 +138,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
 	TEnumAsByte<EInputEntryType> Type = EInputEntryType::InputEntryType_Simple;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-	FVector_NetQuantize Axis;
+	FVector Axis;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
 	float InputBuffer = 0.2f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
@@ -190,10 +208,10 @@ public:
 		Value = entry;
 	}
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="Inputs")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inputs")
 	FName Key;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="Inputs")
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inputs")
 	FInputEntry Value;
 };
 
@@ -235,6 +253,8 @@ public:
 	{
 		if (key.IsNone())
 			return false;
+
+		entry.Axis = entry.Axis.GetClampedToMaxSize(1);
 
 		if (_inputPool_last.Contains(key) && _inputPool_last[key].Type == entry.Type)
 		{
@@ -289,6 +309,17 @@ public:
 				entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
 			}
 		}
+		if (_inputPool.Contains(key))
+		{
+			entry.Nature = _inputPool[key].Nature;
+			entry.Type = _inputPool[key].Type;
+			entry.Phase = _inputPool[key].Phase;
+			entry.Axis = _inputPool[key].Axis;
+			if (entry.Type == EInputEntryType::InputEntryType_Buffered && entry.Phase == EInputEntryPhase::InputEntryPhase_Released)
+			{
+				entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
+			}
+		}
 		else
 		{
 			entry.Nature = EInputEntryNature::InputEntryNature_Button;
@@ -310,6 +341,8 @@ public:
 		entry = ReadInput(key);
 		if (_inputPool_last.Contains(key))
 			_inputPool_last.Remove(key);
+		else if (_inputPool.Contains(key))
+			_inputPool.Remove(key);
 		return entry;
 	}
 
@@ -359,6 +392,48 @@ public:
 		}
 
 		_inputPool.Empty();
+	}
+
+	FORCEINLINE void PredictInputs(FInputEntryPool from, float time, float delta)
+	{
+		for (auto input : from._inputPool_last)
+		{
+			if (!_inputPool_last.Contains(input.Key))
+				continue;
+			switch (input.Value.Nature)
+			{
+			case EInputEntryNature::InputEntryNature_Axis:
+				_inputPool_last[input.Key].Axis += (_inputPool_last[input.Key].Axis - input.Value.Axis) * (time / delta);
+				_inputPool_last[input.Key].Axis = _inputPool_last[input.Key].Axis.GetClampedToMaxSize(1);
+				break;
+			case EInputEntryNature::InputEntryNature_Value:
+				_inputPool_last[input.Key].Axis.X += (_inputPool_last[input.Key].Axis.X - input.Value.Axis.X) * (time / delta);
+				_inputPool_last[input.Key].Axis = _inputPool_last[input.Key].Axis.GetClampedToMaxSize(1);
+				break;
+			case EInputEntryNature::InputEntryNature_Button:
+			{
+				if (_inputPool_last[input.Key].Type == EInputEntryType::InputEntryType_Buffered)
+				{
+					_inputPool_last[input.Key]._bufferChrono += time;
+					if (_inputPool_last[input.Key]._bufferChrono >= _inputPool_last[input.Key].InputBuffer)
+					{
+						if (_inputPool_last[input.Key].Phase == InputEntryPhase_Pressed)
+							_inputPool_last[input.Key].Phase = InputEntryPhase_Released;
+						if (_inputPool_last[input.Key].Phase == InputEntryPhase_Held)
+							_inputPool_last[input.Key]._activeDuration += time;
+					}
+				}
+				else
+				{
+					if (_inputPool_last[input.Key].Phase == InputEntryPhase_Pressed)
+						_inputPool_last[input.Key].Phase = InputEntryPhase_Released;
+					if (_inputPool_last[input.Key].Phase == InputEntryPhase_Held)
+						_inputPool_last[input.Key]._activeDuration += time;
+				}
+			}
+			break;
+			}
+		}
 	}
 };
 
@@ -411,16 +486,21 @@ struct FTranscodedInput
 
 public:
 
-	FTranscodedInput();
+	FORCEINLINE FTranscodedInput()
+	{
+		axisCode = -1;
+		valuesCode = -1;
+		buttonsCode = -1;
+	}
 
 	UPROPERTY()
-	double axisCode;
+	double axisCode = -1;
 
 	UPROPERTY()
-	double valuesCode;
-	
+	double valuesCode = -1;
+
 	UPROPERTY()
-	int buttonsCode;
+	int buttonsCode = -1;
 };
 
 
@@ -1140,22 +1220,16 @@ public:
 	{
 	}
 
-	FORCEINLINE FSyncMoveRequest(FKinematicInfos& move, FTranscodedInput inputsMade, long timeStamp, float deltaTime)
+	FORCEINLINE FSyncMoveRequest(FKinematicInfos& move, FTranscodedInput inputsMade)
 	{
 		MoveInfos.FromKinematicMove(move);
 		Inputs = inputsMade;
-		TimeStamp = timeStamp;
-		DeltaTime = deltaTime;
 	}
 
 	UPROPERTY()
 	FNetKinematicMoveInfos MoveInfos;
 	UPROPERTY()
 	FTranscodedInput Inputs;
-	UPROPERTY()
-	int TimeStamp = 0;
-	UPROPERTY()
-	double DeltaTime = 0;
 };
 
 
@@ -1298,6 +1372,29 @@ public:
 	{
 		return MyStructRef.Gravity;
 	}
+
+	UFUNCTION(BlueprintCallable, Category = "Surface|Debug")
+	static void DrawDebugCircleOnSurface(const FHitResult MyStructRef, bool useImpact = false, float radius = 40, FColor color = FColor::White, float duration = 0, float thickness = 1, bool showAxis = false)
+	{
+		if (!MyStructRef.GetActor())
+			return;
+		FVector up = useImpact ? MyStructRef.ImpactNormal : MyStructRef.Normal;
+		if (!up.Normalize())
+			return;
+		FVector right = up.Rotation().Quaternion().GetAxisY();
+		FVector forward = FVector::CrossProduct(right, up);
+		FVector::CreateOrthonormalBasis(forward, right, up);
+		FVector hitPoint = MyStructRef.ImpactPoint + up * 0.01;
+		if (showAxis) 
+		{
+			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + up * radius, (radius * 0.25), FColor::Blue, duration, thickness);
+			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + forward * (radius * 0.5), (radius * 0.25), FColor::Red, duration, thickness);
+			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + right * (radius * 0.5), (radius * 0.25), FColor::Green, duration, thickness);
+		}
+		UKismetSystemLibrary::DrawDebugCircle(MyStructRef.GetActor(), hitPoint, radius, 32,
+			color, duration, thickness, right, forward);
+	}
+
 
 	template <typename T>
 	UFUNCTION(BlueprintCallable, Category = "Common Objects")

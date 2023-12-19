@@ -9,7 +9,7 @@
 #include "Engine/World.h"
 
 
-#pragma region Core and Constructor
+#pragma region Core and Constructor XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 
 // Sets default values for this component's properties
@@ -50,9 +50,13 @@ void UModularControllerComponent::Initialize()
 		UpdatedPrimitive->SetGenerateOverlapEvents(true);
 	}
 
+	//Input Transcoding
+	if (InputTranscoderClass)
+		InputTranscoder = NewObject<UInputTranscoderConfig>(InputTranscoderClass, InputTranscoderClass);
+
 	//State behaviors
 	StatesInstances.Empty();
-	for (int i = 0; i < StateClasses.Num(); i++)
+	for (int i = StateClasses.Num() - 1; i >= 0; i--)
 	{
 		if (StateClasses[i] == nullptr)
 			continue;
@@ -63,7 +67,7 @@ void UModularControllerComponent::Initialize()
 
 	//Action behaviors
 	ActionInstances.Empty();
-	for (int i = 0; i < ActionClasses.Num(); i++)
+	for (int i = ActionClasses.Num() - 1; i >= 0; i--)
 	{
 		if (ActionClasses[i] == nullptr)
 			continue;
@@ -74,9 +78,11 @@ void UModularControllerComponent::Initialize()
 	//Init last move
 	LastMoveMade = FKinematicInfos(GetOwner()->GetActorTransform(), FVelocity(), FSurfaceInfos(), -1, TArray<int>());
 	LastMoveMade.FinalTransform = LastMoveMade.InitialTransform;
-	_netSyncState = NetSyncState_WaitingFirstSync;
-	_serverToClient_CorrectionSync.TimeStamp = -1;
-	_serverToClient_AdjustmentSync.Empty();
+
+
+	//Set time elapsed
+	auto timePassedSince = FDateTime::UtcNow() - FDateTime(2023, 11, 26, 0, 0, 0, 0);
+	_timeElapsed = timePassedSince.GetTotalSeconds();
 }
 
 
@@ -133,14 +139,49 @@ void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick Tick
 	{
 		MainUpdateComponent(DeltaTime);
 	}
+
+	//Count time elapsed
+	_timeElapsed += DeltaTime;
 }
 
+
+
+FKinematicInfos UModularControllerComponent::StandAloneUpdateComponent(FKinematicInfos& movementInfos, FInputEntryPool& usedInputPool, float delta, FVelocity overrideVelocity, bool bOverrideMove, bool bOverrideRotation, bool noInputsUpdate, bool simulate)
+{
+	movementInfos.ChangeActor(this, BoneName, ShowDebug);
+	const FVelocity primaryMotion = EvaluateState(movementInfos, usedInputPool, delta);
+	FVelocity alteredMotion = EvaluateAction(primaryMotion, movementInfos, usedInputPool, delta);
+	EvaluateRootMotionOverride(alteredMotion, movementInfos, delta);
+	const FQuat finalRot = HandleRotation(alteredMotion, movementInfos, delta);
+	alteredMotion.Rotation = finalRot;
+	if (!noInputsUpdate)
+		usedInputPool.UpdateInputs(delta);
+	if (bOverrideMove)
+	{
+		alteredMotion.ConstantLinearVelocity = overrideVelocity.ConstantLinearVelocity;
+		alteredMotion.InstantLinearVelocity = overrideVelocity.InstantLinearVelocity;
+	}
+	if (bOverrideRotation)
+	{
+		alteredMotion.Rotation = overrideVelocity.Rotation;
+	}
+
+	FVelocity resultingMove = Move(movementInfos, alteredMotion, delta);
+	resultingMove._rooMotionScale = alteredMotion._rooMotionScale;
+	PostMoveUpdate(movementInfos, resultingMove, delta, simulate);
+	if (ShowDebug)
+	{
+		UKismetSystemLibrary::DrawDebugArrow(this, movementInfos.InitialTransform.GetLocation(), movementInfos.InitialTransform.GetLocation() + alteredMotion.ConstantLinearVelocity * 0.1f, 50, FColor::Magenta);
+		DrawCircle(GetWorld(), movementInfos.FinalTransform.GetLocation(), alteredMotion.Rotation.GetAxisX(), alteredMotion.Rotation.GetAxisY(), FColor::Magenta, 35, 32, false, -1, 0, 2);
+	}
+	return  movementInfos;
+}
 
 #pragma endregion
 
 
 
-#pragma region Input Handling
+#pragma region Input Handling XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 
 void UModularControllerComponent::ListenInput(const FName key, const FInputEntry entry)
@@ -149,25 +190,26 @@ void UModularControllerComponent::ListenInput(const FName key, const FInputEntry
 		return;
 	if (!_ownerPawn->IsLocallyControlled())
 		return;
-	if(!InputTranscoder)
+	if (!InputTranscoder)
 	{
-		if(ShowDebug)
-			GEngine->AddOnScreenDebugMessage(10, 2.0f, FColor::Yellow, FString(TEXT("Unable to Listen for input %s: No input transcoder set", key)));
+		if (ShowDebug)
+			GEngine->AddOnScreenDebugMessage(10, 2.0f, FColor::Yellow, FString(TEXT("Unable to Listen for input ")).Append(key.ToString()).Append(TEXT(": No input transcoder set")));
 		return;
 	}
-	const UInputTranscoderConfig* srcTranscoder = Cast<UInputTranscoderConfig>(InputTranscoder);
-	if(!srcTranscoder)
+	if (!InputTranscoder)
 	{
-		if(ShowDebug)
+		if (ShowDebug)
 			GEngine->AddOnScreenDebugMessage(10, 2.0f, FColor::Yellow, FString(TEXT("Cannot cast Input transcoder to 'InputTranscoderConfig'")));
 		return;
 	}
-	if(!srcTranscoder->CheckInputValid(key, entry))
+	if (!InputTranscoder->CheckInputValid(key, entry))
 	{
-		if(ShowDebug)
-			GEngine->AddOnScreenDebugMessage(10, 2.0f, FColor::Yellow, FString(TEXT("Unable to Listen for input %s: Input is not registered to the transcoder", key)));
+		if (ShowDebug)
+			GEngine->AddOnScreenDebugMessage(10, 2.0f, FColor::Yellow, FString(TEXT("Unable to Listen for input ")).Append(key.ToString()).Append(TEXT(": Input is not registered to the transcoder")));
 		return;
 	}
+	if (ShowDebug)
+		GEngine->AddOnScreenDebugMessage((int)key.GetStringLength(), 0.01, FColor::Purple, FString(TEXT("Listening Input key: ")).Append(key.ToString()).Append(TEXT(": of type")).Append(UEnum::GetValueAsName<EInputEntryNature>(entry.Nature).ToString()));
 	_user_inputPool.AddOrReplace(key, entry);
 }
 
@@ -180,7 +222,7 @@ FInputEntry UModularControllerComponent::ReadInput(const FName key) const
 
 
 
-#pragma region Network Logic
+#pragma region Network Logic XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #pragma region Common Logic
 
@@ -216,72 +258,44 @@ FName UModularControllerComponent::GetNetRoleDebug(ENetRole role)
 	return value;
 }
 
-
-FKinematicInfos UModularControllerComponent::StandAloneUpdateComponent(FKinematicInfos& movementInfos, FInputEntryPool& usedInputPool, float delta, FVelocity overrideVelocity, bool bOverrideMove, bool bOverrideRotation, bool noInputsUpdate)
-{
-	movementInfos.ChangeActor(this, BoneName, ShowDebug);
-	const FVelocity primaryMotion = EvaluateState(movementInfos, usedInputPool, delta);
-	FVelocity alteredMotion = EvaluateAction(primaryMotion, movementInfos, usedInputPool, delta);
-	EvaluateRootMotionOverride(alteredMotion, movementInfos, delta);
-	const FQuat finalRot = HandleRotation(alteredMotion, movementInfos, delta);
-	alteredMotion.Rotation = finalRot;
-	if (!noInputsUpdate)
-		usedInputPool.UpdateInputs(delta);
-	if (bOverrideMove)
-	{
-		alteredMotion.ConstantLinearVelocity = overrideVelocity.ConstantLinearVelocity;
-		alteredMotion.InstantLinearVelocity = overrideVelocity.InstantLinearVelocity;
-	}
-	if (bOverrideRotation)
-	{
-		alteredMotion.Rotation = overrideVelocity.Rotation;
-	}
-
-	FVelocity resultingMove = Move(movementInfos, alteredMotion, delta);
-	resultingMove._rooMotionScale = alteredMotion._rooMotionScale;
-	if (ShowDebug)
-	{
-		UKismetSystemLibrary::DrawDebugArrow(this, movementInfos.InitialTransform.GetLocation(), movementInfos.InitialTransform.GetLocation() + alteredMotion.ConstantLinearVelocity, 50, FColor::Silver);
-		UKismetSystemLibrary::DrawDebugArrow(this, movementInfos.FinalTransform.GetLocation(), movementInfos.FinalTransform.GetLocation() + movementInfos.FinalVelocities.ConstantLinearVelocity, 50, FColor::Yellow);
-	}
-	PostMoveUpdate(movementInfos, resultingMove, delta);
-	return  movementInfos;
-}
-
-
 #pragma endregion
 
 
 
-#pragma region Server Logic
+#pragma region Server Logic //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-void UModularControllerComponent::MultiCastMoveSync_Implementation(FSyncMoveRequest movementRequest)
+void UModularControllerComponent::MultiCastMoveSync_Implementation(FSyncMoveRequest movementRequest, double clientSentTime)
 {
-	FSyncMoveRequest request = movementRequest;
+	const FSyncMoveRequest request = movementRequest;
 
-	ENetRole role = GetNetRole();
+	const ENetRole role = GetNetRole();
 	switch (role)
 	{
-	case ENetRole::ROLE_Authority: {
-	}break;
-	case ENetRole::ROLE_AutonomousProxy: {
-		_serverToClient_AdjustmentSync.Enqueue(request);
-	}break;
-	default: {
-		_serverToClient_MoveCommandQueue.Enqueue(request);
-	}break;
+	case ENetRole::ROLE_Authority:
+	{
+	} break;
+	case ENetRole::ROLE_AutonomousProxy:
+	{
+		_timeNetLatency = _timeElapsed - clientSentTime;
+	}
+	break;
+
+	default:
+	{
+		_serverToClient_MoveCommandQueue.Enqueue(TTuple<FSyncMoveRequest, double>(request, clientSentTime));
+	}
+	break;
 	}
 }
 
 
-#pragma region Listened
+#pragma region Listened OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 
 
 void UModularControllerComponent::ListenServerUpdateComponent(float delta)
 {
 	FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), false);
-	//int currentClientTimeStamp = -1;
 
 	//Execute the move
 	{
@@ -291,18 +305,11 @@ void UModularControllerComponent::ListenServerUpdateComponent(float delta)
 
 	//Communication with the network
 	{
-		 //currentClientTimeStamp = _serverTimeOffset;
-		 //_serverTimeOffset %= std::numeric_limits<int>::max();
-		 //_serverTimeOffset++;
-		
-		 //Send move response to clients
-		 //const FSyncMoveRequest syncRequest = FSyncMoveRequest(movement, _user_inputPool, currentClientTimeStamp, delta);
-		FTranscodedInput encodedinputs;
-		UInputTranscoderConfig* transcoder = Cast<UInputTranscoderConfig>(InputTranscoder);
-		if(transcoder)
-			encodedinputs = transcoder->EncodeInputs(_user_inputPool);
-		 const FSyncMoveRequest syncRequest = FSyncMoveRequest(movement, encodedinputs, GetWorld()->GetTimeSeconds(), delta);
-		 MultiCastMoveSync(syncRequest);
+		FTranscodedInput encodedinputs = FTranscodedInput();
+		if (InputTranscoder)
+			encodedinputs = InputTranscoder->EncodeInputs(_user_inputPool);
+		const FSyncMoveRequest syncRequest = FSyncMoveRequest(movement, encodedinputs);
+		MultiCastMoveSync(syncRequest, _timeElapsed);
 	}
 
 	LastMoveMade = movement;
@@ -311,184 +318,73 @@ void UModularControllerComponent::ListenServerUpdateComponent(float delta)
 
 #pragma endregion
 
-#pragma region Dedicated
+#pragma region Dedicated OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 
-
-void UModularControllerComponent::MultiCastTimeSync_Implementation(int clientID, double serverTime)
-{
-	// double localTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds();
-	// ENetRole role = GetNetRole();
-	// switch (role)
-	// {
-	// case ENetRole::ROLE_Authority: {
-	// }break;
-	// case ENetRole::ROLE_AutonomousProxy: {
-	// 	_serverTimeOffset = ;
-	// }break;
-	// default: {
-	// 	_serverToClient_CorrectionSync = request;
-	// }break;
-	// }
-}
-
-void UModularControllerComponent::MultiCastCorrectionSync_Implementation(FSyncMoveRequest movementRequest)
-{
-	FSyncMoveRequest request = movementRequest;
-
-	ENetRole role = GetNetRole();
-	switch (role)
-	{
-	case ENetRole::ROLE_Authority: {
-	}break;
-	case ENetRole::ROLE_AutonomousProxy: {
-		_serverToClient_CorrectionSync = request;
-	}break;
-	default: {
-		_serverToClient_CorrectionSync = request;
-	}break;
-	}
-}
 
 void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 {
-	// _dedicatedServerSyncRequests.Empty();
-	// FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
-	// int currentClientTimeStamp = -1;
-	// int correctionIndex = -1;
-	// FSyncMoveRequest correctionRequest;
-	//
-	// if (_netSyncState != NetSyncState_WaitingClientCorrectioncknowledge)
-	// {
-	// 	//Make the last client requested move if any
-	// 	if (!_clientToServer_MoveRequestList.IsEmpty())
-	// 	{
-	// 		int lastIndex = _clientToServer_MoveRequestList.Num() - 1;
-	//
-	// 		if (ShowDebug)
-	// 			GEngine->AddOnScreenDebugMessage(114, 0.1f, FColor::White, FString::Printf(TEXT("%d client move requests; %d is the request Time Stamp; %d is the last Time Stamp; %f is the latency; delta time: %f"), _clientToServer_MoveRequestList.Num(), _clientToServer_MoveRequestList[lastIndex].TimeStamp, _lastClientTimeStamp, _clientToServerLatency, _clientToServer_MoveRequestList[lastIndex].DeltaTime));
-	//
-	// 		if (_clientToServer_MoveRequestList[lastIndex].TimeStamp == _lastClientTimeStamp + 1 || _clientToServer_MoveRequestList[lastIndex].TimeStamp == _lastClientTimeStamp)
-	// 		{
-	// 			_clientToServer_MoveRequestList[lastIndex].MoveInfos.ToKinematicMove(movement, true);
-	// 			_clientToServer_MoveRequestList[lastIndex].Inputs.ToInputs(_user_inputPool);
-	// 			currentClientTimeStamp = _clientToServer_MoveRequestList[lastIndex].TimeStamp;
-	// 			_lastClientTimeStamp = currentClientTimeStamp;
-	//
-	// 			//Move
-	// 			FHitResult hitWhilePositionning;
-	// 			MoveUpdatedComponent(_clientToServer_MoveRequestList[lastIndex].MoveInfos.Location - GetLocation(), movement.InitialTransform.GetRotation(), true, &hitWhilePositionning);
-	// 			if (hitWhilePositionning.IsValidBlockingHit())
-	// 			{
-	// 				correctionIndex = lastIndex;
-	// 				correctionRequest = _clientToServer_MoveRequestList[lastIndex];
-	// 			}
-	// 			movement.InitialTransform = GetOwner()->GetTransform();
-	// 			movement.bUsePhysic = bUsePhysicAuthority;
-	// 			movement = StandAloneUpdateComponent(movement, _user_inputPool, _clientToServer_MoveRequestList[lastIndex].DeltaTime, movement.FinalVelocities, true, true);
-	// 			LastMoveMade = movement;
-	//
-	// 			//Register
-	// 			FSyncMoveRequest request = FSyncMoveRequest(movement, _user_inputPool, currentClientTimeStamp, _clientToServer_MoveRequestList[lastIndex].DeltaTime);
-	// 			_dedicatedServerSyncRequests.Add(request);
-	// 			_clientToServerLatency = 0;
-	// 			_clientToServer_MoveRequestList.RemoveAt(lastIndex);
-	//
-	// 		}
-	// 		else if (_lastClientTimeStamp < _clientToServer_MoveRequestList[lastIndex].TimeStamp)
-	// 		{
-	// 			int timeStampGap = _clientToServer_MoveRequestList[lastIndex].TimeStamp - _lastClientTimeStamp;
-	//
-	// 			if (ShowDebug)
-	// 				GEngine->AddOnScreenDebugMessage(1133, 0.1f, FColor::Yellow, FString::Printf(TEXT("%d Packets lost. Simulating..."), timeStampGap));
-	//
-	// 			//Fill the gap
-	// 			{
-	// 				currentClientTimeStamp = _lastClientTimeStamp + 1;
-	// 				_clientToServer_MoveRequestList[lastIndex].MoveInfos.ToKinematicMove(movement);
-	//
-	// 				//Evaluate parameters
-	// 				FVector simulatedPosition = FMath::Lerp(GetLocation(), _clientToServer_MoveRequestList[lastIndex].MoveInfos.Location, UKismetMathLibrary::NormalizeToRange(currentClientTimeStamp, _lastClientTimeStamp, _clientToServer_MoveRequestList[lastIndex].TimeStamp));
-	//
-	// 				FKinematicInfos annexMove = movement;
-	// 				_clientToServer_MoveRequestList[lastIndex].MoveInfos.ToKinematicMove(annexMove);
-	// 				FQuat simulatedRotation = FQuat::Slerp(GetRotation(), annexMove.InitialTransform.GetRotation(), UKismetMathLibrary::NormalizeToRange(currentClientTimeStamp, _lastClientTimeStamp, _clientToServer_MoveRequestList[lastIndex].TimeStamp));
-	//
-	// 				movement.InitialTransform.SetLocation(simulatedPosition);
-	// 				movement.InitialTransform.SetRotation(simulatedRotation);
-	//
-	// 				_lastClientTimeStamp = currentClientTimeStamp;
-	//
-	//
-	// 				//Move
-	// 				FVector velocity = simulatedPosition - GetLocation();
-	// 				FVelocity targetVel = FVelocity::Null();
-	// 				targetVel.ConstantLinearVelocity = velocity / delta;
-	//
-	// 				targetVel.Rotation = simulatedRotation;
-	//
-	// 				auto inputs = _user_inputPool;
-	//
-	// 				movement.bUsePhysic = bUsePhysicAuthority;
-	// 				movement = StandAloneUpdateComponent(movement, inputs, delta, targetVel, true, true);
-	// 				LastMoveMade = movement;
-	//
-	// 				//Register
-	// 				FSyncMoveRequest request = FSyncMoveRequest(movement, _user_inputPool, currentClientTimeStamp, delta);
-	// 				_dedicatedServerSyncRequests.Add(request);
-	// 			}
-	// 		}
-	// 		else
-	// 		{
-	// 			if (ShowDebug)
-	// 				GEngine->AddOnScreenDebugMessage(112, 1, FColor::Red, FString::Printf(TEXT("%d Impossible Time Stamp found. Correction!"), _clientToServer_MoveRequestList[lastIndex].TimeStamp - _lastClientTimeStamp));
-	// 			//emergencyCorrection = true;
-	// 			_clientToServer_MoveRequestList.Empty();
-	// 		}
-	// 	}
-	// 	else
-	// 	{
-	// 		if (ShowDebug)
-	// 			GEngine->AddOnScreenDebugMessage(1111, 0.1f, FColor::White, FString::Printf(TEXT("no client move requests, simulating move...")));
-	//
-	// 		movement.bUsePhysic = bUsePhysicAuthority;
-	// 		movement = StandAloneUpdateComponent(movement, _user_inputPool, delta, FVelocity::Null(), true);
-	// 		LastMoveMade = movement;
-	//
-	// 		//Register
-	// 		FSyncMoveRequest request = FSyncMoveRequest(movement, _user_inputPool, _lastClientTimeStamp, delta);
-	// 		_dedicatedServerSyncRequests.Add(request);
-	// 	}
-	// }
-	//
-	// //Communication with the network
-	// {
-	// 	//Is a correction send?
-	// 	if ((_netSyncState != NetSyncState_WaitingClientCorrectioncknowledge && correctionIndex > 0))
-	// 	{
-	// 		FVector positionOffset = correctionRequest.MoveInfos.Location - movement.InitialTransform.GetLocation();
-	// 		if ((positionOffset.Length() > CorrectionDistance))
-	// 		{
-	// 			_clientToServer_MoveRequestList.Empty();
-	// 			_netSyncState = NetSyncState_WaitingClientCorrectioncknowledge;
-	// 			_lastClientTimeStamp = 0;
-	//
-	// 			//Send reliably correction to clients once
-	// 			FSyncMoveRequest fixRequest = FSyncMoveRequest(movement, _user_inputPool, currentClientTimeStamp, delta);
-	// 			MultiCastCorrectionSync(fixRequest);
-	// 		}
-	// 	}
-	//
-	// 	if (_netSyncState != NetSyncState_WaitingClientCorrectioncknowledge)
-	// 	{
-	// 		for (int i = 0; i < _dedicatedServerSyncRequests.Num(); i++)
-	// 		{
-	// 			//Propagation
-	// 			MultiCastMoveSync(_dedicatedServerSyncRequests[i]);
-	// 		}
-	// 	}
-	// }
-	//
-	// _clientToServerLatency += delta;
+	FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), false);
+	TTuple<FSyncMoveRequest, double> fromClientRequest;
+	FVelocity overrideVel = FVelocity::Null();
+	double timeOffset = 0;
+
+	if (_clientToServer_MoveRequestList.Dequeue(fromClientRequest))
+	{
+		//Gather infos
+		_timeNetLatency = _timeElapsed - fromClientRequest.Value;
+		timeOffset = _timeNetLatency - delta;
+
+		//Decode network transmitted infos
+		if (InputTranscoder)
+			InputTranscoder->DecodeInputs(_user_inputPool, fromClientRequest.Key.Inputs);
+		fromClientRequest.Key.MoveInfos.ToKinematicMove(movement, true);
+		overrideVel = movement.FinalVelocities;
+
+		//Debug Infos
+
+		if (ShowDebug) {
+			GEngine->AddOnScreenDebugMessage(443, 5, FColor::Green, FString::Printf(TEXT("Dedicated: Local Time (%f), Net Latency (%f), Client Time (%f)"), _timeElapsed, _timeNetLatency, fromClientRequest.Value));
+		}
+	}
+
+	if (timeOffset > 0)
+	{
+		StandAloneUpdateComponent(movement, _user_inputPool, timeOffset, overrideVel, true, false, false, true);
+		movement.FinalStateFlag = fromClientRequest.Key.MoveInfos.StateFlag;
+		movement.FinalStateIndex = fromClientRequest.Key.MoveInfos.StateIndex;
+		movement.FinalActionsIndexes = FMathExtension::BoolToIndexesArray(FMathExtension::IntToBoolArray(fromClientRequest.Key.MoveInfos.ActionsIndexes_BinaryRepresentation));
+		LastMoveMade = movement;
+	}
+	else
+		//Normal Movement 
+	{
+		movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
+		movement.FinalStateFlag = LastMoveMade.FinalStateFlag;
+		movement.FinalActionsIndexes.Empty();
+		for (int i = 0; i < LastMoveMade.FinalActionsIndexes.Num(); i++)
+			movement.FinalActionsIndexes.Add(LastMoveMade.FinalActionsIndexes[i]);
+		overrideVel = FVelocity::Null();
+
+		movement.bUsePhysic = bUsePhysicClients;
+		StandAloneUpdateComponent(movement, _user_inputPool, delta, overrideVel, false, false, true, true);
+		LastMoveMade = movement;
+	}
+
+	//Move and calculate velocity
+	{
+		//Lerp
+		UpdatedPrimitive->SetWorldLocationAndRotation(FMath::Lerp(UpdatedPrimitive->GetComponentLocation(), LastMoveMade.FinalTransform.GetLocation(), delta * AdjustmentSpeed), FQuat::Slerp(UpdatedPrimitive->GetComponentQuat(), LastMoveMade.FinalTransform.GetRotation(), delta * AdjustmentSpeed));
+	}
+
+	//Communication with the network
+	{
+		FTranscodedInput encodedinputs = FTranscodedInput();
+		if (InputTranscoder)
+			encodedinputs = InputTranscoder->EncodeInputs(_user_inputPool);
+		const FSyncMoveRequest syncRequest = FSyncMoveRequest(movement, encodedinputs);
+		MultiCastMoveSync(syncRequest, _timeElapsed);
+	}
+
 }
 
 
@@ -498,255 +394,104 @@ void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 
 
 
-#pragma region Client Logic
+#pragma region Client Logic ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool UModularControllerComponent::ApplyServerMovementCorrection(FKinematicInfos& outCorrected)
+#pragma region Automonous Proxy OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+
+void UModularControllerComponent::ServerMoveSync_Implementation(FSyncMoveRequest movementRequest, double localTime)
 {
-	if (_serverToClient_CorrectionSync.TimeStamp < 0)
-		return false;
-
-	_clientSelf_MoveHistory.Empty();
-	_serverToClient_CorrectionSync.MoveInfos.ToKinematicMove(outCorrected);
-
-	//Acknwolwdge that movement
-	_serverToClient_CorrectionSync.TimeStamp = -1;
-	_serverToClient_AdjustmentSync.Empty();
-
-	return true;
-}
-
-
-#pragma region Automonous Proxy
-
-
-void UModularControllerComponent::ServerTimeSyncRequest_Implementation(int clientID, double startTime)
-{
-}
-
-void UModularControllerComponent::ServerMoveSync_Implementation(FSyncMoveRequest movementRequest)
-{
-	if (movementRequest.TimeStamp <= 0)
-	{
-		//Bad infos
-		return;
-	}
-
-	if (_netSyncState == NetSyncState_WaitingClientCorrectioncknowledge)
-	{
-		//No more requets until correction
-		return;
-	}
-
 	APawn* pawn = _ownerPawn.Get();
 	if (pawn->IsLocallyControlled())
 		return;
 	FSyncMoveRequest request = movementRequest;
-	_clientToServer_MoveRequestList.Insert(request, 0);
+	_clientToServer_MoveRequestList.Enqueue(TTuple<FSyncMoveRequest, double>(request, localTime));
 }
-
-
-void UModularControllerComponent::ServerCorrectionAcknowledge_Implementation(FSyncMoveRequest movementRequest)
-{
-	FSyncMoveRequest request = movementRequest;
-
-	if (_netSyncState == NetSyncState_WaitingClientCorrectioncknowledge)
-	{
-		_clientToServer_MoveRequestList.Empty();
-
-		if (request.TimeStamp != -101)
-		{
-			return;
-		}
-		_netSyncState = NetSyncState_Synchronisation;
-	}
-}
-
 
 void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 {
-	return;
-	// //Adjustment
-	// FVector correctionOffsetPosition;
-	// if (false)// ApplyServerMovementAdjustments(correctionOffsetPosition))
-	// {
-	// 	MoveUpdatedComponent((correctionOffsetPosition - GetLocation()) * (AdjustmentSpeed > 0 ? delta * AdjustmentSpeed : 1), LastMoveMade.InitialTransform.GetRotation(), false);
-	// }
-	//
-	// FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
-	// bool correctionOccurs = false;
-	//
-	// //Correction
-	// {
-	// 	//Make correction from server
-	// 	correctionOccurs = ApplyServerMovementCorrection(movement);
-	// 	if (correctionOccurs)
-	// 	{
-	// 		if (ShowDebug)
-	// 			GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, FString::Printf(TEXT("[Autonomous] - Correction Occurs")));
-	// 		_serverToClient_CorrectionSync.Inputs.ToInputs(_user_inputPool);
-	// 		_serverToClient_CorrectionSync.MoveInfos.ToKinematicMove(movement);
-	// 		FHitResult hit = FHitResult();
-	// 		SafeMoveUpdatedComponent(_serverToClient_CorrectionSync.MoveInfos.Location - GetLocation(), movement.FinalTransform.GetRotation(), false, hit, ETeleportType::TeleportPhysics);
-	// 		movement.bUsePhysic = bUsePhysicClients;
-	// 		StandAloneUpdateComponent(movement, _user_inputPool, _serverToClient_CorrectionSync.DeltaTime, movement.FinalVelocities);
-	// 		_serverTimeOffset = -101;
-	// 	}
-	// }
-	//
-	//
-	// //Execute the move
-	// {
-	// 	if (!correctionOccurs)
-	// 	{
-	// 		movement.bUsePhysic = bUsePhysicClients;
-	// 		StandAloneUpdateComponent(movement, _user_inputPool, delta, FVelocity::Null());
-	// 	}
-	// }
-	//
-	// //Communication with the network
-	// {
-	// 	//Send move and inputs to server 
-	// 	const FSyncMoveRequest moveRequest = FSyncMoveRequest(movement, _user_inputPool, _serverTimeOffset, delta);
-	//
-	// 	//We made correction and said the server we made it. now back to normal
-	// 	if (correctionOccurs)
-	// 	{
-	// 		// ServerCorrectionAcknowledge(moveRequest);
-	// 		// _serverTimeOffset = 1;
-	// 	}
-	// 	else
-	// 	{
-	// 		// _clientSelf_MoveHistory.Insert(moveRequest, 0);
-	// 		// if (_clientSelf_MoveHistory.Num() > MaxClientHistoryBufferSize && _clientSelf_MoveHistory.Num() > 0)
-	// 		// {
-	// 		// 	_clientSelf_MoveHistory.RemoveAt(_clientSelf_MoveHistory.Num() - 1);
-	// 		// }
-	// 		// _serverTimeOffset %= std::numeric_limits<int>::max();
-	// 		// _serverTimeOffset++;
-	// 		// ServerMoveSync(moveRequest);
-	// 	}
-	// }
-	//
-	// LastMoveMade = movement;
-}
+	FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), false);
 
-
-bool UModularControllerComponent::ApplyServerMovementAdjustments(FVector& offset)
-{
-	if (_serverToClient_AdjustmentSync.IsEmpty())
-		return false;
-
-	FSyncMoveRequest adjustment;
-
-	if (!_serverToClient_AdjustmentSync.IsEmpty())
+	//Execute the move
 	{
-		bool adjustmentMade = false;
+		movement.bUsePhysic = bUsePhysicAuthority;
+		movement = StandAloneUpdateComponent(movement, _user_inputPool, delta, FVelocity::Null());
+	}
 
-		while (_serverToClient_AdjustmentSync.Dequeue(adjustment))
-		{
-			//Find move in move history
-			int correctionChkIndex = _clientSelf_MoveHistory.IndexOfByPredicate([this, adjustment](const FSyncMoveRequest item)->bool { return item.TimeStamp == adjustment.TimeStamp; });
-
-			if (_clientSelf_MoveHistory.IsValidIndex(correctionChkIndex))
-			{
-				adjustmentMade = true;
-
-				//Calculate the offset from that position
-				FVector positionOffset = adjustment.MoveInfos.Location - _clientSelf_MoveHistory[correctionChkIndex].MoveInfos.Location;
-
-				//Apply the offset to the history and delete he entry that are no longer valids
-				int k = _clientSelf_MoveHistory.Num() - 1;
-				for (int i = k; i >= 0; i--)
-				{
-					if (i > correctionChkIndex)
-					{
-						_clientSelf_MoveHistory.RemoveAt(i);
-						continue;
-					}
-
-					_clientSelf_MoveHistory[i].MoveInfos.Location += positionOffset;
-				}
-
-				offset = _clientSelf_MoveHistory[0].MoveInfos.Location;
-
-				if (ShowDebug)
-					GEngine->AddOnScreenDebugMessage(1444, 0.1f, FColor::Magenta, FString::Printf(TEXT("Apply Server Movement Adjustments: at: %d, moving by: %s"), _clientSelf_MoveHistory[correctionChkIndex].TimeStamp, *positionOffset.ToCompactString()));
-			}
-			else
-			{
-				if (ShowDebug)
-					GEngine->AddOnScreenDebugMessage(-1, 1, FColor::Purple, FString::Printf(TEXT("Out of bound index: %d in %d; times stamp = %d"), correctionChkIndex, _clientSelf_MoveHistory.Num(), adjustment.TimeStamp));
-			}
+	//Communication with the network
+	{
+		FTranscodedInput encodedinputs = FTranscodedInput();
+		if (InputTranscoder)
+			encodedinputs = InputTranscoder->EncodeInputs(_user_inputPool);
+		const FSyncMoveRequest syncRequest = FSyncMoveRequest(movement, encodedinputs);
+		if (ShowDebug) {
+			GEngine->AddOnScreenDebugMessage(442, 5, FColor::Magenta, FString::Printf(TEXT("Autonomous: Local time (%f), Network Latency (%f)"), _timeElapsed, _timeNetLatency));
 		}
-
-		return adjustmentMade;
-	}
-	else
-	{
-		if (ShowDebug)
-			GEngine->AddOnScreenDebugMessage(-1, 1, FColor::Purple, FString::Printf(TEXT("No request")));
+		ServerMoveSync(syncRequest, _timeElapsed);
 	}
 
-	return false;
+
+
+	LastMoveMade = movement;
 }
-
 
 #pragma endregion
 
-#pragma region Simulated Proxy
+#pragma region Simulated Proxy OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 
 
 void UModularControllerComponent::SimulatedProxyUpdateComponent(float delta)
 {
-	//Gather server move infos
+	FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), false);
+	TTuple<FSyncMoveRequest, double> fromServerRequest;
+	FVelocity overrideVel = FVelocity::Null();
+	double timeOffset = 0;
+
+	if (_serverToClient_MoveCommandQueue.Dequeue(fromServerRequest))
 	{
-		FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
-		float deltaTime = delta;
-		FSyncMoveRequest serverMove;
-		FVelocity overrideVel = FVelocity::Null();
-		bool gotServerMove = false;
+		//Gather infos
+		_timeNetLatency = FMath::Abs(_timeElapsed - fromServerRequest.Value);
+		timeOffset = _timeNetLatency - delta;
 
-		if (_serverToClient_MoveCommandQueue.Dequeue(serverMove))
-		{
-			gotServerMove = true;
-			deltaTime = serverMove.DeltaTime;
-			UInputTranscoderConfig* transcoder = Cast<UInputTranscoderConfig>(InputTranscoder);
-			if(transcoder)
-				transcoder->DecodeInputs(_user_inputPool, serverMove.Inputs);
-			serverMove.MoveInfos.ToKinematicMove(movement, true);
-			_lastServerResquest = serverMove;
-			_serverTimeOffset = FMath::Abs(GetWorld()->GetTimeSeconds() - serverMove.TimeStamp) * 2;
+		//Decode network transmitted infos
+		if (InputTranscoder)
+			InputTranscoder->DecodeInputs(_user_inputPool, fromServerRequest.Key.Inputs);
+		fromServerRequest.Key.MoveInfos.ToKinematicMove(movement, true);
+		overrideVel = movement.FinalVelocities;
 
-			MoveUpdatedComponent(movement.InitialTransform.GetLocation() - GetLocation(), movement.InitialTransform.GetRotation(), false);
-			overrideVel = movement.FinalVelocities;
+		//Debug Infos
+
+		if (ShowDebug) {
+			GEngine->AddOnScreenDebugMessage(444, 5, FColor::Yellow, FString::Printf(TEXT("Simulated: Local Time (%f), Net Latency (%f), Client Time (%f)"), _timeElapsed, _timeNetLatency, fromServerRequest.Value));
 		}
-		//else if (_lastServerResquest.TimeStamp > 0)
-		if (_serverTimeOffset > 0)
-		{
-			//_lastServerResquest.MoveInfos.ToKinematicMove(movement, true);
-			//overrideVel = LastMoveMade.FinalVelocities;
+	}
 
-			while (_serverTimeOffset > 0)
-			{
-				if(!gotServerMove)
-				{
-					movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
-					deltaTime = delta;
-					overrideVel = FVelocity::Null();
-				}
-
-				movement.bUsePhysic = bUsePhysicClients;
-				StandAloneUpdateComponent(movement, _user_inputPool, deltaTime, overrideVel, true);
-				LastMoveMade = movement;
-
-				_serverTimeOffset -= deltaTime;
-				gotServerMove = false;
-			}
-		}
+	if (timeOffset > 0)
+	{
+		StandAloneUpdateComponent(movement, _user_inputPool, timeOffset, overrideVel, true, false, false, true);
+		movement.FinalStateFlag = fromServerRequest.Key.MoveInfos.StateFlag;
+		movement.FinalStateIndex = fromServerRequest.Key.MoveInfos.StateIndex;
+		movement.FinalActionsIndexes = FMathExtension::BoolToIndexesArray(FMathExtension::IntToBoolArray(fromServerRequest.Key.MoveInfos.ActionsIndexes_BinaryRepresentation));
+		LastMoveMade = movement;
+	}
+	else
+		//Normal Movement 
+	{
+		movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
+		movement.FinalStateFlag = LastMoveMade.FinalStateFlag;
+		movement.FinalActionsIndexes.Empty();
+		for (int i = 0; i < LastMoveMade.FinalActionsIndexes.Num(); i++)
+			movement.FinalActionsIndexes.Add(LastMoveMade.FinalActionsIndexes[i]);
+		overrideVel = FVelocity::Null();
 
 		movement.bUsePhysic = bUsePhysicClients;
-		StandAloneUpdateComponent(movement, _user_inputPool, deltaTime, overrideVel, true);
+		StandAloneUpdateComponent(movement, _user_inputPool, delta, overrideVel, false, false, true, true);
 		LastMoveMade = movement;
+	}
+
+	//Move and calculate velocity
+	{
+		//Lerp
+		UpdatedPrimitive->SetWorldLocationAndRotation(FMath::Lerp(UpdatedPrimitive->GetComponentLocation(), LastMoveMade.FinalTransform.GetLocation(), delta * AdjustmentSpeed * 2), FQuat::Slerp(UpdatedPrimitive->GetComponentQuat(), LastMoveMade.FinalTransform.GetRotation(), delta * AdjustmentSpeed * 2));
 	}
 }
 
@@ -1121,7 +866,7 @@ FVelocity UModularControllerComponent::EvaluateState(FKinematicInfos& inDatas, c
 		}
 		else
 		{
-			movement.ConstantLinearVelocity = inDatas.GetInitialMomentum() + _gravityVector * inDelta;
+			movement.ConstantLinearVelocity = inDatas.GetInitialMomentum();
 		}
 	}
 
@@ -1767,7 +1512,7 @@ void UModularControllerComponent::EvaluateRootMotionOverride(FVelocity& movement
 
 
 
-#pragma region Movement
+#pragma region Movement XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 FVelocity UModularControllerComponent::Move_Implementation(const FKinematicInfos& inDatas, FVelocity movement, float delta)
 {
@@ -1777,32 +1522,31 @@ FVelocity UModularControllerComponent::Move_Implementation(const FKinematicInfos
 	FVector priMove = movement.ConstantLinearVelocity;
 	FVector secMove = movement.InstantLinearVelocity;
 
-	FVector initialLocation = owner->GetActorLocation();
+	FVector initialLocation = inDatas.InitialTransform.GetLocation();
 	FVector location = initialLocation;
 	FQuat primaryRotation = movement.Rotation;
 	FVector primaryDelta = FVector(0);
 	FVector secondaryDelta = FVector(0);
 	FVector pushObjectForce = priMove;
 
-	//Make the move
-	FVector normalDebug = FVector(0);
-	FVector impactPointDebug = location;
-
 	////get Pushed by objects
 	if (inDatas.bUsePhysic && _collisionForces.Length() > 0)
 	{
 		priMove += (_collisionForces / inDatas.GetMass()) * (priMove.Length() > 0 ? FMath::Clamp(FVector::DotProduct(priMove.GetSafeNormal(), _collisionForces.GetSafeNormal()), 0, 1) : 1);
 		if (ShowDebug)
+		{
 			GEngine->AddOnScreenDebugMessage((int32)GetOwner()->GetUniqueID() + 10, 1, FColor::Green, FString::Printf(TEXT("Applying collision force: %s"), *_collisionForces.ToString()));
+		}
 		_collisionForces = FVector(0);
 	}
 
 	//Primary Movement (momentum movement)
 	{
-		FHitResult sweepMoveHit;
+		FHitResult sweepMoveHit = FHitResult(EForceInit::ForceInitToZero);
+		bool blockingHit = false;
 
-		SafeMoveUpdatedComponent(priMove * delta, primaryRotation, true, sweepMoveHit, ETeleportType::None);
-		if (sweepMoveHit.IsValidBlockingHit())
+		blockingHit = ComponentTraceCastSingle(sweepMoveHit, initialLocation, priMove * delta, primaryRotation);
+		if (blockingHit)
 		{
 			//Push objects around
 			if (inDatas.bUsePhysic && pushObjectForce.Length() > 0 && sweepMoveHit.GetComponent())
@@ -1813,47 +1557,52 @@ FVelocity UModularControllerComponent::Move_Implementation(const FKinematicInfos
 					sweepMoveHit.GetComponent()->AddForceAtLocation(pushObjectForce * inDatas.GetMass() * FMath::Clamp(-dotProduct, 0, 1), sweepMoveHit.ImpactPoint, sweepMoveHit.BoneName);
 				}
 			}
-			normalDebug = sweepMoveHit.Normal;
-			impactPointDebug = sweepMoveHit.ImpactPoint;
-			float percent = SlideAlongSurface(priMove * delta, 1 - sweepMoveHit.Time, sweepMoveHit.Normal, sweepMoveHit);
+
+			int maxDepth = 4;
+			FVector endLocation = SlideAlongSurfaceAt(sweepMoveHit.Location, primaryRotation, sweepMoveHit.TraceEnd - sweepMoveHit.TraceStart, 1 - sweepMoveHit.Time, sweepMoveHit.Normal, sweepMoveHit, maxDepth);
+			sweepMoveHit.Location = endLocation;
 		}
 
 		//delta
-		primaryDelta = ((sweepMoveHit.IsValidBlockingHit() ? sweepMoveHit.Location : sweepMoveHit.TraceEnd) - location);
-
-		location = (sweepMoveHit.IsValidBlockingHit() ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
+		primaryDelta = ((blockingHit ? sweepMoveHit.Location : sweepMoveHit.TraceEnd) - location);
+		location = (blockingHit ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
 	}
 
 	//Secondary Movement (Adjustement movement)
 	{
 		FHitResult sweepMoveHit;
 
-		owner->SetActorLocation(location + secMove, true, &sweepMoveHit, ETeleportType::None);
+		ComponentTraceCastSingle(sweepMoveHit, location, secMove, primaryRotation);
 
-		//delta
-		secondaryDelta = ((sweepMoveHit.IsValidBlockingHit() ? sweepMoveHit.Location : sweepMoveHit.TraceEnd) - location);
+		FVector newLocation = (sweepMoveHit.IsValidBlockingHit() ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
+		FVector depenatrationForce = FVector(0);
+		if (CheckPenetrationAt(depenatrationForce, newLocation, primaryRotation, nullptr, ECC_Visibility, true))
+		{
+			newLocation += depenatrationForce;
+		}
 
-		location = (sweepMoveHit.IsValidBlockingHit() ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
+		secondaryDelta = (newLocation - location);
+		location = newLocation;
 	}
 
-	result.ConstantLinearVelocity = primaryDelta / delta;
-	result.InstantLinearVelocity = secondaryDelta;
+	result.ConstantLinearVelocity = primaryDelta.IsNearlyZero() ? FVector::ZeroVector : primaryDelta / delta;
+	result.InstantLinearVelocity = secondaryDelta.IsNearlyZero() ? FVector::ZeroVector : secondaryDelta;
 
 	return result;
 }
 
 
-void UModularControllerComponent::PostMoveUpdate(FKinematicInfos& inDatas, const FVelocity moveMade, const float inDelta)
+void UModularControllerComponent::PostMoveUpdate(FKinematicInfos& inDatas, const FVelocity moveMade, const float inDelta, bool simulate)
 {
 	//Final velocities
 	inDatas.FinalVelocities.ConstantLinearVelocity = moveMade.ConstantLinearVelocity;
-	inDatas.FinalVelocities.InstantLinearVelocity = FVector(0);
-	inDatas.FinalVelocities.Rotation = GetRotation();
+	inDatas.FinalVelocities.InstantLinearVelocity = moveMade.InstantLinearVelocity;
+	inDatas.FinalVelocities.Rotation = moveMade.Rotation;
 
 	//Position
 	inDatas.FinalTransform = inDatas.InitialTransform;
-	inDatas.FinalTransform.SetLocation(GetLocation());
-	inDatas.FinalTransform.SetRotation(GetRotation());
+	inDatas.FinalTransform.SetLocation(inDatas.InitialTransform.GetLocation() + (moveMade.ConstantLinearVelocity * inDelta + moveMade.InstantLinearVelocity));
+	inDatas.FinalTransform.SetRotation(moveMade.Rotation);
 
 	//Root Motion
 	inDatas.FinalVelocities._rooMotionScale = moveMade._rooMotionScale;
@@ -1865,6 +1614,11 @@ void UModularControllerComponent::PostMoveUpdate(FKinematicInfos& inDatas, const
 	{
 		UpdatedPrimitive->SetAllPhysicsLinearVelocity(Velocity);
 	}
+
+	if (!simulate)
+	{
+		UpdatedPrimitive->SetWorldLocationAndRotation(inDatas.FinalTransform.GetLocation(), inDatas.FinalTransform.GetRotation());
+	}
 }
 
 
@@ -1872,7 +1626,10 @@ FQuat UModularControllerComponent::HandleRotation(const FVelocity inVelocities, 
 {
 	//Get the good upright vector
 	FVector desiredUpVector = -inDatas.Gravity.GetSafeNormal();
-	desiredUpVector.Normalize();
+	if (!desiredUpVector.Normalize())
+	{
+		desiredUpVector = FVector::UpVector;
+	}
 
 	//Get quaternions
 	FVector virtualFwdDir = FVector::VectorPlaneProject(inVelocities.Rotation.Vector(), desiredUpVector);
@@ -1910,7 +1667,7 @@ FQuat UModularControllerComponent::HandleRotation(const FVelocity inVelocities, 
 }
 
 
-FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position, const FQuat& Rotation, const FVector& Delta, float Time, const FVector& Normal, FHitResult& Hit)
+FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position, const FQuat& Rotation, const FVector& Delta, float Time, const FVector& Normal, FHitResult& Hit, int& depth)
 {
 	const FVector OldHitNormal = Normal;
 
@@ -1918,21 +1675,62 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 	FVector SlideDelta = ComputeSlideVector(Delta, Time, Normal, Hit);
 	FVector endLocation = Position + SlideDelta;
 
+	if (ShowDebug) {
+		UKismetSystemLibrary::DrawDebugArrow(this, Position, Position + Normal.GetSafeNormal() * 30, 50, FColor::Blue);
+		UKismetSystemLibrary::DrawDebugArrow(this, Position, Position + SlideDelta, 50, FColor::Cyan);
+	}
+
 	if ((SlideDelta | Delta) > 0.f)
 	{
 		if (ComponentTraceCastSingle(Hit, Position, SlideDelta, Rotation))
 		{
-			endLocation = Hit.Location;
 			// Compute new slide normal when hitting multiple surfaces.
-			TwoWallAdjust(SlideDelta, Hit, OldHitNormal);
+			FVector move = Hit.TraceEnd - Hit.TraceStart;
+			TwoWallAdjust(move, Hit, OldHitNormal);
+
+			if (ShowDebug) {
+				UKismetSystemLibrary::DrawDebugArrow(this, Hit.Location, Hit.Location + move, 50, FColor::Purple);
+				DrawCircle(GetWorld(), Hit.Location, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Purple, 25, 32, false, -1, 0, 3);
+			}
+
+			endLocation = Hit.Location;
 
 			// Only proceed if the new direction is of significant length and not in reverse of original attempted move.
-			if (!SlideDelta.IsNearlyZero(1e-3f) && (SlideDelta | Delta) > 0.f)
+			if (!move.IsNearlyZero(1e-3f) && (move | SlideDelta) > 0.f)
 			{
+				FHitResult secondaryMove;
 				// Perform second move
-				ComponentTraceCastSingle(Hit, endLocation, SlideDelta, Rotation);
-				endLocation = Hit.Location;
+				if (ComponentTraceCastSingle(secondaryMove, Hit.Location, move, Rotation))
+				{
+					if (depth > 0) {
+						depth--;
+						endLocation = SlideAlongSurfaceAt(secondaryMove.Location, Rotation, secondaryMove.TraceEnd - secondaryMove.TraceStart, 1 - secondaryMove.Time, secondaryMove.Normal, secondaryMove, depth);
+						secondaryMove.Location = endLocation;
+						if (ShowDebug) {
+							DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Yellow, 25, 32, false, -1, 0, 3);
+						}
+					}
+					else {
+						endLocation = secondaryMove.Location;
+						if (ShowDebug) {
+							DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Orange, 25, 32, false, -1, 0, 3);
+						}
+					}
+				}
+				else
+				{
+					endLocation = secondaryMove.TraceEnd;
+
+					if (ShowDebug) {
+						DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Red, 25, 32, false, -1, 0, 3);
+					}
+				}
 			}
+
+		}
+		else
+		{
+			endLocation = Hit.TraceEnd;
 		}
 	}
 	return endLocation;
@@ -2003,7 +1801,7 @@ bool UModularControllerComponent::ComponentTraceCastMultiByInflation(TArray<FHit
 }
 
 
-bool UModularControllerComponent::ComponentTraceCastSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel)
+bool UModularControllerComponent::ComponentTraceCastSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, ECollisionChannel channel, bool traceComplex)
 {
 	outHit.Location = position;
 	auto owner = GetOwner();
@@ -2016,15 +1814,19 @@ bool UModularControllerComponent::ComponentTraceCastSingle(FHitResult& outHit, F
 
 	FCollisionQueryParams queryParams;
 	queryParams.AddIgnoredActor(owner);
-	float OverlapInflation = 0.100f;
+	queryParams.bTraceComplex = true;// traceComplex;
+	float OverlapInflation = -0.6 bb00f;
 	auto shape = primitive->GetCollisionShape(OverlapInflation);
-
-	if (GetWorld()->SweepSingleByChannel(outHit, position, position + direction, rotation, channel, UpdatedPrimitive->GetCollisionShape(OverlapInflation), queryParams))
+	
+	if (GetWorld()->SweepSingleByChannel(outHit, position, position + direction, rotation, channel, shape, queryParams))
 	{
+		GEngine->AddOnScreenDebugMessage(11, 0, FColor::White, FString::Printf(TEXT("Lool 4")));
 		outHit.Location -= direction.GetSafeNormal() * 0.125f;
+		return true;
 	}
 
-	return outHit.IsValidBlockingHit();
+	GEngine->AddOnScreenDebugMessage(11, 0, FColor::White, FString::Printf(TEXT("Lool 5")));
+	return false;
 }
 
 
@@ -2179,11 +1981,6 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& force, FVector pos
 				if (!overlapFound)
 					overlapFound = true;
 
-				if (debugHit)
-				{
-					UKismetSystemLibrary::DrawDebugArrow(this, position, overlap.GetActor()->GetActorLocation(), 50, FColor::Emerald, 0, 15);
-				}
-
 				if (overlap.Component->ComputePenetration(depenatrationInfos, primitive->GetCollisionShape(), position, NewRotationQuat))
 				{
 					FVector depForce = depenatrationInfos.Direction * (depenatrationInfos.Distance + 0.125f);
@@ -2194,6 +1991,11 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& force, FVector pos
 					}
 					moveVec += depForce;
 				}
+			}
+
+			if (debugHit)
+			{
+				UKismetSystemLibrary::DrawDebugArrow(this, position, position + moveVec, 50, FColor::Red, 0, 5);
 			}
 		}
 

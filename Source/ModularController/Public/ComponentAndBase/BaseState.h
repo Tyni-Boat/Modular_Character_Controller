@@ -15,6 +15,7 @@
 #include "BaseState.generated.h"
 
 
+
 ///<summary>
 /// The abstract basic state behaviour for a Modular controller.
 /// </summary>

@@ -26,6 +26,8 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 
 	//Caching values
 	FVector direction = inDatas.Gravity.GetSafeNormal();
+	if (!direction.Normalize())
+		direction = -FVector::UpVector;
 	FVector userMoveDir = inputs.ReadInput(MovementInputName).Axis;
 	FVector startPt = inDatas.InitialTransform.GetLocation() + CheckOffset;
 	FVector controllerVelocity = inDatas.GetInitialMomentum();
@@ -49,10 +51,12 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 		FVector customStart = startPt;
 		float hyp = CheckRadius / FMath::Sin(FMath::DegreesToRadians(MaxSurfaceAngle));
 		float angledDistance = hyp * FMath::Cos(FMath::DegreesToRadians(MaxSurfaceAngle));
-		if (inDatas.IsDebugMode)
-			UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), customStart, customStart + direction * (rayCastingDistance + angledDistance), 50, FColor::Yellow, 0, 10);
+		if (inDatas.IsDebugMode) 
+		{
+			UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), customStart, customStart + direction * (rayCastingDistance + angledDistance), 50, FColor::White, 0, 0.5f);
+		}
 
-		UKismetSystemLibrary::LineTraceSingle(inDatas.GetActor(), customStart, customStart + direction * (rayCastingDistance + angledDistance), ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::ForOneFrame : EDrawDebugTrace::None, centralHit, true, FColor::Yellow, FColor::Blue, inDelta);
+		UKismetSystemLibrary::LineTraceSingle(inDatas.GetActor(), customStart, customStart + direction * (rayCastingDistance + angledDistance), ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::None : EDrawDebugTrace::None, centralHit, true, FColor::White, FColor::White, -1);
 	}
 
 	//Directionnal hit check
@@ -61,7 +65,7 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 		FVector radiusOffset = FVector::VectorPlaneProject(userMoveDir, direction).GetSafeNormal() * MaxStepUpDistance;
 		if (radiusOffset.Length() > 0)
 		{
-			UKismetSystemLibrary::SphereTraceSingle(inDatas.GetActor(), customStart + radiusOffset, customStart + radiusOffset + direction * (rayCastingDistance - 2 * CheckRadius), CheckRadius, ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::None : EDrawDebugTrace::None, directionalHit, true, FColor::White, FColor::White, inDelta);
+			UKismetSystemLibrary::SphereTraceSingle(inDatas.GetActor(), customStart + radiusOffset, customStart + radiusOffset + direction * (rayCastingDistance - 2 * CheckRadius), CheckRadius, ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::None : EDrawDebugTrace::None, directionalHit, true, FColor::Transparent, FColor::White, -1);
 		}
 	}
 
@@ -71,12 +75,12 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 		{
 		case ShapeMode_Cube:
 		{
-			UKismetSystemLibrary::BoxTraceSingle(inDatas.GetActor(), startPt, startPt + direction * rayCastingDistance, FVector::One() * CheckRadius, inDatas.InitialTransform.Rotator(), ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::ForOneFrame : EDrawDebugTrace::None, areaHit, true, FColor::White, FColor::Cyan, inDelta);
+			UKismetSystemLibrary::BoxTraceSingle(inDatas.GetActor(), startPt, startPt + direction * rayCastingDistance, FVector::One() * CheckRadius, inDatas.InitialTransform.Rotator(), ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::None : EDrawDebugTrace::None, areaHit, true, FColor::Transparent, FColor::Green, -1);
 		}break;
 		default:
 		{
 			FVector customStart = startPt + direction * CheckRadius;
-			UKismetSystemLibrary::SphereTraceSingle(inDatas.GetActor(), customStart, customStart + direction * (rayCastingDistance - 2 * CheckRadius), CheckRadius, ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::ForOneFrame : EDrawDebugTrace::None, areaHit, true, FColor::White, FColor::Cyan, inDelta);
+			UKismetSystemLibrary::SphereTraceSingle(inDatas.GetActor(), customStart, customStart + direction * (rayCastingDistance - 2 * CheckRadius), CheckRadius, ChannelGround, CanTraceComplex, ignoredActors, inDatas.IsDebugMode ? EDrawDebugTrace::None : EDrawDebugTrace::None, areaHit, true, FColor::Transparent, FColor::Green, -1);
 		}break;
 		}
 	}
@@ -144,7 +148,7 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 							: inDatas.InitialTransform.GetRotation().GetRightVector();
 						FVector right = FVector::CrossProduct(up, forward);
 						UKismetSystemLibrary::DrawDebugCircle(inDatas.GetActor(), NormalHits[i].ImpactPoint, CheckRadius, 32,
-							FColor::Silver, 0, 10, right, forward);
+							FColor::White, 0, 1, right, forward);
 						continue;
 					}
 
@@ -169,23 +173,23 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 							Length();
 						if (inDatas.IsDebugMode)
 						{
-							UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), validSurfaces[i].ImpactPoint,
-								validSurfaces[i].ImpactPoint + validSurfaces[i].ImpactNormal * 50,
-								50, FColor::Silver, 0, 10);
+							//UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), validSurfaces[i].ImpactPoint,
+							//	validSurfaces[i].ImpactPoint + validSurfaces[i].ImpactNormal * 50,
+							//	50, FColor::Yellow, 0, 2);
 
-							FVector up = validSurfaces[i].Normal;
-							FVector forward = FVector::DotProduct(validSurfaces[i].Normal,
-								inDatas.InitialTransform.GetRotation().GetUpVector())
-								< 1
-								? (FVector::VectorPlaneProject(
-									FVector::VectorPlaneProject(
-										validSurfaces[i].Normal,
-										inDatas.InitialTransform.GetRotation().GetUpVector()).
-									GetSafeNormal(), validSurfaces[i].Normal).GetSafeNormal())
-								: inDatas.InitialTransform.GetRotation().GetRightVector();
-							FVector right = FVector::CrossProduct(up, forward);
-							UKismetSystemLibrary::DrawDebugCircle(inDatas.GetActor(), validSurfaces[i].ImpactPoint, CheckRadius,
-								16, FColor::Yellow, 0, 1, right, forward);
+							//FVector up = validSurfaces[i].Normal;
+							//FVector forward = FVector::DotProduct(validSurfaces[i].Normal,
+							//	inDatas.InitialTransform.GetRotation().GetUpVector())
+							//	< 1
+							//	? (FVector::VectorPlaneProject(
+							//		FVector::VectorPlaneProject(
+							//			validSurfaces[i].Normal,
+							//			inDatas.InitialTransform.GetRotation().GetUpVector()).
+							//		GetSafeNormal(), validSurfaces[i].Normal).GetSafeNormal())
+							//	: inDatas.InitialTransform.GetRotation().GetRightVector();
+							//FVector right = FVector::CrossProduct(up, forward);
+							//UKismetSystemLibrary::DrawDebugCircle(inDatas.GetActor(), validSurfaces[i].ImpactPoint, CheckRadius,
+							//	16, FColor::Yellow, 0, 2, right, forward);
 						}
 						priorityArray.Add(FVector4(i, angle, offset, dist));
 					}
@@ -212,6 +216,10 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 
 			if (inDatas.IsDebugMode)
 			{
+				UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), selectedSurface.ImpactPoint,
+					selectedSurface.ImpactPoint + selectedSurface.ImpactNormal * 10,
+					50, FColor::Green, 0, 2);
+
 				FVector up = selectedSurface.Normal;
 				FVector forward = FVector::DotProduct(selectedSurface.Normal,
 					inDatas.InitialTransform.GetRotation().GetUpVector()) < 1
@@ -223,7 +231,7 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 					: inDatas.InitialTransform.GetRotation().GetRightVector();
 				FVector right = FVector::CrossProduct(up, forward);
 				UKismetSystemLibrary::DrawDebugCircle(inDatas.GetActor(), selectedSurface.ImpactPoint, CheckRadius, 32,
-					FColor::Green, 0, 10, right, forward);
+					FColor::Green, 0, 2, right, forward);
 			}
 
 			surfaceOffset = FVector::VectorPlaneProject(selectedSurface.ImpactPoint - startPt, direction);
@@ -263,11 +271,11 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 					OnLanding(SurfaceInfos, inDatas, inDelta);
 					_touchedGroundReal = true;
 				}
-				_snapVector = snapDir * SnapToSurfaceUpSpeed;
+				_snapVector = snapDir* SnapToSurfaceUpSpeed;
 			}
 			else if (_touchedGroundReal)
 			{
-				_snapVector = snapDir * SnapToSurfaceDownSpeed;
+				_snapVector = snapDir* SnapToSurfaceDownSpeed;
 			}
 		}
 
@@ -315,10 +323,6 @@ FVector UGroundState::MoveOnTheGround(const FKinematicInfos& inDatas, const FInp
 
 		FVector scaledInputs = onGravPlanedInputs;
 		CurrentSpeedRatio = FMath::Lerp(CurrentSpeedRatio, 1, inDelta * Acceleration);
-		if (inDatas.IsDebugMode && inDatas.GetActor() != nullptr)
-		{
-			UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), inDatas.InitialTransform.GetLocation(), inDatas.InitialTransform.GetLocation() + scaledInputs, 50, FColor::Silver, 0, 1);
-		}
 
 		if (inDatas.bUsePhysic && inDatas.FinalSurface.GetHitResult().IsValidBlockingHit() && inDatas.FinalSurface.GetSurfacePrimitive() != nullptr && inDatas.FinalSurface.GetSurfacePrimitive()->IsSimulatingPhysics() && horizontalVelocity.Length() > 0)
 		{
@@ -329,8 +333,9 @@ FVector UGroundState::MoveOnTheGround(const FKinematicInfos& inDatas, const FInp
 	}
 	else
 	{
-		FVector scaledInputs = FMath::Lerp(horizontalVelocity, FVector::ZeroVector, inDelta * Decceleration);
-		CurrentSpeedRatio = FMath::Lerp(CurrentSpeedRatio, 0, inDelta * Decceleration);
+		float decc = FMath::Clamp(Decceleration, 1, TNumericLimits<float>().Max());
+		FVector scaledInputs = FMath::Lerp(horizontalVelocity, FVector::ZeroVector, inDelta * decc);
+		CurrentSpeedRatio = FMath::Lerp(CurrentSpeedRatio, 0, inDelta * decc);
 
 		return scaledInputs;
 	}
@@ -373,7 +378,7 @@ FVector UGroundState::SnapToGround(const FVector hitPoint, const FKinematicInfos
 
 	if (inDatas.IsDebugMode && snapForce.SquaredLength() > 1)
 	{
-		UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), desiredPt, desiredPt + snapForce, 50, FColor::Black, 0, 10);
+		UKismetSystemLibrary::DrawDebugArrow(inDatas.GetActor(), desiredPt, desiredPt + snapForce, 50, FColor::Black, 0, 3);
 	}
 	return snapForce;
 }
@@ -517,7 +522,7 @@ FVelocity UGroundState::ProcessState_Implementation(const FKinematicInfos& inDat
 		}
 		if (pawn != nullptr && pawn->IsLocallyControlled())
 		{
-			result.InstantLinearVelocity = _snapVector * (GroundState == GroundStateMode_SlidingSurface ? 1 / snapSpeed : 1) + SurfaceInfos.GetSurfaceLinearVelocity();
+			result.InstantLinearVelocity = _snapVector* (GroundState == GroundStateMode_SlidingSurface ? 1 / snapSpeed : 1) + SurfaceInfos.GetSurfaceLinearVelocity();
 		}
 		else
 		{

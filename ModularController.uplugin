@@ -20,6 +20,7 @@
 			"Type": "Runtime",
 			"LoadingPhase": "Default",
 			"PlatformAllowList": [
+				"Android",
 				"Win64",
 				"Win32"
 			]
