@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Structs.h"
 #include "UObject/Object.h"
+#include "Engine/DataAsset.h"
 #include "InputTranscoderConfig.generated.h"
 
 

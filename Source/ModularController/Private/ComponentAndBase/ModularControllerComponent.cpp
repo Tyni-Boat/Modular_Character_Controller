@@ -129,9 +129,12 @@ void UModularControllerComponent::MainUpdateComponent(float delta)
 void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	if(UpdatedPrimitive == nullptr)
+		return;
+
 	EvaluateRootMotions(DeltaTime);
 
-	if (UpdatedPrimitive != nullptr && UpdatedPrimitive->IsSimulatingPhysics())
+	if (UpdatedPrimitive->IsSimulatingPhysics())
 	{
 		UpdatedPrimitive->GetBodyInstance()->AddCustomPhysics(OnCalculateCustomPhysics);
 	}
@@ -213,9 +216,59 @@ void UModularControllerComponent::ListenInput(const FName key, const FInputEntry
 	_user_inputPool.AddOrReplace(key, entry);
 }
 
+void UModularControllerComponent::ListenButtonInput(const FName key, const float buttonBufferTime)
+{
+	if(!key.IsValid())
+		return;
+	FInputEntry entry;
+	entry.Nature = EInputEntryNature::InputEntryNature_Button;
+	entry.Type = buttonBufferTime > 0? EInputEntryType::InputEntryType_Buffered : EInputEntryType::InputEntryType_Simple;
+	entry.InputBuffer = buttonBufferTime;
+	ListenInput(key, entry);
+}
+
+void UModularControllerComponent::ListenValueInput(const FName key, const float value)
+{
+	if (!key.IsValid())
+		return;
+	FInputEntry entry;
+	entry.Nature = EInputEntryNature::InputEntryNature_Value;
+	entry.Axis.X = value;
+	ListenInput(key, entry);
+}
+
+void UModularControllerComponent::ListenAxisInput(const FName key, const FVector axis)
+{
+	if (!key.IsValid())
+		return;
+	FInputEntry entry;
+	entry.Nature = EInputEntryNature::InputEntryNature_Axis;
+	entry.Axis = axis;
+	ListenInput(key, entry);
+}
+
+
 FInputEntry UModularControllerComponent::ReadInput(const FName key) const
 {
 	return _user_inputPool.ReadInput(key);
+}
+
+bool UModularControllerComponent::ReadButtonInput(const FName key) const
+{
+	const FInputEntry entry = ReadInput(key);
+	return entry.Phase == EInputEntryPhase::InputEntryPhase_Held || entry.Phase == EInputEntryPhase::InputEntryPhase_Pressed;
+}
+
+float UModularControllerComponent::ReadValueInput(const FName key) const
+{
+	const FInputEntry entry = ReadInput(key);
+	return entry.Axis.X;
+}
+
+FVector UModularControllerComponent::ReadAxisInput(const FName key) const
+{
+	const FInputEntry entry = ReadInput(key);
+	return entry.Axis;
 }
 
 #pragma endregion
@@ -1587,6 +1640,7 @@ FVelocity UModularControllerComponent::Move_Implementation(const FKinematicInfos
 
 	result.ConstantLinearVelocity = primaryDelta.IsNearlyZero() ? FVector::ZeroVector : primaryDelta / delta;
 	result.InstantLinearVelocity = secondaryDelta.IsNearlyZero() ? FVector::ZeroVector : secondaryDelta;
+	result.Rotation = primaryRotation;
 
 	return result;
 }
@@ -1815,22 +1869,23 @@ bool UModularControllerComponent::ComponentTraceCastSingle(FHitResult& outHit, F
 	FCollisionQueryParams queryParams;
 	queryParams.AddIgnoredActor(owner);
 	queryParams.bTraceComplex = true;// traceComplex;
-	float OverlapInflation = -0.6 bb00f;
+	float OverlapInflation = -0.6;
 	auto shape = primitive->GetCollisionShape(OverlapInflation);
-	
+
 	if (GetWorld()->SweepSingleByChannel(outHit, position, position + direction, rotation, channel, shape, queryParams))
 	{
-		GEngine->AddOnScreenDebugMessage(11, 0, FColor::White, FString::Printf(TEXT("Lool 4")));
 		outHit.Location -= direction.GetSafeNormal() * 0.125f;
 		return true;
 	}
+	else
+	{
+		return false;
+	}
 
-	GEngine->AddOnScreenDebugMessage(11, 0, FColor::White, FString::Printf(TEXT("Lool 5")));
-	return false;
 }
 
 
-bool UModularControllerComponent::ComponentTraceCastSingleByInflation(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation, ECollisionChannel channel)
+bool UModularControllerComponent::ComponentTraceCastSingleByInflation(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation, ECollisionChannel channel, bool dontOffsetLocation)
 {
 	outHit.Location = position;
 	auto owner = GetOwner();
@@ -1848,10 +1903,15 @@ bool UModularControllerComponent::ComponentTraceCastSingleByInflation(FHitResult
 
 	if (GetWorld()->SweepSingleByChannel(outHit, position, position + direction, rotation, channel, UpdatedPrimitive->GetCollisionShape(OverlapInflation), queryParams))
 	{
-		outHit.Location -= direction.GetSafeNormal() * (inflation + 0.025f);
+		if (!dontOffsetLocation)
+			outHit.Location -= direction.GetSafeNormal() * (inflation + 0.025f);
+		return true;
+	}
+	else 
+	{
+		return false;
 	}
 
-	return outHit.IsValidBlockingHit();
 }
 
 

@@ -530,11 +530,8 @@ public:
 	 * @param controller
 	 * @param selectedSurface
 	 */
-	FORCEINLINE void UpdateSurfaceInfos(AActor* actor, const FHitResult selectedSurface, const float delta)
+	FORCEINLINE void UpdateSurfaceInfos(FTransform inTransform, const FHitResult selectedSurface, const float delta)
 	{
-		if (actor == nullptr)
-			return;
-
 		_surfaceHitResult = selectedSurface;
 		_surfaceNormal = selectedSurface.Normal;
 
@@ -577,9 +574,9 @@ public:
 				pl_rotDiff.ToAxisAndAngle(axis, angle);
 				FVector dir, up, fwd;
 				up = axis;
-				fwd = (actor->GetActorLocation() - _currentSurface->GetComponentLocation()).GetSafeNormal();
+				fwd = (inTransform.GetLocation() - _currentSurface->GetComponentLocation()).GetSafeNormal();
 				dir = FVector::CrossProduct(up, fwd);
-				float r = (actor->GetActorLocation() - _currentSurface->GetComponentLocation()).Length();
+				float r = (inTransform.GetLocation() - _currentSurface->GetComponentLocation()).Length();
 				FVector rotVel = r * angle * dir;
 
 				//Finally
@@ -610,8 +607,8 @@ public:
 		if (_currentSurface != nullptr)
 		{
 			auto surfaceTransform = _currentSurface->GetComponentTransform();
-			_surfaceLocalLookDir = surfaceTransform.InverseTransformVector(actor->GetActorRotation().Vector());
-			_surfaceLocalHitPoint = surfaceTransform.InverseTransformPosition(actor->GetActorLocation());
+			_surfaceLocalLookDir = surfaceTransform.InverseTransformVector(inTransform.GetRotation().Vector());
+			_surfaceLocalHitPoint = surfaceTransform.InverseTransformPosition(inTransform.GetLocation());
 			_currentSurface_Location = _currentSurface->GetComponentLocation();
 			_currentSurface_Rotation = _currentSurface->GetComponentRotation().Quaternion();
 		}
@@ -766,10 +763,10 @@ public:
 	}
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocity")
-	FVector_NetQuantize ConstantLinearVelocity = FVector(0);
+	FVector ConstantLinearVelocity = FVector(0);
 
 	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "Velocity")
-	FVector_NetQuantize InstantLinearVelocity = FVector(0);
+	FVector InstantLinearVelocity = FVector(0);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocity")
 	FQuat Rotation = FQuat(0);
@@ -1089,10 +1086,10 @@ public:
 	//Velocities *************************************************************************************
 
 	/// <summary>
-	/// The velocities component, containing both velocities and accelerations at the initial position
+	/// The linear velocity of the component.
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-	FVelocity Velocities;
+	FVector_NetQuantize100 LinearVelocity;
 
 
 	//Transform *************************************************************************************
@@ -1101,13 +1098,13 @@ public:
 	/// The position.
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	FVector_NetQuantize Location;
+	FVector_NetQuantize100 Location;
 
 	/// <summary>
 	/// The rotation.
 	/// </summary>
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	//	FQuat Rotation;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
+	FVector_NetQuantize Rotation;
 
 
 	//Surfaces *************************************************************************************
@@ -1125,28 +1122,29 @@ public:
 	/// The state index
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int StateIndex = -1;
+	int32 StateIndex = -1;
 
 	/// <summary>
 	/// The current state's flag, often used as binary. to relay this behaviour's state over the network. Can be used for things like behaviour phase.
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Behaviours")
-	int StateFlag = 0;
+	int32 StateFlag = 0;
 
 	/// <summary>
 	/// The initial actions indexes. is used as binary representing indexes on an array
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int ActionsIndexes_BinaryRepresentation;
+	int32 ActionsIndexes_BinaryRepresentation;
 
 public:
 
 	//Copy from a kinematic move
 	FORCEINLINE void FromKinematicMove(const FKinematicInfos& move)
 	{
-		Velocities = move.FinalVelocities;
-		Location = move.InitialTransform.GetLocation();
-		//Rotation = move.InitialTransform.GetRotation();
+		LinearVelocity = move.FinalVelocities.ConstantLinearVelocity;
+		Location = move.FinalTransform.GetLocation();
+		const FRotator rotator = move.FinalTransform.GetRotation().Rotator();
+		Rotation = FVector_NetQuantize(rotator.Pitch, rotator.Yaw, rotator.Roll);
 		//Surface.FromSurface(move.InitialSurface);
 		StateFlag = move.FinalStateFlag;
 		StateIndex = move.FinalStateIndex;
@@ -1156,11 +1154,11 @@ public:
 	//Restore kinematic move
 	FORCEINLINE void ToKinematicMove(FKinematicInfos& move, bool rotationToAngularRot = false)
 	{
-		move.FinalVelocities = Velocities;
-		FQuat endRotation = Velocities.Rotation;
+		move.InitialVelocities.ConstantLinearVelocity = LinearVelocity;
+		FQuat endRotation = Rotation.Rotation().Quaternion();
 		if (rotationToAngularRot)
 		{
-			move.FinalVelocities.Rotation = endRotation;
+			move.InitialVelocities.Rotation = endRotation;
 		}
 		move.InitialTransform.SetComponents(endRotation, Location, FVector::One());
 		//Surface.ToSurface(move.InitialSurface);
@@ -1287,6 +1285,23 @@ public:
 		return ret;
 	}
 
+	UFUNCTION(BlueprintCallable, Category = "FInputEntry")
+	static FVector GetAxisRelativeDirection(FVector2D input, FTransform transformRelative, FVector planeNormal)
+	{
+		FVector direction = FVector(0);
+		FVector fwd = transformRelative.GetRotation().GetForwardVector();
+		FVector rht = transformRelative.GetRotation().GetRightVector();
+		if (planeNormal.Length() > 0 && planeNormal.Normalize())
+		{
+			fwd = FVector::VectorPlaneProject(fwd, planeNormal).GetSafeNormal();
+			rht = FVector::VectorPlaneProject(rht, planeNormal).GetSafeNormal();
+		}
+		const FVector compositeRhs = rht * input.X;
+		const FVector compositeFwd = fwd * input.Y;
+		direction = compositeFwd + compositeRhs;
+		return  direction;
+	}
+
 	UFUNCTION(BlueprintCallable, Category = "FInputEntryPool")
 	static bool ListenInput(FInputEntryPool input, FInputEntryPool& output, FName key, FInputEntry entry)
 	{
@@ -1385,7 +1400,7 @@ public:
 		FVector forward = FVector::CrossProduct(right, up);
 		FVector::CreateOrthonormalBasis(forward, right, up);
 		FVector hitPoint = MyStructRef.ImpactPoint + up * 0.01;
-		if (showAxis) 
+		if (showAxis)
 		{
 			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + up * radius, (radius * 0.25), FColor::Blue, duration, thickness);
 			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + forward * (radius * 0.5), (radius * 0.25), FColor::Red, duration, thickness);

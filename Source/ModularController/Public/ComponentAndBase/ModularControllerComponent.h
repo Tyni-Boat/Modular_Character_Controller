@@ -151,10 +151,34 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
 	void ListenInput(const FName key, const FInputEntry entry);
 
+	// Lister to user input button and Add input to the inputs pool
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	void ListenButtonInput(const FName key, const float buttonBufferTime = 0);
+
+	// Lister to user input value and Add input to the inputs pool
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	void ListenValueInput(const FName key, const float value);
+
+	// Lister to user input axis and Add input to the inputs pool
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	void ListenAxisInput(const FName key, const FVector axis);
+
 
 	// Read an input from the pool
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
 	FInputEntry ReadInput(const FName key) const;
+
+	// Read an input from the pool
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	bool ReadButtonInput(const FName key) const;
+
+	// Read an input from the pool
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	float ReadValueInput(const FName key) const;
+
+	// Read an input from the pool
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	FVector ReadAxisInput(const FName key) const;
 
 
 #pragma endregion
@@ -175,17 +199,9 @@ private:
 	
 public:
 
-	// The distance of the client from the server position to make a correction on client
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-	float CorrectionDistance = 50;
-
 	// The speed the client adjust his position to match the server's. negative values instantly match position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
 	float AdjustmentSpeed = 10;
-
-	// The maximum size of client's move history buffer
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-	int MaxClientHistoryBufferSize = 500;
 
 
 	// Used to replicate some properties.
@@ -337,6 +353,7 @@ public:
 
 
 	// Get the controller Gravity
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
 	FORCEINLINE FVector GetGravity() const
 	{
 		return _gravityVector;
@@ -344,12 +361,14 @@ public:
 
 
 	// Get the controller Gravity
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
 	FORCEINLINE void SetGravity(FVector gravity)
 	{
 		_gravityVector = gravity;
 	}
 
 	// Get the controller Gravity's Direction
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
 	FORCEINLINE FVector GetGravityDirection() const
 	{
 		return _gravityVector.GetSafeNormal();
@@ -357,6 +376,7 @@ public:
 
 
 	// Get the controller Gravity's Scale
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
 	FORCEINLINE float GetGravityScale() const
 	{
 		return _gravityVector.Length();
@@ -365,6 +385,7 @@ public:
 
 
 	// Get the controller Mass
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
 	FORCEINLINE float GetMass() const
 	{
 		return (Mass < 0 && UpdatedPrimitive != nullptr && UpdatedPrimitive->IsSimulatingPhysics()) ? UpdatedPrimitive->GetMass() : FMath::Clamp(Mass, 1, 9999999);
@@ -778,7 +799,7 @@ public:
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	bool ComponentTraceCastSingleByInflation(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, ECollisionChannel channel = ECC_Visibility);
+	bool ComponentTraceCastSingleByInflation(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, ECollisionChannel channel = ECC_Visibility, bool dontOffsetLocation = false);
 
 
 	/// <summary>

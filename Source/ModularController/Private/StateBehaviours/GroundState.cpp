@@ -256,7 +256,7 @@ bool UGroundState::CheckSurface(const FKinematicInfos& inDatas, const FInputEntr
 
 		//Surface movement tracking
 		{
-			SurfaceInfos.UpdateSurfaceInfos(inDatas.GetActor(), selectedSurface, inDelta);
+			SurfaceInfos.UpdateSurfaceInfos(inDatas.InitialTransform, selectedSurface, inDelta);
 		}
 
 		//Snapping

@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "1.2",
+	"VersionName": "1.3",
 	"FriendlyName": "ModularController",
 	"Description": "Multi Player Ready Modular pawn controller plugin. Locomotion system, climbing system, Swimming, Parkour, Etc... Everything fits In.",
 	"Category": "Code Plugins",
@@ -10,7 +10,7 @@
 	"DocsURL": "https://docs.google.com/document/d/1faQDxDzlVzILNH4GQX17VY6aLewVUYJ-yJywp_Pxobs/edit?usp=sharing",
 	"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/3c3dcff534cc4113bd6894dc27a42fb9",
 	"SupportURL": "tinyboat237@gmail.com",
-	"CanContainContent": true,
+	"CanContainContent": false,
 	"IsBetaVersion": false,
 	"IsExperimentalVersion": false,
 	"Installed": false,
