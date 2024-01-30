@@ -61,12 +61,12 @@ enum ERootMotionType
 /// The ground state
 /// </summary>
 UENUM(BlueprintType)
-enum EGroundStateMode
+enum EGroundLocomotionMode
 {
-	GroundStateMode_No_Ground,
-	GroundStateMode_StableGround,
-	GroundStateMode_SlidingSurface,
-	GroundStateMode_StairCases,
+	Jogging,
+	Sprinting,
+	Crouching,
+	Crawling,
 };
 
 

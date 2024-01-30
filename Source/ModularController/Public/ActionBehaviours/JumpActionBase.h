@@ -21,7 +21,7 @@ protected:
 	/// The behaviour key name
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base") 
-		FName BehaviourName = "JumpingState";
+		FName BehaviourName = "JumpingAction";
 
 	/// <summary>
 	/// The behaviour priority
@@ -37,6 +37,12 @@ protected:
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main") 
 		FName JumpInputCommand;
+
+	/// <summary>
+	/// Consume the jump input?
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main") 
+		bool bConsumeJumpInput = true;
 
 	/// <summary>
 	/// The number of jumps it's possible to do
@@ -74,7 +80,7 @@ public:
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-	virtual bool CheckJump(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, const float inDelta);
+	virtual bool CheckJump(const FKinematicInfos& inDatas, FInputEntryPool& inputs, const float inDelta);
 
 	/// <summary>
 	/// Check if we are jumping
@@ -86,7 +92,6 @@ public:
 	/// <summary>
 	/// Check if we can jump
 	/// </summary>
-	/// <param name="controller"></param>
 	/// <returns></returns>
 	FORCEINLINE bool CanJump() { return !IsJUmping() && _jumpCount < MaxJumpCount; }
 
@@ -200,13 +205,13 @@ public:
 
 	void ActionIdle_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
 
 	virtual FVelocity OnActionProcess_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
 
 	virtual	void OnActionRepeat_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual	void OnStateChanged_Implementation(UBaseState* newState, UBaseState* oldState) override;
+	virtual	void OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState) override;
 
 	virtual void OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
 

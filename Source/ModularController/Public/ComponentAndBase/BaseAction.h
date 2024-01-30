@@ -8,7 +8,7 @@
 #endif
 #ifndef BASE_STATE
 #define BASE_STATE
-#include "BaseState.h"
+#include "BaseControllerState.h"
 #endif
 #include "Structs.h"
 #include "Engine/DataAsset.h"
@@ -93,7 +93,7 @@ public:
 	/// Check if the action is Valid
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-		bool CheckAction(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta);
+		bool CheckAction(const FKinematicInfos& inDatas, FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta);
 
 	/// <summary>
 	/// When we enters the action behaviour.
@@ -131,12 +131,20 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
 		bool CheckCanRepeat(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta);
 
+
+	UFUNCTION(BlueprintGetter, Category="Action|Base Events")
+	FORCEINLINE bool IsWaitingMontage() const
+	{
+		return _isWaitingMontage;
+	}
+
+
 	/// <summary>
 	/// Notify actions when a state change. whether the action is active or not.
 	/// </summary>
 	/// <returns></returns>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-		void OnStateChanged(UBaseState* newState, UBaseState* oldState);
+		void OnStateChanged(UBaseControllerState* newState, UBaseControllerState* oldState);
 
 
 	/// <summary>
@@ -206,7 +214,7 @@ public:
 	/// <summary>
 	/// Check if the action is Valid
 	/// </summary>
-	virtual	bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta);
+	virtual	bool CheckAction_Implementation(const FKinematicInfos& inDatas, FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta);
 
 	/// <summary>
 	/// When we enters the action behaviour.
@@ -241,7 +249,7 @@ public:
 	/// <summary>
 	/// Notify the action when a state changes.
 	/// </summary>
-	virtual void OnStateChanged_Implementation(UBaseState* newState, UBaseState* oldState);
+	virtual void OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState);
 
 	/// <summary>
 	/// Initialize action values and play montage
@@ -300,5 +308,7 @@ protected:
 	bool isActionActive;
 
 	bool isWaitingDisposal;
+
+	bool _isWaitingMontage;
 
 };

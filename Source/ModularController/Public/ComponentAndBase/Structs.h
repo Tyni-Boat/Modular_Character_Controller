@@ -7,6 +7,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/MovementComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Structs.generated.h"
 
@@ -188,6 +189,12 @@ public:
 		return result;
 	}
 
+	FORCEINLINE bool IsActiveButton() const
+	{
+		if (Nature != EInputEntryNature::InputEntryNature_Button)
+			return false;
+		return Phase == InputEntryPhase_Pressed || Phase == InputEntryPhase_Held;
+	}
 };
 
 
@@ -309,7 +316,7 @@ public:
 				entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
 			}
 		}
-		if (_inputPool.Contains(key))
+		else if (_inputPool.Contains(key))
 		{
 			entry.Nature = _inputPool[key].Nature;
 			entry.Type = _inputPool[key].Type;
@@ -341,7 +348,7 @@ public:
 		entry = ReadInput(key);
 		if (_inputPool_last.Contains(key))
 			_inputPool_last.Remove(key);
-		else if (_inputPool.Contains(key))
+		if (_inputPool.Contains(key))
 			_inputPool.Remove(key);
 		return entry;
 	}
@@ -349,7 +356,7 @@ public:
 	/// <summary>
 	/// Update the inputs pool
 	/// </summary>
-	FORCEINLINE void UpdateInputs(float delta)
+	FORCEINLINE void UpdateInputs(float delta, bool debug = false)
 	{
 		//New commers
 		for (auto& entry : _inputPool)
@@ -379,6 +386,12 @@ public:
 				_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Released;
 				if (_inputPool_last[entry.Key].IsObsolete(delta))
 					toRemove.Add(entry.Key);
+
+				if (debug)
+				{
+					float bufferChrono = _inputPool_last[entry.Key]._bufferChrono;
+					GEngine->AddOnScreenDebugMessage((int)entry.Key.GetStringLength(), 0, FColor::White, FString::Printf(TEXT("Input: %s, Nature: %s, Phase: %s buffer: %d"), *entry.Key.ToString(), *UEnum::GetValueAsName<EInputEntryNature>(_inputPool_last[entry.Key].Nature).ToString(), *UEnum::GetValueAsName<EInputEntryPhase>(_inputPool_last[entry.Key].Phase).ToString(), static_cast<int>(bufferChrono * 1000)));
+				}
 			}
 		}
 
@@ -746,6 +759,61 @@ public:
 
 #pragma region MovementInfosAndReplication
 
+
+
+/// <summary>
+/// PreProcessed information defining how a state or action will behave on process.
+/// </summary>
+USTRUCT(BlueprintType)
+struct FMovePreprocessParams
+{
+	GENERATED_BODY()
+
+public:
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector_NetQuantize10 NetMoveVector = FVector(0);
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int StateFlag = 0;
+
+
+	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite)
+	FVector MoveVector = FVector(0);
+
+	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite)
+	FQuat RotationDiff = FQuat::Identity;
+
+	FORCEINLINE void SetLookDiff(FQuat initialLook, FQuat targetLook)
+	{
+		auto currentQuat = initialLook;
+		currentQuat.EnforceShortestArcWith(targetLook);
+		auto quatDiff = currentQuat.Inverse() * targetLook;
+		RotationDiff = quatDiff;
+	}
+
+
+	FORCEINLINE void Serialize()
+	{
+		NetMoveVector = MoveVector;
+	}
+
+	FORCEINLINE void Deserialize()
+	{
+		MoveVector = NetMoveVector;
+	}
+
+	FORCEINLINE bool ParamChanged(FMovePreprocessParams other, float maxAllowedDifference = 1)
+	{
+		if((MoveVector - other.MoveVector).Length() > maxAllowedDifference)
+			return true;
+		if(StateFlag != other.StateFlag)
+			return true;
+		return false;
+	}
+};
+
+
 //*
 //* InitialVelocities informations
 //*
@@ -1074,98 +1142,66 @@ public:
 
 
 /// <summary>
-/// Designed to transmit movement over the network
+/// The Object the client send to the server in order to be checked.
 /// </summary>
 USTRUCT(BlueprintType)
-struct FNetKinematicMoveInfos
+struct FClientMoveRequest
 {
 	GENERATED_BODY()
 
 public:
 
-	//Velocities *************************************************************************************
+	FORCEINLINE FClientMoveRequest(){}
 
-	/// <summary>
-	/// The linear velocity of the component.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-	FVector_NetQuantize100 LinearVelocity;
-
-
-	//Transform *************************************************************************************
-
-	/// <summary>
-	/// The position.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	FVector_NetQuantize100 Location;
-
-	/// <summary>
-	/// The rotation.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	FVector_NetQuantize Rotation;
-
-
-	//Surfaces *************************************************************************************
-
-	/// <summary>
-	/// The surface
-	/// </summary>
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Surfaces")
-	//	FNetSurfaceInfos Surface;
-
-
-	//State and Actions *************************************************************************************
-
-	/// <summary>
-	/// The state index
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int32 StateIndex = -1;
-
-	/// <summary>
-	/// The current state's flag, often used as binary. to relay this behaviour's state over the network. Can be used for things like behaviour phase.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Behaviours")
-	int32 StateFlag = 0;
-
-	/// <summary>
-	/// The initial actions indexes. is used as binary representing indexes on an array
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int32 ActionsIndexes_BinaryRepresentation;
-
-public:
-
-	//Copy from a kinematic move
-	FORCEINLINE void FromKinematicMove(const FKinematicInfos& move)
+	FORCEINLINE FClientMoveRequest(FKinematicInfos kinematicInfos, FMovePreprocessParams stateParams, double timeStamp, float deltaTime)
 	{
-		LinearVelocity = move.FinalVelocities.ConstantLinearVelocity;
-		Location = move.FinalTransform.GetLocation();
-		const FRotator rotator = move.FinalTransform.GetRotation().Rotator();
-		Rotation = FVector_NetQuantize(rotator.Pitch, rotator.Yaw, rotator.Roll);
-		//Surface.FromSurface(move.InitialSurface);
-		StateFlag = move.FinalStateFlag;
-		StateIndex = move.FinalStateIndex;
-		ActionsIndexes_BinaryRepresentation = FMathExtension::BoolArrayToInt(FMathExtension::IndexesToBoolArray(move.FinalActionsIndexes));
+		StateParams = stateParams;
+		TimeStamp = timeStamp;
+		DeltaTime = deltaTime;
+		FromLocation = kinematicInfos.InitialTransform.GetLocation();
+		ToLocation = kinematicInfos.FinalTransform.GetLocation();
+		FromRotation = kinematicInfos.InitialTransform.Rotator();
+		ToRotation = kinematicInfos.FinalTransform.Rotator();
+		ToVelocity = kinematicInfos.FinalVelocities.ConstantLinearVelocity;
+		FromVelocity = kinematicInfos.InitialVelocities.ConstantLinearVelocity;
+		FromStateIndex = kinematicInfos.InitialStateIndex;
+		ToStateIndex = kinematicInfos.FinalStateIndex;
 	}
 
-	//Restore kinematic move
-	FORCEINLINE void ToKinematicMove(FKinematicInfos& move, bool rotationToAngularRot = false)
-	{
-		move.InitialVelocities.ConstantLinearVelocity = LinearVelocity;
-		FQuat endRotation = Rotation.Rotation().Quaternion();
-		if (rotationToAngularRot)
-		{
-			move.InitialVelocities.Rotation = endRotation;
-		}
-		move.InitialTransform.SetComponents(endRotation, Location, FVector::One());
-		//Surface.ToSurface(move.InitialSurface);
-		move.FinalStateFlag = StateFlag;
-		move.FinalStateIndex = StateIndex;
-		move.FinalActionsIndexes = FMathExtension::BoolToIndexesArray(FMathExtension::IntToBoolArray(ActionsIndexes_BinaryRepresentation));
-	}
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 FromLocation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 ToLocation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 FromVelocity;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 ToVelocity;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FRotator FromRotation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FRotator ToRotation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FMovePreprocessParams StateParams;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int FromStateIndex;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int ToStateIndex;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float DeltaTime;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	double TimeStamp;
+
 };
 
 
@@ -1202,33 +1238,6 @@ public:
 	float OverrideRootMotionChrono = 0;
 };
 
-
-
-
-//*
-//* Client to server move request
-//*
-USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FSyncMoveRequest
-{
-	GENERATED_BODY()
-
-public:
-	FORCEINLINE FSyncMoveRequest()
-	{
-	}
-
-	FORCEINLINE FSyncMoveRequest(FKinematicInfos& move, FTranscodedInput inputsMade)
-	{
-		MoveInfos.FromKinematicMove(move);
-		Inputs = inputsMade;
-	}
-
-	UPROPERTY()
-	FNetKinematicMoveInfos MoveInfos;
-	UPROPERTY()
-	FTranscodedInput Inputs;
-};
 
 
 #pragma endregion
@@ -1418,6 +1427,58 @@ public:
 		if (!softObj.IsValid())
 			return nullptr;
 		return softObj.Get();
+	}
+
+	/// <summary>
+	/// Return a rotation progressivelly turned toward desired look direction
+	/// </summary>
+	/// <param name="inRotation"></param>
+	/// <param name="rotAxis"></param>
+	/// <param name="desiredLookDirection"></param>
+	/// <param name="rotationSpeed"></param>
+	/// <param name="deltaTime"></param>
+	/// <returns></returns>
+	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
+	static FQuat GetProgressiveRotation(const FQuat inRotation, const FVector rotAxis, const FVector desiredLookDirection, const float rotationSpeed, const float deltaTime)
+	{
+		FVector fwd = desiredLookDirection;
+		FVector up = rotAxis;
+		if (!fwd.Normalize())
+			return inRotation;
+		if (!up.Normalize())
+			return inRotation;
+		fwd = FVector::VectorPlaneProject(fwd, up);
+		if (FVector::DotProduct(fwd.GetSafeNormal(), inRotation.Vector().GetSafeNormal()) <= -0.98f)
+		{
+			const FVector rgt = FVector::CrossProduct(up, fwd).GetSafeNormal();
+			fwd += rgt * 0.1f;
+		}
+		fwd.Normalize();
+		const FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
+		const FQuat rotation = FQuat::Slerp(inRotation, fwdRot, FMath::Clamp(deltaTime * rotationSpeed, 0, 1));
+		return rotation;
+	}
+
+	/// <summary>
+	/// Linear interpolate a vector toward another with constant acceleration.
+	/// </summary>
+	/// <param name="fromVelocity"></param>
+	/// <param name="toVelocity"></param>
+	/// <param name="withAcceleration"></param>
+	/// <param name="deltaTime"></param>
+	/// <returns></returns>
+	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
+	static FVector AccelerateTo(const FVector fromVelocity, const FVector toVelocity, const float withAcceleration, const float deltaTime)
+	{
+		float trueAcceleration = withAcceleration;
+		if (toVelocity.SquaredLength() > fromVelocity.SquaredLength())
+			trueAcceleration = 1 / ((toVelocity.Length() * 0.01f) / withAcceleration);
+		else if (toVelocity.SquaredLength() <= fromVelocity.SquaredLength())
+			trueAcceleration = 1 / ((fromVelocity.Length() * 0.01f) / withAcceleration);
+		else
+			trueAcceleration = 0;
+		const FVector endVel = FMath::Lerp(fromVelocity, toVelocity, FMath::Clamp(deltaTime * trueAcceleration, 0, 1));
+		return  endVel;
 	}
 
 };

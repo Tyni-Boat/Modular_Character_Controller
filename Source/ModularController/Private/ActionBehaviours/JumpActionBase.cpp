@@ -15,7 +15,7 @@
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-bool UJumpActionBase::CheckJump(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, const float inDelta)
+bool UJumpActionBase::CheckJump(const FKinematicInfos& inDatas, FInputEntryPool& inputs, const float inDelta)
 {
 	if (IsJUmping())
 		return false;
@@ -34,6 +34,10 @@ bool UJumpActionBase::CheckJump(const FKinematicInfos& inDatas, const FInputEntr
 
 	if (CanJump() && inputs.ReadInput(JumpInputCommand).Phase == EInputEntryPhase::InputEntryPhase_Pressed)
 	{
+		if (bConsumeJumpInput)
+		{
+			inputs.ConsumeInput(JumpInputCommand);
+		}
 		_jumpSurfaceNormal = FVector::VectorPlaneProject(inDatas.InitialSurface.GetSurfaceNormal(), inDatas.Gravity.GetSafeNormal());
 		_jumpForce = Jump(inDatas, inputs, inDelta);
 		if (_jumpForce.Length() > 0)
@@ -43,9 +47,16 @@ bool UJumpActionBase::CheckJump(const FKinematicInfos& inDatas, const FInputEntr
 			_haveSwitchedSurfaceDuringJump = _jumpCount > 1;
 			return true;
 		}
+		else
+		{
+			return false;
+		}
+	}
+	else
+	{
+		return false;
 	}
 
-	return false;
 }
 
 #pragma endregion
@@ -102,7 +113,7 @@ FVector UJumpActionBase::Jump(const FKinematicInfos& inDatas, const FInputEntryP
 	//Momentum splitting
 	FVector vertMomentum = (inDatas.FinalSurface.GetSurfaceLinearVelocity() / inDelta).ProjectOnToNormal(gravityDir);
 	FVector horiMomentum = FVector::VectorPlaneProject(inDatas.FinalSurface.GetSurfaceLinearVelocity() / inDelta, gravityDir);
-	
+
 	if (inDatas.GetInitialMomentum().Length() > 0)
 	{
 		vertMomentum = inDatas.GetInitialMomentum().ProjectOnToNormal(gravityDir);
@@ -110,7 +121,7 @@ FVector UJumpActionBase::Jump(const FKinematicInfos& inDatas, const FInputEntryP
 		horiMomentum += _jumpCount <= 0 ? planedMomentum : dir * FMath::Max(planedMomentum.Length() * FMath::Clamp(FVector::DotProduct(dir, planedMomentum), 0, 1), Vox);
 	}
 
-	FVector jumpForce = (-gravityDir * Voy) + (_jumpCount <= 0? vertMomentum : FVector(0)) + (UseMomentum ? horiMomentum : (dir * Vox * 1));
+	FVector jumpForce = (-gravityDir * Voy) + (_jumpCount <= 0 ? vertMomentum : FVector(0)) + (UseMomentum ? horiMomentum : (dir * Vox * 1));
 	if (jumpForce.Length() > 0)
 	{
 		JumpStart();
@@ -178,7 +189,7 @@ void UJumpActionBase::ActionIdle_Implementation(const FKinematicInfos& inDatas, 
 {
 }
 
-bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas, FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
 {
 	return CheckJump(inDatas, inputs, inDelta);
 }
@@ -187,7 +198,7 @@ FVelocity UJumpActionBase::OnActionProcess_Implementation(const FKinematicInfos&
 {
 	FVelocity move = inDatas.InitialVelocities;
 	move.InstantLinearVelocity = FVector(0);
-	
+
 	//Handle rotation
 	{
 		FVector up = -inDatas.Gravity.GetSafeNormal();
@@ -197,7 +208,7 @@ FVelocity UJumpActionBase::OnActionProcess_Implementation(const FKinematicInfos&
 		if (fwd.Length() > 1 && fwd.Normalize())
 		{
 			FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
-			FQuat rotation = _justJumps? fwdRot : FQuat::Slerp(inDatas.InitialTransform.GetRotation(), fwdRot, FMath::Clamp(inDelta * TurnTowardDirectionSpeed, 0, 1));
+			FQuat rotation = _justJumps ? fwdRot : FQuat::Slerp(inDatas.InitialTransform.GetRotation(), fwdRot, FMath::Clamp(inDelta * TurnTowardDirectionSpeed, 0, 1));
 			move.Rotation = rotation;
 		}
 	}
@@ -222,7 +233,7 @@ void UJumpActionBase::OnActionRepeat_Implementation(const FKinematicInfos& inDat
 
 }
 
-void UJumpActionBase::OnStateChanged_Implementation(UBaseState* newState, UBaseState* oldState)
+void UJumpActionBase::OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState)
 {
 	FName stateName = newState != nullptr ? newState->GetDescriptionName() : "";
 

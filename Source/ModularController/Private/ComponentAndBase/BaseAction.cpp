@@ -5,7 +5,7 @@
 #include "Animation/AnimMontage.h"
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
-#include "ComponentAndBase/BaseState.h"
+#include "ComponentAndBase/BaseControllerState.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
 
@@ -25,7 +25,7 @@ void UBaseAction::ActionIdle_Implementation(const FKinematicInfos& inDatas, cons
 
 }
 
-bool UBaseAction::CheckAction_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+bool UBaseAction::CheckAction_Implementation(const FKinematicInfos& inDatas, FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
 {
 	return false;
 }
@@ -57,7 +57,7 @@ bool UBaseAction::CheckCanRepeat_Implementation(const FKinematicInfos& inDatas, 
 	return false;
 }
 
-void UBaseAction::OnStateChanged_Implementation(UBaseState* newState, UBaseState* oldState)
+void UBaseAction::OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState)
 {
 
 }
@@ -68,15 +68,12 @@ TSoftObjectPtr<UAnimInstance> UBaseAction::OnEnterInner(UModularControllerCompon
 	if (controller == nullptr)
 		return nullptr;
 
-	if (Montage.Montage != nullptr)
+	const USkeletalMeshComponent* mesh = controller->GetSkeletalMesh();
+	if (mesh && Montage.Montage != nullptr)
 	{
-		const USkeletalMeshComponent* mesh = controller->GetSkeletalMesh();
-		if (mesh == nullptr)
-			return nullptr;
-
 		if (ShouldPlayOnStateAnimGraph)
 		{
-			const UBaseState* state = controller->GetCurrentStateBehaviour();
+			const UBaseControllerState* state = controller->GetCurrentStateBehaviour();
 			if (state == nullptr)
 				return nullptr;
 			if (state->StateBlueprintClass == nullptr)
@@ -94,6 +91,7 @@ TSoftObjectPtr<UAnimInstance> UBaseAction::OnEnterInner(UModularControllerCompon
 
 	}
 
+	_isWaitingMontage = false;
 	_actionTimer = Duration;
 	opDone = true;
 	isActionActive = true;
@@ -104,16 +102,24 @@ TSoftObjectPtr<UAnimInstance> UBaseAction::OnEnterInner(UModularControllerCompon
 void UBaseAction::OnEnterInner_PartTwo(UAnimInstance* animInstance, bool& success, bool asSimulation)
 {
 	if (animInstance == nullptr)
+	{
+		_isWaitingMontage = false;
 		return;
+	}
 	const float duration = animInstance->Montage_Play(Montage.Montage, 1, EMontagePlayReturnType::Duration);
 	if (duration <= 0)
+	{
+		_isWaitingMontage = false;
 		return;
+	}
+
 	if (!Montage.MontageSection.IsNone())
 	{
 		//Jumps to a section
 		animInstance->Montage_JumpToSection(Montage.MontageSection, Montage.Montage);
 	}
 
+	_isWaitingMontage = true;
 	_actionTimer = duration;
 	success = true;
 	isActionActive = true;
@@ -133,7 +139,7 @@ void UBaseAction::OnExitInner(bool disposeLater)
 
 void UBaseAction::ActiveActionUpdate(float inDelta)
 {
-	if (Montage.Montage == nullptr && _actionTimer > 0)
+	if ((Montage.Montage == nullptr || !_isWaitingMontage) && _actionTimer > 0)
 	{
 		_actionTimer -= inDelta;
 	}
@@ -151,7 +157,7 @@ void UBaseAction::PassiveActionUpdate(float inDelta)
 
 bool UBaseAction::IsActionCompleted(bool asSimulation) const
 {
-	if (Montage.Montage != nullptr && _actionTimer > 0 && !asSimulation)
+	if (_isWaitingMontage && Montage.Montage != nullptr && _actionTimer > 0 && !asSimulation)
 		return false;
 	return _actionTimer <= 0;
 }

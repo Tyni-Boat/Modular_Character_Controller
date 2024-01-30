@@ -8,21 +8,18 @@
 #pragma region Air Velocity and Checks
 
 
-FVector UFreeFallState::AirControl(FVector inputAxis, FVector horizontalVelocity, float delta)
+FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVelocity, float delta)
 {
-	FVector inputMove = inputAxis.GetSafeNormal();
-	if (inputMove.Length() > 0)
+	if (desiredMove.Length() > 0)
 	{
-		FVector planarInput = FVector::VectorPlaneProject(inputMove, horizontalVelocity.GetSafeNormal());
-		float dotProduct = FVector::DotProduct(inputMove.GetSafeNormal(), horizontalVelocity.GetSafeNormal());
-		if (dotProduct >= 0)
+		FVector resultingVector = horizontalVelocity + desiredMove * delta;
+		if (resultingVector.Length() > AirControlSpeed)
 		{
-			return horizontalVelocity + planarInput * AirControlSpeed * delta * AirControlAcceleration;
+			const float maxAllowedAdd = AirControlSpeed - horizontalVelocity.Length();
+			resultingVector = horizontalVelocity + (maxAllowedAdd > 0 ? desiredMove.GetSafeNormal() * maxAllowedAdd : FVector(0));
+			return resultingVector;
 		}
-		else
-		{
-			return FMath::Lerp(horizontalVelocity, inputMove * AirControlSpeed, delta * AirControlAcceleration);
-		}
+		return resultingVector;
 	}
 	return horizontalVelocity;
 }
@@ -31,28 +28,17 @@ FVector UFreeFallState::AirControl(FVector inputAxis, FVector horizontalVelocity
 FVector UFreeFallState::AddGravity(FVector verticalVelocity, float delta)
 {
 	FVector gravity = FVector(0);
-	gravity = _gravity * delta + verticalVelocity;
+	if (const bool isCurrentlyFalling = FVector::DotProduct(verticalVelocity, _gravity) >= 0)
+	{
+		const float terminalDiff = TerminalVelocity - verticalVelocity.Length();
+		gravity = verticalVelocity + _gravity * delta * FMath::Sign(terminalDiff);
+	}
+	else
+	{
+		gravity = _gravity * delta + verticalVelocity;
+	}
 	_airTime += delta;
 	return gravity;
-}
-
-
-void UFreeFallState::CheckGroundDistance(UModularControllerComponent* controller, const FVector inLocation, const FQuat inQuat)
-{
-	_groundDistance = MaxGroundDistDetection;
-
-	if (controller == nullptr)
-		return;
-
-	FVector direction = controller->GetGravityDirection();
-	FVector startPt = inLocation;
-	FVector foots = controller->PointOnShape(direction, inLocation);
-	float offset = (startPt - foots).Length();
-	FHitResult selectedSurface;
-	if (controller->ComponentTraceCastSingle(selectedSurface, startPt, direction * MaxGroundDistDetection, inQuat))
-	{
-		_groundDistance = selectedSurface.Distance - offset;
-	}
 }
 
 
@@ -74,14 +60,6 @@ FName UFreeFallState::GetDescriptionName_Implementation()
 }
 
 
-void UFreeFallState::StateIdle_Implementation(UModularControllerComponent* controller, const float inDelta)
-{
-	if (controller == nullptr)
-		return;
-	_gravity = Gravity;
-	controller->SetGravity(_gravity);
-	CheckGroundDistance(controller, controller->GetLocation(), controller->GetRotation());
-}
 
 
 bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
@@ -92,15 +70,32 @@ bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, c
 
 void UFreeFallState::OnEnterState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
 {
+	_gravity = Gravity;
+	if (controller)
+		controller->SetGravity(_gravity, this);
 	_airTime = 0;
 }
 
+FMovePreprocessParams UFreeFallState::PreProcessState_Implementation(const FKinematicInfos& inDatas,
+	const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+{
+	FMovePreprocessParams params;
+	FVector inputAxis = inputs.ReadInput(MovementInputName).Axis.GetSafeNormal();
+	if (inputAxis.Normalize())
+	{
+		const FVector planarInput = FVector::VectorPlaneProject(inputAxis, Gravity.GetSafeNormal());
+		const FVector resultingVector = planarInput * AirControlSpeed;
+		params.MoveVector = resultingVector;
+	}
+	params.StateFlag = 0;
+	return params;
+}
 
-FVelocity UFreeFallState::ProcessState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+FVelocity UFreeFallState::ProcessState_Implementation(const FKinematicInfos& inDatas,
+	const FMovePreprocessParams params, UModularControllerComponent* controller, const float inDelta)
 {
 	FVector hori = FVector(0);
 	FVector vert = FVector(0);
-	FVector inputAxis = inputs.ReadInput(MovementInputName).Axis.GetSafeNormal();
 	FVelocity move = FVelocity();
 	move.Rotation = inDatas.InitialTransform.GetRotation();
 
@@ -109,20 +104,18 @@ FVelocity UFreeFallState::ProcessState_Implementation(const FKinematicInfos& inD
 		hori = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), inDatas.Gravity.GetSafeNormal());
 		vert = inDatas.GetInitialMomentum().ProjectOnToNormal(inDatas.Gravity.GetSafeNormal());
 	}
-	FVector vector = FVector(0);
-	vector = AirControl(inputAxis, hori, inDelta);
-	if (inputAxis.SquaredLength() > 0)
+	FVector velocity = FVector(0);
+	if (GetWasTheLastFrameBehaviour()) 
 	{
-		inputAxis.Normalize();
-		FVector up = -inDatas.Gravity.GetSafeNormal();
-		FVector fwd = FVector::VectorPlaneProject(inputAxis, up);
-		fwd.Normalize();
-		FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
-		FQuat rotation = FQuat::Slerp(inDatas.InitialTransform.GetRotation(), fwdRot, FMath::Clamp(inDelta * AirControlRotationSpeed, 0, 1));
-		move.Rotation = rotation;
+		velocity = AirControl(params.MoveVector, hori, inDelta);
 	}
-	vector += AddGravity(vert, inDelta);
-	move.ConstantLinearVelocity = vector;
+	if (params.MoveVector.SquaredLength() > 0)
+	{
+		auto lookDir = params.MoveVector.GetSafeNormal();
+		move.Rotation = UStructExtensions::GetProgressiveRotation(inDatas.InitialTransform.GetRotation(), -inDatas.Gravity.GetSafeNormal(), lookDir, AirControlRotationSpeed, inDelta);
+	}
+	velocity += AddGravity(vert, inDelta);
+	move.ConstantLinearVelocity = velocity;
 
 	return move;
 }
@@ -134,7 +127,7 @@ void UFreeFallState::OnExitState_Implementation(const FKinematicInfos& inDatas, 
 }
 
 
-void UFreeFallState::OnBehaviourChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller)
+void UFreeFallState::OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller)
 {
 }
 

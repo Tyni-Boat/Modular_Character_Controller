@@ -25,7 +25,7 @@ public class ModularController : ModuleRules
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"Core", "Engine",
+				"Core", "Engine", "AIModule", "NavigationSystem"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);

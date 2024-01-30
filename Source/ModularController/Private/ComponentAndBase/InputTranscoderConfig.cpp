@@ -28,7 +28,7 @@ FTranscodedInput UInputTranscoderConfig::EncodeInputs(const FInputEntryPool& inp
 				WriteEncodedValue(item.Key, item.Value.Axis.X, encodedInputs);
 				break;
 			default:
-				WriteEncodedButton(item.Key, item.Value.Phase == InputEntryPhase_Pressed, encodedInputs);
+				WriteEncodedButton(item.Key, item.Value.Phase == InputEntryPhase_Pressed || item.Value.Phase == InputEntryPhase_Held, encodedInputs);
 				break;
 			}
 		}
