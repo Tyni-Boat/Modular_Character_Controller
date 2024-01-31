@@ -139,18 +139,16 @@ private:
 	//The user input pool, store and compute all user-made inputs
 	FInputEntryPool _user_inputPool;
 
+	//The history of direction the user is willing to move.
+	TArray<FVector_NetQuantize10> _userMoveDirectionHistory;
+
 public:
-
-	//The transcoder class that will be created to transmit inputs over the network
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Inputs")
-	TSubclassOf<UInputTranscoderConfig> InputTranscoderClass;
-
-	//The transcoder object instance that will be used to transmit inputs over the network
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Inputs")
-	UInputTranscoderConfig* InputTranscoder;
+	
+	// Input a direction in wich to move the controller
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	void MovementInput(FVector movement);
 
 	// Lister to user input and Add input to the inputs pool
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
 	void ListenInput(const FName key, const FInputEntry entry);
 
 	// Lister to user input button and Add input to the inputs pool
@@ -166,21 +164,24 @@ public:
 	void ListenAxisInput(const FName key, const FVector axis);
 
 
-	// Read an input from the pool
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
-	FInputEntry ReadInput(const FName key) const;
+	// Consume the movement input. Movement input history will be consumed if it has 2 or more items.
+	FVector ConsumeMovementInput();
 
 	// Read an input from the pool
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
-	bool ReadButtonInput(const FName key) const;
+	FInputEntry ReadInput(const FName key, bool consume = false);
 
 	// Read an input from the pool
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
-	float ReadValueInput(const FName key) const;
+	bool ReadButtonInput(const FName key, bool consume = false);
 
 	// Read an input from the pool
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
-	FVector ReadAxisInput(const FName key) const;
+	float ReadValueInput(const FName key, bool consume = false);
+
+	// Read an input from the pool
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	FVector ReadAxisInput(const FName key, bool consume = false);
 
 
 #pragma endregion
@@ -205,15 +206,11 @@ private:
 	TKeyValuePair<double, uint32> _netMoveState;
 	TKeyValuePair<double, FVector_NetQuantize10> _netVelocity;
 	TKeyValuePair<double, FMovePreprocessParams> _netStateMoveParams;
-
-	FMovePreprocessParams _clientLastStateMoveParams;
+	
 	TArray<TKeyValuePair<double, TKeyValuePair<FVector, FTranscodedInput>>> _serverPendingRequests;
-	double _lastClientTimeStamp;
 
-	TArray<FClientMoveRequest> _clientLocationHistory;
-	TArray<FClientMoveRequest> _clientVelocityHistory;
-	TArray<FClientMoveRequest> _clientRotationHistory;
-	TArray<FClientMoveRequest> _clientStateHistory;
+	TArray<TTuple<double, FVector, FVector, FVector>> _moveInputCommands;
+	TTuple<double, FVector, FVector, FVector> _lastMoveCommand;
 
 public:
 
@@ -224,14 +221,6 @@ public:
 	// The speed the client adjust his position to match the server's. negative values instantly match position.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
 	float AdjustmentSpeed = 10;
-
-	// The max distance in cm to try interpolate corrected position.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-	float MaxLerpCorrectionDitance = 500;
-
-	// The minimum distance to apply location correction
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
-	float MinCorrectionRadius = 40;
 
 
 	// Used to replicate some properties.
@@ -251,7 +240,7 @@ public:
 protected:
 
 	// Called to Update the component logic in standAlone Mode. it's also used in other mode with parameters.
-	FKinematicInfos StandAloneUpdateComponent(FKinematicInfos& movementInfos, FInputEntryPool& usedInputPool, FMovePreprocessParams& preprocessUsed, float delta);
+	FKinematicInfos StandAloneUpdateComponent(FVector movementInput, FKinematicInfos& movementInfos, FInputEntryPool& usedInputPool, float delta);
 
 
 #pragma endregion
@@ -260,6 +249,10 @@ protected:
 #pragma region Server Logic
 
 public:
+
+	/// Replicate server's user move to clients
+	UFUNCTION(NetMulticast, Unreliable, Category = "Controllers|Network|Server To CLient|RPC")
+	void MultiCastMoveInput(FVector_NetQuantize10 userMoveInput, FVector_NetQuantize atLocation,FVector_NetQuantize withVelocity, double timeStamp);
 
 	/// Replicate server's position to all clients
 	UFUNCTION(NetMulticast, Unreliable, Category = "Controllers|Network|Server To CLient|RPC")
@@ -349,11 +342,7 @@ public:
 	//Broadcast movement to server. returns true if something was broadcast.
 	UFUNCTION(BlueprintCallable)
 	int ServerCastAllMovement(FKinematicInfos lastMove, FKinematicInfos currentMove, FMovePreprocessParams movementParams, double timeStamp);
-
-
-	//Adjust last move from history correction.
-	FKinematicInfos AdjustFromCorrection(FKinematicInfos lastMove, float delta);
-
+	
 
 protected:
 
@@ -846,13 +835,13 @@ public:
 
 	/// Move the owner in a direction. return the displacement actually made. it can be different from the input movement if collision occured.
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Movement|Events")
-	void Move(const FVector endLocation, const FQuat endRotation);
+	void Move(const FVector endLocation, const FQuat endRotation, float deltaTime);
 
 
 protected:
 
 	/// Move the owner in a direction. return the displacement actually made. it can be different from the input movement if collision occured.
-	virtual void Move_Implementation(const FVector endLocation, const FQuat endRotation);
+	virtual void Move_Implementation(const FVector endLocation, const FQuat endRotation, float deltaTime);
 
 	/// Evaluate the movement and return de velocity compounds.
 	virtual FVelocity EvaluateMove(const FKinematicInfos& inDatas, FVelocity movement, float delta);
