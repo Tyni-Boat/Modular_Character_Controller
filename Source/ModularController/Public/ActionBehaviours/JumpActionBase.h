@@ -2,32 +2,31 @@
 
 #pragma once
 #include "Animation/AnimMontage.h"
-#include "ComponentAndBase/BaseAction.h"
+#include "ComponentAndBase/BaseControllerAction.h"
 #include "JumpActionBase.generated.h"
 
 
 
-///<summary>
-/// The abstract basic state behaviour for a Modular controller.
-/// </summary>
 UCLASS(BlueprintType, Blueprintable, ClassGroup = "Controller Action Behaviours", abstract)
-class MODULARCONTROLLER_API UJumpActionBase : public UBaseAction
+class MODULARCONTROLLER_API UJumpActionBase : public UBaseControllerAction
 {
 	GENERATED_BODY()
 
 protected:
 
+	UJumpActionBase();
+
 	/// <summary>
 	/// The behaviour key name
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base") 
-		FName BehaviourName = "JumpingState";
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
+	FName BehaviourName = "JumpingAction";
 
 	/// <summary>
 	/// The behaviour priority
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base") 
-		int BehaviourPriority = 6;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
+	int BehaviourPriority = 6;
 
 #pragma region Check
 protected:
@@ -35,33 +34,21 @@ protected:
 	/// <summary>
 	/// The Name of the jump command
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main") 
-		FName JumpInputCommand;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Inputs")
+	FName JumpInputCommand;
 
 	/// <summary>
-	/// The number of jumps it's possible to do
+	/// The Name of the jump location input. this is the location where the controller will try to land. If a value is set and not used, the controller will always try to jump at zero location.
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main")
-		int MaxJumpCount;
-
-	/// <summary>
-	/// The maximum Jump height
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main") 
-		float MaxJumpHeight = 200;
-
-	/// <summary>
-	/// The maximum Jump Distance
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main") 
-		float MaxJumpDistance = 150;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Inputs")
+	FName JumpLocationInput;
 
 
 	/// <summary>
 	/// Should the controller apply force below when jumping?
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main") 
-		bool UsePhysicOnInterractions = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	bool UsePhysicOnInteractions = true;
 
 	//------------------------------------------------------------------------------------------
 
@@ -74,94 +61,101 @@ public:
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-	virtual bool CheckJump(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, const float inDelta);
-
-	/// <summary>
-	/// Check if we are jumping
-	/// </summary>
-	/// <param name="controller"></param>
-	/// <returns></returns>
-	FORCEINLINE bool IsJUmping() { return _jumpChrono > 0; }
-
-	/// <summary>
-	/// Check if we can jump
-	/// </summary>
-	/// <param name="controller"></param>
-	/// <returns></returns>
-	FORCEINLINE bool CanJump() { return !IsJUmping() && _jumpCount < MaxJumpCount; }
-
-#pragma endregion
-
-#pragma region Steering
-
-	/// <summary>
-	/// The name of the movement input
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Steering")
-		FName DirectionInputName;
-
-	/// <summary>
-	/// Rotation speed we turn toward the jump direction
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Steering") 
-		float TurnTowardDirectionSpeed = 15;
-
+	bool CheckJump(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, const float inDelta, UModularControllerComponent* controller);
+	
 #pragma endregion
 
 #pragma region Jump
 protected:
 
 	/// <summary>
-	/// The time we should rest on a surface before jumps again.
+	/// The maximum Jump height
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Params")
-		TArray<FActionMotionMontage> Montages;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	float MaxJumpHeight = 200;
 
 	/// <summary>
-	/// The time we should rest on a surface before jumps again.
+	/// The minimum distance from the ceiling for the jump to happen
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Params") 
-		float LandCoolDownTime = 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	float MinJumpHeight = 50;
+
+	/// <summary>
+	/// The maximum Jump Distance
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	float MaxJumpDistance = 150;
+	
+	/// <summary>
+	/// The delai of the propulsion of the jump.
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters", meta = (ClampMin = "0.0", UIMin = "0.0")) //Limit to only positive values; only inferior to duration
+	double JumpPropulsionDelay = 0.1;
+
+	/// <summary>
+	/// Rotation speed we turn toward the jump direction
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	float TurnTowardDirectionSpeed = 15;
+
+	/// <summary>
+	/// The array of animations to play per jump count.
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	FActionMotionMontage JumpMontage;
+
+	/// <summary>
+	/// The montage should be played on the current state's linked animation graph or on the root graph
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	bool bMontageShouldBePlayerOnStateAnimGraph;
+	
+	/// <summary>
+	/// Should the montage be used as action duration?
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	bool bUseMontageDuration;
 
 	/// <summary>
 	/// Should we use the momentum instead of jump distance?
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Params") 
-		bool UseMomentum;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	bool UseMomentum;
 
 	/// <summary>
-	/// Should we use the surface normal when no directionnal input is given?
+	/// Should we use the surface normal when no directional input is given?
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Params") 
-		bool UseSurfaceNormalOnNoDirection;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	bool UseSurfaceNormalOnNoDirection;
 
 
 	//------------------------------------------------------------------------------------------
 
-	//The chrono since the last jump
-	float _jumpChrono;
-
-	//The chrono since we landed
-	float _landChrono;
-
-	//the total number of jump in a row
-	int _jumpCount;
-
+	//The remaining time before the jump force occurs.
+	float _jumpDelayTimer;
+	float _jumpDelayTimer_saved;
+	
 	//the normal of the surface we jumped from
 	FVector _jumpSurfaceNormal;
+	FVector _jumpSurfaceNormal_saved;
 
-	//the jump force
-	FVector _jumpForce;
+	//the momentum when entered action
+	FVelocity _startMomentum;
+	FVelocity _startMomentum_saved;
 
-	//the last jump force
-	FVector _lastJumpVector;
 
-	//Detects surface switch during this jump
-	bool _haveSwitchedSurfaceDuringJump;
+	/// <summary>
+	/// The end montage delegate.
+	/// </summary>
+	FOnMontageEnded _EndDelegate;
 
-	//only active the frame the jump occurs
-	bool _justJumps;
 
+	/// <summary>
+	/// Called at the end of the montage.
+	/// </summary>
+	/// <param name="Montage"></param>
+	/// <param name="bInterrupted"></param>
+	void OnAnimationEnded(UAnimMontage* Montage, bool bInterrupted);
 
 public:
 
@@ -171,22 +165,14 @@ public:
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-	virtual FVector Jump(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, const float inDelta);
+	FVector Jump(const FKinematicInfos inDatas, FVector moveInput, const FVelocity momentum, const float inDelta, FVector customJumpLocation = FVector(NAN));
+
 
 	/// <summary>
-	/// Start a jump
+	/// Called when the propulsion occured
 	/// </summary>
-	virtual void JumpStart();
-
-	/// <summary>
-	/// Called When Jumping
-	/// </summary>
-	virtual void OnJump(const FKinematicInfos& inDatas, FVector jumpForce);
-
-	/// <summary>
-	/// Ends a jump
-	/// </summary>
-	virtual void JumpEnd(FName surfaceName);
+	UFUNCTION(BlueprintNativeEvent, category = "Jump Action|Events")
+	void OnPropulsionOccured();
 
 #pragma endregion
 
@@ -198,20 +184,24 @@ public:
 	virtual FName GetDescriptionName_Implementation() override;
 
 
-	void ActionIdle_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual FVelocity OnActionProcess_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
+		, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual FVelocity OnActionProcess_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual	void OnActionRepeat_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual	void OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState) override;
 
-	virtual	void OnStateChanged_Implementation(UBaseState* newState, UBaseState* oldState) override;
+	virtual void OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual void OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual void OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
+	virtual void SaveActionSnapShot_Internal() override;
+
+	virtual void RestoreActionFromSnapShot_Internal() override;
 
 #pragma endregion
 
-	
+
 };
+

@@ -7,6 +7,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/MovementComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Structs.generated.h"
 
@@ -34,7 +35,7 @@ public:
 		int result = 0;
 		for (int i = 0; i < arr.Num(); i++)
 		{
-			result += arr[i] << (arr.Num() - i - 1);
+			result += arr[i] * TwoPowX(i);
 		}
 		return result;
 	}
@@ -53,7 +54,7 @@ public:
 			binary_array.Add(n % 2);
 			n /= 2;
 		}
-		for (int i = 0; i < binary_array.Num(); i++)
+		for (int i = binary_array.Num() - 1; i >= 0; i--)
 			bool_array.Add(binary_array[binary_array.Num() - (i + 1)] >= 1);
 
 		return bool_array;
@@ -111,6 +112,68 @@ public:
 		for (unsigned int i = 1; i < exponent; i++)
 			result *= 10;
 		return result;
+	}
+
+	/// <summary>
+	/// Returns a power of two.
+	/// </summary>
+	/// <param name="exponent"></param>
+	/// <returns></returns>
+	FORCEINLINE static double TwoPowX(const unsigned int exponent)
+	{
+		if (exponent == 0)
+			return 1;
+		if (exponent == 1)
+			return 2;
+		double result = 2;
+		for (unsigned int i = 1; i < exponent; i++)
+			result *= 2;
+		return result;
+	}
+
+
+	/// <summary>
+	/// Debug a boolean array
+	/// </summary>
+	/// <param name="array"></param>
+	/// <returns></returns>
+	FORCEINLINE static FString DebugBoolArray(TArray<bool> array)
+	{
+		FString result = FString::Printf(TEXT("{"));
+
+		for (int i = 0; i < array.Num(); i++)
+		{
+			if (i > 0)
+				result.Append(FString::Printf(TEXT(",")));
+			result.Append(FString::Printf(TEXT("%d"), array[i]));
+		}
+
+		result.Append(FString::Printf(TEXT("}")));
+		return  result;
+	}
+
+
+	///Match two arrays to the greatest.
+	template<typename InElementType>
+	FORCEINLINE
+		static void MatchArraySizesToLargest(TArray<InElementType>& arrayA, TArray<InElementType>& arrayB)
+	{
+		if (arrayA.Num() == arrayB.Num())
+			return;
+		if (arrayA.Num() > arrayB.Num())
+		{
+			for (int i = arrayB.Num(); i < arrayA.Num(); i++)
+			{
+				arrayB.Add({});
+			}
+		}
+		else
+		{
+			for (int i = arrayA.Num(); i < arrayB.Num(); i++)
+			{
+				arrayA.Add({});
+			}
+		}
 	}
 
 };
@@ -188,55 +251,36 @@ public:
 		return result;
 	}
 
-};
-
-
-/*
-* Input entry structure for network transmissions
-*/
-USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FNetInputPair
-{
-	GENERATED_BODY()
-
-public:
-	FORCEINLINE FNetInputPair() {}
-
-	FORCEINLINE FNetInputPair(FName name, FInputEntry entry)
+	FORCEINLINE bool IsActiveButton() const
 	{
-		Key = name;
-		Value = entry;
+		if (Nature != EInputEntryNature::InputEntryNature_Button)
+			return false;
+		return Phase == InputEntryPhase_Pressed || Phase == InputEntryPhase_Held;
 	}
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inputs")
-	FName Key;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inputs")
-	FInputEntry Value;
 };
 
 
 /*
 * Represent a pack of input entry, tracking inputs. Used locally only. not intended to be used remotely
 */
-USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FInputEntryPool
+UCLASS(BlueprintType)
+class MODULARCONTROLLER_API UInputEntryPool: public UObject
 {
 	GENERATED_BODY()
 
 public:
-	FORCEINLINE FInputEntryPool() {}
+	//FORCEINLINE UInputEntryPool() {}
 
-	FORCEINLINE FInputEntryPool(const FInputEntryPool& ref)
-	{
-		_inputPool.Empty();
-		_inputPool_last.Empty();
+	//FORCEINLINE UInputEntryPool(const UInputEntryPool& ref)
+	//{
+	//	_inputPool.Empty();
+	//	_inputPool_last.Empty();
 
-		for (auto entry : ref._inputPool)
-			_inputPool.Add(entry.Key, entry.Value);
-		for (auto entry : ref._inputPool_last)
-			_inputPool_last.Add(entry.Key, entry.Value);
-	}
+	//	for (auto entry : ref._inputPool)
+	//		_inputPool.Add(entry.Key, entry.Value);
+	//	for (auto entry : ref._inputPool_last)
+	//		_inputPool_last.Add(entry.Key, entry.Value);
+	//}
 
 	//The input pool
 	TMap<FName, FInputEntry> _inputPool;
@@ -254,32 +298,10 @@ public:
 		if (key.IsNone())
 			return false;
 
-		entry.Axis = entry.Axis.GetClampedToMaxSize(1);
+		//entry.Axis = entry.Axis.GetClampedToMaxSize(1);
+		entry.Axis = entry.Axis;
 
-		if (_inputPool_last.Contains(key) && _inputPool_last[key].Type == entry.Type)
-		{
-			entry.Phase = EInputEntryPhase::InputEntryPhase_Held;
-			entry._activeDuration = _inputPool_last[key]._activeDuration;
-			entry._bufferChrono = _inputPool_last[key]._bufferChrono;
-			_inputPool_last[key] = entry;
-			if (_inputPool.Contains(key))
-				_inputPool[key] = entry;
-			else
-				_inputPool.Add(key, entry);
-			return false;
-		}
-		else if (_inputPool_last.Contains(key) && _inputPool_last[key].Type != entry.Type)
-		{
-			entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
-			entry._activeDuration = _inputPool_last[key]._activeDuration;
-			entry._bufferChrono = 0;
-			_inputPool_last[key] = entry;
-			if (_inputPool.Contains(key))
-				_inputPool[key] = entry;
-			else
-				_inputPool.Add(key, entry);
-		}
-		else if (_inputPool.Contains(key))
+		if (_inputPool.Contains(key))
 		{
 			entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
 			_inputPool[key] = entry;
@@ -295,30 +317,41 @@ public:
 	/// <summary>
 	/// Get input from the inputs pool
 	/// </summary>
-	FORCEINLINE FInputEntry ReadInput(FName key) const
+	FORCEINLINE FInputEntry ReadInput(FName key, bool debug = false, UObject* worldContext = NULL) const
 	{
 		FInputEntry entry = FInputEntry();
+		bool validInput = false;
 		if (_inputPool_last.Contains(key))
 		{
 			entry.Nature = _inputPool_last[key].Nature;
 			entry.Type = _inputPool_last[key].Type;
 			entry.Phase = _inputPool_last[key].Phase;
 			entry.Axis = _inputPool_last[key].Axis;
-			if (entry.Type == EInputEntryType::InputEntryType_Buffered && entry.Phase == EInputEntryPhase::InputEntryPhase_Released)
+			entry._bufferChrono = _inputPool_last[key]._bufferChrono;
+			entry._activeDuration = _inputPool_last[key]._activeDuration;
+			if (entry.Type == EInputEntryType::InputEntryType_Buffered && entry.Phase == EInputEntryPhase::InputEntryPhase_Released && entry._bufferChrono > 0)
 			{
 				entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
 			}
+			if (entry._activeDuration > 0.2 && entry.Phase == EInputEntryPhase::InputEntryPhase_Pressed)
+			{
+				entry.Phase = EInputEntryPhase::InputEntryPhase_Held;
+			}
+			validInput = true;
 		}
-		if (_inputPool.Contains(key))
+		else if (_inputPool.Contains(key))
 		{
 			entry.Nature = _inputPool[key].Nature;
 			entry.Type = _inputPool[key].Type;
 			entry.Phase = _inputPool[key].Phase;
 			entry.Axis = _inputPool[key].Axis;
+			entry._bufferChrono = _inputPool[key]._bufferChrono;
+			entry._activeDuration = _inputPool[key]._activeDuration;
 			if (entry.Type == EInputEntryType::InputEntryType_Buffered && entry.Phase == EInputEntryPhase::InputEntryPhase_Released)
 			{
 				entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
 			}
+			validInput = true;
 		}
 		else
 		{
@@ -327,6 +360,29 @@ public:
 			entry.Phase = EInputEntryPhase::InputEntryPhase_None;
 			entry.Axis = FVector(0);
 		}
+
+
+		if (debug && worldContext && validInput)
+		{
+			float bufferChrono = entry._bufferChrono;
+			float activeDuration = entry._activeDuration;
+			FColor debugColor;
+			switch (entry.Nature)
+			{
+			default:
+				debugColor = FColor::Silver;
+				break;
+			case InputEntryNature_Axis:
+				debugColor = FColor::Blue;
+				break;
+			case InputEntryNature_Value:
+				debugColor = FColor::Cyan;
+				break;
+			}
+			UKismetSystemLibrary::PrintString(worldContext->GetWorld(), FString::Printf(TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %d, Held: %d"), *key.ToString(), *UEnum::GetValueAsName<EInputEntryNature>(entry.Nature).ToString(), *UEnum::GetValueAsName<EInputEntryPhase>(entry.Phase).ToString(), static_cast<int>(bufferChrono * 1000)
+				, static_cast<int>(activeDuration * 1000)), true, true, debugColor, 0, key);
+		}
+
 		return entry;
 	}
 
@@ -335,13 +391,13 @@ public:
 	/// </summary>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	FORCEINLINE FInputEntry ConsumeInput(FName key)
+	FORCEINLINE FInputEntry ConsumeInput(FName key, bool debug = false, UObject* worldContext = NULL)
 	{
 		FInputEntry entry = FInputEntry();
-		entry = ReadInput(key);
+		entry = ReadInput(key, debug, worldContext);
 		if (_inputPool_last.Contains(key))
 			_inputPool_last.Remove(key);
-		else if (_inputPool.Contains(key))
+		if (_inputPool.Contains(key))
 			_inputPool.Remove(key);
 		return entry;
 	}
@@ -351,7 +407,14 @@ public:
 	/// </summary>
 	FORCEINLINE void UpdateInputs(float delta)
 	{
-		//New commers
+		//Update Existing
+		for (auto& entry : _inputPool_last)
+		{
+			if (_inputPool_last[entry.Key]._bufferChrono > 0)
+				_inputPool_last[entry.Key]._bufferChrono -= delta;
+		}
+
+		//New comers
 		for (auto& entry : _inputPool)
 		{
 			if (!_inputPool_last.Contains(entry.Key))
@@ -359,42 +422,32 @@ public:
 				auto input = entry.Value;
 				input.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
 				input._activeDuration = 0;
-				input._bufferChrono = 0;
+				input._bufferChrono = input.InputBuffer;
 				_inputPool_last.Add(entry.Key, input);
 			}
 			else
 			{
-				_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Held;
+				_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Pressed;
 				_inputPool_last[entry.Key]._activeDuration += delta;
 				_inputPool_last[entry.Key].Axis = entry.Value.Axis;
+				_inputPool_last[entry.Key]._bufferChrono = _inputPool_last[entry.Key].InputBuffer;
 			}
 		}
 
 		//Gones
-		TArray<FName> toRemove;
 		for (auto& entry : _inputPool_last)
 		{
 			if (!_inputPool.Contains(entry.Key))
 			{
 				_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Released;
-				if (_inputPool_last[entry.Key].IsObsolete(delta))
-					toRemove.Add(entry.Key);
-			}
-		}
-
-		//Remove garbage
-		for (auto& key : toRemove)
-		{
-			if (_inputPool_last.Contains(key))
-			{
-				_inputPool_last.Remove(key);
+				_inputPool_last[entry.Key]._activeDuration = 0;
 			}
 		}
 
 		_inputPool.Empty();
 	}
 
-	FORCEINLINE void PredictInputs(FInputEntryPool from, float time, float delta)
+	FORCEINLINE void PredictInputs(UInputEntryPool from, float time, float delta)
 	{
 		for (auto input : from._inputPool_last)
 		{
@@ -436,44 +489,6 @@ public:
 		}
 	}
 };
-
-
-/// <summary>
-/// Special input type only for network transmission.
-/// </summary>
-USTRUCT(BlueprintType)
-struct FNetInputs
-{
-	GENERATED_BODY()
-
-public:
-
-	//The input pool (network)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "network")
-	TArray<FNetInputPair> _inputPool_net;
-
-	FORCEINLINE void FromInputs(const FInputEntryPool& referenceInputs)
-	{
-		_inputPool_net.Empty();
-		for (auto pair : referenceInputs._inputPool_last)
-		{
-			FInputEntry entry = pair.Value;
-			entry.Axis *= 100;
-			_inputPool_net.Add(FNetInputPair(pair.Key, entry));
-		}
-	}
-
-	FORCEINLINE void ToInputs(FInputEntryPool& referenceInputs)
-	{
-		for (auto pair : _inputPool_net)
-		{
-			FInputEntry entry = pair.Value;
-			entry.Axis /= 100;
-			referenceInputs.AddOrReplace(pair.Key, entry);
-		}
-	}
-};
-
 
 
 /// <summary>
@@ -705,39 +720,75 @@ protected:
 };
 
 
+#pragma endregion
+
+
+
+#pragma region States and Actions
+
+
+//*
+//* Represent an action montage parameter
+//*
+USTRUCT(BlueprintType)
+struct MODULARCONTROLLER_API FActionMotionMontage
+{
+	GENERATED_BODY()
+
+public:
+	FORCEINLINE FActionMotionMontage() {}
+
+	/// <summary>
+	/// The Animation Montages to play
+	/// </summary>
+	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
+	//TSoftObjectPtr<UAnimMontage> Montage;
+	UAnimMontage* Montage;
+
+	/// <summary>
+	/// The Animation Montages section to play
+	/// </summary>
+	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
+	FName MontageSection;
+};
+
 
 /// <summary>
-/// Surface representation on network transmissions
+/// The infos abput the state and actions of the controller
 /// </summary>
-/// <returns></returns>
 USTRUCT(BlueprintType)
-struct FNetSurfaceInfos
+struct FStatusParameters
 {
 	GENERATED_BODY()
 
 public:
 
-	//the surface hit raycast
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Network Values")
-	FHitResult SurfaceHitResult;
+	FORCEINLINE FStatusParameters() {}
 
-	/// <summary>
-	/// Copy params from a surface
-	/// </summary>
-	FORCEINLINE void FromSurface(const FSurfaceInfos& surface)
+	FORCEINLINE bool HasChanged(FStatusParameters otherStatus)
 	{
-		SurfaceHitResult = surface.GetHitResult();
+		const bool stateChange = StateIndex != otherStatus.StateIndex;
+		const bool stateFlagChange = PrimaryStateFlag != otherStatus.PrimaryStateFlag;
+		const bool actionChange = ActionIndex != otherStatus.ActionIndex;
+		return  stateChange || stateFlagChange || actionChange;
 	}
 
-	/// <summary>
-	/// Restitute surface from this.
-	/// </summary>
-	FORCEINLINE void ToSurface(FSurfaceInfos& surface)
-	{
-		surface._surfaceHitResult = SurfaceHitResult;
-	}
+
+	UPROPERTY(EditAnywhere)
+	int StateIndex = -1;
+
+	UPROPERTY(EditAnywhere)
+	int ActionIndex = -1;
+
+	UPROPERTY(EditAnywhere)
+	int PrimaryStateFlag = 0;
+
+	UPROPERTY(EditAnywhere)
+	TArray<double> StateModifiers;
+
+	UPROPERTY(EditAnywhere)
+	TArray<double> ActionsModifiers;
 };
-
 
 
 #pragma endregion
@@ -745,6 +796,7 @@ public:
 
 
 #pragma region MovementInfosAndReplication
+
 
 //*
 //* InitialVelocities informations
@@ -825,56 +877,31 @@ public:
 	{
 	}
 
-	FORCEINLINE FKinematicInfos(UMovementComponent* byComponent, const  FVector InGravity, const  FKinematicInfos fromLastMove, const float inMass = 0, const bool inDebug = false)
+	FORCEINLINE FKinematicInfos(const  FVector InGravity, const  FKinematicInfos fromLastMove, const float inMass = 0)
 	{
-		if (byComponent)
-			actor = byComponent->GetOwner();
 		Gravity = InGravity;
 		InitialTransform = fromLastMove.FinalTransform;
 		InitialVelocities = fromLastMove.FinalVelocities;
 		InitialSurface = fromLastMove.FinalSurface;
-		InitialActionsIndexes = fromLastMove.FinalActionsIndexes;
-		InitialStateIndex = fromLastMove.FinalStateIndex;
 		Mass = inMass;
-		IsDebugMode = inDebug;
 	}
 
-	FORCEINLINE FKinematicInfos(const FTransform fromTransform, const  FVelocity fromVelocity, const  FSurfaceInfos onSurface, const int inStateIndex, const TArray<int> inActionIndexes)
+	FORCEINLINE FKinematicInfos(const FTransform fromTransform, const  FVelocity fromVelocity, const  FSurfaceInfos onSurface)
 	{
 		InitialTransform = fromTransform;
 		InitialVelocities = fromVelocity;
 		InitialSurface = onSurface;
-		InitialStateIndex = inStateIndex;
-		InitialActionsIndexes.Empty();
-		for (int i = 0; i < inActionIndexes.Num(); i++)
-			InitialActionsIndexes.Add(inActionIndexes[i]);
 	}
 
-	FORCEINLINE void ChangeActor(const UMovementComponent* byComponent, const FName primitiveSocket = "", const bool inDebug = false)
-	{
-		if (byComponent == nullptr)
-			return;
-
-		actor = byComponent->GetOwner();
-		IsDebugMode = inDebug;
-		UPrimitiveComponent* primitive = byComponent->UpdatedPrimitive;
-		if (primitive == nullptr)
-			return;
-		_primitive_shape = primitive->GetCollisionShape();
-	}
 
 	FORCEINLINE void FromInitialValues(const FKinematicInfos& ref, bool copyFinals = false)
 	{
 		InitialSurface = ref.InitialSurface;
-		InitialStateIndex = ref.InitialStateIndex;
-		InitialActionsIndexes = ref.InitialActionsIndexes;
 		InitialVelocities = ref.InitialVelocities;
 		InitialTransform = ref.InitialTransform;
 		if (copyFinals)
 		{
 			FinalSurface = ref.FinalSurface;
-			FinalStateIndex = ref.FinalStateIndex;
-			FinalActionsIndexes = ref.FinalActionsIndexes;
 			FinalVelocities = ref.FinalVelocities;
 			FinalTransform = ref.FinalTransform;
 
@@ -882,8 +909,6 @@ public:
 		else
 		{
 			FinalSurface = FSurfaceInfos();
-			FinalStateIndex = -1;
-			FinalActionsIndexes.Empty();
 			FinalVelocities = FVelocity();
 			FinalTransform = FTransform::Identity;
 		}
@@ -935,39 +960,6 @@ public:
 	FSurfaceInfos InitialSurface;
 
 
-	//State and Actions *************************************************************************************
-
-	/// <summary>
-	/// The initial state index
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int InitialStateIndex = -1;
-
-	/// <summary>
-	/// The final state index
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int FinalStateIndex = -1;
-
-	/// <summary>
-	/// The current state's flag, often used as binary. to relay this behaviour's state over the network. Can be used for things like behaviour phase.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Behaviours")
-	int FinalStateFlag = 0;
-
-	/// <summary>
-	/// The initial actions indexes
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	TArray<int> InitialActionsIndexes;
-
-	/// <summary>
-	/// The final actions indexes
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	TArray<int> FinalActionsIndexes;
-
-
 	//Physic *************************************************************************************
 
 	//Do we use physic interractions?
@@ -988,26 +980,6 @@ public:
 	FVector_NetQuantize Gravity = -FVector_NetQuantize::UpVector;
 
 
-
-
-	//The actor making the movement
-	TSoftObjectPtr<AActor> actor;
-
-	//Debug mode in enabled?
-	bool IsDebugMode;
-
-	//The name of the current state
-	FName _currentStateName;
-
-	//The shape of the updated primitive
-	FCollisionShape _primitive_shape;
-
-
-	/// <summary>
-	/// Get the kinematic action making the movement.
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE AActor* GetActor() const { return  actor.Get(); }
 
 	/// <summary>
 	/// Get the actor's Mass
@@ -1073,102 +1045,6 @@ public:
 };
 
 
-/// <summary>
-/// Designed to transmit movement over the network
-/// </summary>
-USTRUCT(BlueprintType)
-struct FNetKinematicMoveInfos
-{
-	GENERATED_BODY()
-
-public:
-
-	//Velocities *************************************************************************************
-
-	/// <summary>
-	/// The linear velocity of the component.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-	FVector_NetQuantize100 LinearVelocity;
-
-
-	//Transform *************************************************************************************
-
-	/// <summary>
-	/// The position.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	FVector_NetQuantize100 Location;
-
-	/// <summary>
-	/// The rotation.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	FVector_NetQuantize Rotation;
-
-
-	//Surfaces *************************************************************************************
-
-	/// <summary>
-	/// The surface
-	/// </summary>
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Surfaces")
-	//	FNetSurfaceInfos Surface;
-
-
-	//State and Actions *************************************************************************************
-
-	/// <summary>
-	/// The state index
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int32 StateIndex = -1;
-
-	/// <summary>
-	/// The current state's flag, often used as binary. to relay this behaviour's state over the network. Can be used for things like behaviour phase.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Behaviours")
-	int32 StateFlag = 0;
-
-	/// <summary>
-	/// The initial actions indexes. is used as binary representing indexes on an array
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State and Actions")
-	int32 ActionsIndexes_BinaryRepresentation;
-
-public:
-
-	//Copy from a kinematic move
-	FORCEINLINE void FromKinematicMove(const FKinematicInfos& move)
-	{
-		LinearVelocity = move.FinalVelocities.ConstantLinearVelocity;
-		Location = move.FinalTransform.GetLocation();
-		const FRotator rotator = move.FinalTransform.GetRotation().Rotator();
-		Rotation = FVector_NetQuantize(rotator.Pitch, rotator.Yaw, rotator.Roll);
-		//Surface.FromSurface(move.InitialSurface);
-		StateFlag = move.FinalStateFlag;
-		StateIndex = move.FinalStateIndex;
-		ActionsIndexes_BinaryRepresentation = FMathExtension::BoolArrayToInt(FMathExtension::IndexesToBoolArray(move.FinalActionsIndexes));
-	}
-
-	//Restore kinematic move
-	FORCEINLINE void ToKinematicMove(FKinematicInfos& move, bool rotationToAngularRot = false)
-	{
-		move.InitialVelocities.ConstantLinearVelocity = LinearVelocity;
-		FQuat endRotation = Rotation.Rotation().Quaternion();
-		if (rotationToAngularRot)
-		{
-			move.InitialVelocities.Rotation = endRotation;
-		}
-		move.InitialTransform.SetComponents(endRotation, Location, FVector::One());
-		//Surface.ToSurface(move.InitialSurface);
-		move.FinalStateFlag = StateFlag;
-		move.FinalStateIndex = StateIndex;
-		move.FinalActionsIndexes = FMathExtension::BoolToIndexesArray(FMathExtension::IntToBoolArray(ActionsIndexes_BinaryRepresentation));
-	}
-};
-
-
 //*
 //* Represent an override root motion command
 //*
@@ -1205,66 +1081,209 @@ public:
 
 
 
-//*
-//* Client to server move request
-//*
+/// <summary>
+/// The Data the client send to the server in order to be checked. also kept in the history for correction
+/// </summary>
 USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FSyncMoveRequest
+struct FClientNetMoveCommand
 {
 	GENERATED_BODY()
 
 public:
-	FORCEINLINE FSyncMoveRequest()
+
+	FORCEINLINE FClientNetMoveCommand() {}
+
+	FORCEINLINE FClientNetMoveCommand(double timeStamp, float deltaTime, FVector userMove, FKinematicInfos kinematicInfos, FStatusParameters controllerStatus = FStatusParameters())
 	{
+		TimeStamp = timeStamp;
+		DeltaTime = deltaTime;
+		userMoveInput = userMove;
+		FromLocation = kinematicInfos.InitialTransform.GetLocation();
+		ToLocation = kinematicInfos.FinalTransform.GetLocation();
+		FromRotation = kinematicInfos.InitialTransform.Rotator();
+		ToRotation = kinematicInfos.FinalTransform.Rotator();
+		ToVelocity = kinematicInfos.FinalVelocities.ConstantLinearVelocity;
+		WithVelocity = kinematicInfos.InitialVelocities.ConstantLinearVelocity;
+		ControllerStatus = controllerStatus;
 	}
 
-	FORCEINLINE FSyncMoveRequest(FKinematicInfos& move, FTranscodedInput inputsMade)
+	/// <summary>
+	/// Get the offset of position, displacement made during this command.
+	/// </summary>
+	/// <returns></returns>
+	FORCEINLINE FVector GetLocationOffset() const { return ToLocation - FromLocation; }
+
+	/// <summary>
+	/// Get the rotation offset of this command.
+	/// </summary>
+	/// <returns></returns>
+	FORCEINLINE FQuat GetRotationOffset() const
 	{
-		MoveInfos.FromKinematicMove(move);
-		Inputs = inputsMade;
+		auto finalRot = ToRotation.Quaternion();
+		finalRot.EnforceShortestArcWith(FromRotation.Quaternion());
+		auto rotOffset = FromRotation.Quaternion().Inverse() * finalRot;
+		return rotOffset;
 	}
 
-	UPROPERTY()
-	FNetKinematicMoveInfos MoveInfos;
-	UPROPERTY()
-	FTranscodedInput Inputs;
+	/// <summary>
+	/// Get the difference of speed during the move
+	/// </summary>
+	/// <returns></returns>
+	FORCEINLINE FVector GetAccelerationVector() const { return ToVelocity - WithVelocity; }
+
+
+	/// <summary>
+	/// Check if this command is dirty and have to be send over.
+	/// </summary>
+	/// <param name="otherCmd"></param>
+	/// <returns></returns>
+	FORCEINLINE bool HasChanged(FClientNetMoveCommand otherCmd, double minLocationOffset = 10, double minAngularOffset = 10, double velocityOffset = 10, FVector* debugValues = NULL)
+	{
+		double locationOffset = (ToLocation - otherCmd.ToLocation).Length();
+		double angularOffset = FMath::RadiansToDegrees(ToRotation.Quaternion().AngularDistance(otherCmd.ToRotation.Quaternion()));
+		double speedOffset = (WithVelocity - otherCmd.WithVelocity).Length();
+		if (debugValues)
+		{
+			(*debugValues) = FVector(locationOffset, angularOffset, speedOffset);
+		}
+		return locationOffset > minLocationOffset || angularOffset >= minAngularOffset || speedOffset >= velocityOffset || ControllerStatus.HasChanged(otherCmd.ControllerStatus);
+	}
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	double TimeStamp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float DeltaTime;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool CorrectionAckowledgement;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 userMoveInput;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 FromLocation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 ToLocation;
+
+	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 ToVelocity;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 WithVelocity;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FRotator FromRotation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FRotator ToRotation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FStatusParameters ControllerStatus;
+
 };
 
 
-#pragma endregion
 
-
-
-#pragma region Actions
-
-
-//*
-//* Represent an action montage parameter
-//*
+/// <summary>
+/// The Data send from server to client to correct him.
+/// </summary>
 USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FActionMotionMontage
+struct FServerNetCorrectionData
 {
 	GENERATED_BODY()
 
-public:
-	FORCEINLINE FActionMotionMontage() {}
+	FORCEINLINE FServerNetCorrectionData() {}
+
+	FORCEINLINE FServerNetCorrectionData(double timeStamp, FKinematicInfos kinematicInfos, FHitResult* collision = nullptr)
+	{
+		TimeStamp = timeStamp;
+		if (collision && collision->IsValidBlockingHit())
+		{
+			CollisionOccured = true;
+			CollisionNormal = collision->Normal;
+		}
+		ToLocation = kinematicInfos.FinalTransform.GetLocation();
+		WithVelocity = kinematicInfos.FinalVelocities.ConstantLinearVelocity;
+		ToRotation = kinematicInfos.FinalTransform.GetRotation().Rotator();
+	}
 
 	/// <summary>
-	/// The Animation Montages to play
+	/// Apply the correction where it should.
 	/// </summary>
-	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
-	//TSoftObjectPtr<UAnimMontage> Montage;
-	UAnimMontage* Montage;
+	/// <param name="moveHistory"></param>
+	/// <returns></returns>
+	FORCEINLINE bool ApplyCorrectionRecursive(TArray<FClientNetMoveCommand>& moveHistory, FClientNetMoveCommand& correctionResult)
+	{
+		if (TimeStamp == 0)
+			return false;
+		if (moveHistory.Num() <= 0)
+			return false;
+		const int index = moveHistory.IndexOfByPredicate([this](FClientNetMoveCommand histCmd)->bool {return histCmd.TimeStamp == TimeStamp; });
+		if (!moveHistory.IsValidIndex(index))
+			return false;
+		for (int i = index - 1; i >= 0; i--)
+			moveHistory.RemoveAt(i);
+		moveHistory[0].ToLocation = ToLocation;
+		moveHistory[0].ToRotation = ToRotation;
+		moveHistory[0].WithVelocity = WithVelocity;
+		moveHistory[0].ToVelocity = WithVelocity;
 
-	/// <summary>
-	/// The Animation Montages section to play
-	/// </summary>
-	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
-	FName MontageSection;
+
+		for (int i = 1; i < moveHistory.Num(); i++)
+		{
+			FVector locOffset = moveHistory[i].GetLocationOffset();
+			if (CollisionOccured)
+			{
+				const bool tryingGoThroughTheWall = FVector::DotProduct(locOffset, CollisionNormal) < 0;
+				if (tryingGoThroughTheWall)
+					locOffset = FVector::VectorPlaneProject(locOffset, CollisionNormal);
+			}
+			moveHistory[i].FromLocation = moveHistory[i - 1].ToLocation;
+			moveHistory[i].ToLocation = moveHistory[i].FromLocation + locOffset;
+
+			FQuat rotOffset = moveHistory[i].GetRotationOffset();
+			moveHistory[i].FromRotation = moveHistory[i - 1].ToRotation;
+			moveHistory[i].ToRotation = (moveHistory[i].FromRotation.Quaternion() * rotOffset).Rotator();
+
+			FVector acceleration = moveHistory[i].GetAccelerationVector();
+			moveHistory[i].WithVelocity = moveHistory[i - 1].ToVelocity;
+			moveHistory[i].ToVelocity = moveHistory[i].WithVelocity + acceleration;
+		}
+
+		auto lastItem = moveHistory[moveHistory.Num() - 1];
+		correctionResult = lastItem;
+		return true;
+	}
+
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	double TimeStamp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool CollisionOccured;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 CollisionNormal;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 ToLocation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector_NetQuantize10 WithVelocity;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FRotator ToRotation;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FStatusParameters ControllerStatus;
 };
 
 
+
 #pragma endregion
+
 
 
 #pragma region Extensions
@@ -1301,25 +1320,22 @@ public:
 		direction = compositeFwd + compositeRhs;
 		return  direction;
 	}
+	
 
-	UFUNCTION(BlueprintCallable, Category = "FInputEntryPool")
-	static bool ListenInput(FInputEntryPool input, FInputEntryPool& output, FName key, FInputEntry entry)
+	UFUNCTION(BlueprintCallable, Category = "UInputEntryPool")
+	static FInputEntry ReadInput(const UInputEntryPool* MyStructRef, FName key)
 	{
-		bool ret = input.AddOrReplace(key, entry);
-		output = input;
-		return ret;
+		if (!MyStructRef)
+			return {};
+		return MyStructRef->ReadInput(key);
 	}
 
-	UFUNCTION(BlueprintCallable, Category = "FInputEntryPool")
-	static FInputEntry ReadInput(const FInputEntryPool MyStructRef, FName key)
+	UFUNCTION(BlueprintCallable, Category = "UInputEntryPool")
+	static FInputEntry ConsumeInput(UInputEntryPool* MyStructRef, FName key)
 	{
-		return MyStructRef.ReadInput(key);
-	}
-
-	UFUNCTION(BlueprintCallable, Category = "FInputEntryPool")
-	static FInputEntry ConsumeInput(FInputEntryPool MyStructRef, FName key)
-	{
-		return MyStructRef.ConsumeInput(key);
+		if (!MyStructRef)
+			return {};
+		return MyStructRef->ConsumeInput(key);
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FSurfaceInfos")
@@ -1352,11 +1368,6 @@ public:
 		return FVelocity::RotationDeltaFromAngularVelocity(angularRot);
 	}
 
-	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-	static AActor* GetActor(const FKinematicInfos MyStructRef)
-	{
-		return MyStructRef.GetActor();
-	}
 
 	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
 	static float GetMass(const FKinematicInfos MyStructRef)
@@ -1418,6 +1429,58 @@ public:
 		if (!softObj.IsValid())
 			return nullptr;
 		return softObj.Get();
+	}
+
+	/// <summary>
+	/// Return a rotation progressivelly turned toward desired look direction
+	/// </summary>
+	/// <param name="inRotation"></param>
+	/// <param name="rotAxis"></param>
+	/// <param name="desiredLookDirection"></param>
+	/// <param name="rotationSpeed"></param>
+	/// <param name="deltaTime"></param>
+	/// <returns></returns>
+	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
+	static FQuat GetProgressiveRotation(const FQuat inRotation, const FVector rotAxis, const FVector desiredLookDirection, const float rotationSpeed, const float deltaTime)
+	{
+		FVector fwd = desiredLookDirection;
+		FVector up = rotAxis;
+		if (!fwd.Normalize())
+			return inRotation;
+		if (!up.Normalize())
+			return inRotation;
+		fwd = FVector::VectorPlaneProject(fwd, up);
+		if (FVector::DotProduct(fwd.GetSafeNormal(), inRotation.Vector().GetSafeNormal()) <= -0.98f)
+		{
+			const FVector rgt = FVector::CrossProduct(up, fwd).GetSafeNormal();
+			fwd += rgt * 0.1f;
+		}
+		fwd.Normalize();
+		const FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
+		const FQuat rotation = FQuat::Slerp(inRotation, fwdRot, FMath::Clamp(deltaTime * rotationSpeed, 0, 1));
+		return rotation;
+	}
+
+	/// <summary>
+	/// Linear interpolate a vector toward another with constant acceleration.
+	/// </summary>
+	/// <param name="fromVelocity"></param>
+	/// <param name="toVelocity"></param>
+	/// <param name="withAcceleration"></param>
+	/// <param name="deltaTime"></param>
+	/// <returns></returns>
+	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
+	static FVector AccelerateTo(const FVector fromVelocity, const FVector toVelocity, const float withAcceleration, const float deltaTime)
+	{
+		float trueAcceleration = withAcceleration;
+		if (toVelocity.SquaredLength() > fromVelocity.SquaredLength())
+			trueAcceleration = 1 / ((toVelocity.Length() * 0.01f) / withAcceleration);
+		else if (toVelocity.SquaredLength() <= fromVelocity.SquaredLength())
+			trueAcceleration = 1 / ((fromVelocity.Length() * 0.01f) / withAcceleration);
+		else
+			trueAcceleration = 0;
+		const FVector endVel = FMath::Lerp(fromVelocity, toVelocity, FMath::Clamp(deltaTime * trueAcceleration, 0, 1));
+		return  endVel;
 	}
 
 };

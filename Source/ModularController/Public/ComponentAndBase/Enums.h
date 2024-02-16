@@ -61,12 +61,12 @@ enum ERootMotionType
 /// The ground state
 /// </summary>
 UENUM(BlueprintType)
-enum EGroundStateMode
+enum EGroundLocomotionMode
 {
-	GroundStateMode_No_Ground,
-	GroundStateMode_StableGround,
-	GroundStateMode_SlidingSurface,
-	GroundStateMode_StairCases,
+	Jogging,
+	Sprinting,
+	Crouching,
+	Crawling,
 };
 
 
@@ -80,3 +80,32 @@ enum EShapeMode
 	ShapeMode_Cube,
 };
 
+
+
+/// <summary>
+/// The type of debug to use on the controller.
+/// </summary>
+UENUM(BlueprintType)
+enum EControllerDebugType
+{
+	None,
+	MovementDebug,
+	PhysicDebug,
+	NetworkDebug,
+	StatusDebug,
+	AnimationDebug,
+	InputDebug,
+};
+
+
+/// <summary>
+/// The type of compatibility mode an controller action.
+/// </summary>
+UENUM(BlueprintType)
+enum EActionCompatibilityMode
+{
+	AlwaysCompatible,
+	OnCompatibleStateOnly,
+	WhileCompatibleActionOnly,
+	OnBothCompatiblesStateAndAction,
+};

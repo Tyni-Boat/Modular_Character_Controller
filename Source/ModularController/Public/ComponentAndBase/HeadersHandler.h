@@ -16,8 +16,8 @@
 ////First Class
 //#include "Enums.h"
 //#include "Structs.h"
-//class UBaseState;
-//class UBaseAction;
+//class UBaseControllerState;
+//class UBaseControllerAction;
 //#include "ComponentAndBase/ModularControllerComponent.h"
 //
 ////Second Class
