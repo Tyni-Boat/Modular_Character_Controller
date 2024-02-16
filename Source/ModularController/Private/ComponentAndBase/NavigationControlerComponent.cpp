@@ -524,11 +524,13 @@ void UPathFollowEvent::Activate()
 		return;
 	}
 
+	_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
+
 	if (_targetMode)
 	{
 		if (!_controller->AIRequestPathToActor(_target))
 		{
-			_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
+			//_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
 			_controller->GetWorld()->GetTimerManager().SetTimer(TimerHandle_OnInstantFinish, this, &UPathFollowEvent::_OnPathFailed, 0.1f, false);
 			//_OnPathFailed();
 			return;
@@ -538,7 +540,7 @@ void UPathFollowEvent::Activate()
 	{
 		if (!_controller->AIRequestPathTo(_destination))
 		{
-			_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
+			//_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
 			_controller->GetWorld()->GetTimerManager().SetTimer(TimerHandle_OnInstantFinish, this, &UPathFollowEvent::_OnPathFailed, 0.1f, false);
 			//_OnPathFailed();
 			return;
@@ -546,7 +548,6 @@ void UPathFollowEvent::Activate()
 	}
 
 	_controller->OnPathReachedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathReached);
-	_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
 	_controller->OnPathUpdatedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathUpdated);
 }
 

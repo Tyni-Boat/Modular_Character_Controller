@@ -8,55 +8,47 @@
 
 
 
+
+
+
+UJumpActionBase::UJumpActionBase()
+{
+	if (Duration <= JumpPropulsionDelay)
+		Duration = JumpPropulsionDelay;
+}
+
 #pragma region Check
 
-	/// <summary>
-	/// Check for a jump input or jump state
-	/// </summary>
-	/// <param name="controller"></param>
-	/// <returns></returns>
-bool UJumpActionBase::CheckJump(const FKinematicInfos& inDatas, FInputEntryPool& inputs, const float inDelta)
+/// <summary>
+/// Check for a jump input or jump state
+/// </summary>
+/// <param name="controller"></param>
+/// <returns></returns>
+bool UJumpActionBase::CheckJump(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, const float inDelta, UModularControllerComponent* controller)
 {
-	if (IsJUmping())
-		return false;
+	FVector currentPosition = inDatas.InitialTransform.GetLocation();
+	FQuat currentRotation = inDatas.InitialTransform.GetRotation();
+	FVector gravityDir = inDatas.Gravity.GetSafeNormal();
 
-	if (_landChrono > 0)
+	FHitResult ceilHitRes;
+	if (controller->ComponentTraceCastSingle(ceilHitRes, currentPosition - gravityDir, -gravityDir * MaxJumpHeight, currentRotation))
 	{
-		_landChrono -= inDelta;
-		return false;
-	}
-
-	bool isCompatibleState = CompatibleStates.Contains(inDatas._currentStateName);
-	if (isCompatibleState && _jumpCount > 0)
-		return false;
-	if (!isCompatibleState && _jumpCount <= 0)
-		return false;
-
-	if (CanJump() && inputs.ReadInput(JumpInputCommand).Phase == EInputEntryPhase::InputEntryPhase_Pressed)
-	{
-		if (bConsumeJumpInput)
-		{
-			inputs.ConsumeInput(JumpInputCommand);
-		}
-		_jumpSurfaceNormal = FVector::VectorPlaneProject(inDatas.InitialSurface.GetSurfaceNormal(), inDatas.Gravity.GetSafeNormal());
-		_jumpForce = Jump(inDatas, inputs, inDelta);
-		if (_jumpForce.Length() > 0)
-		{
-			OnJump(inDatas, _jumpForce);
-			_lastJumpVector = _jumpForce;
-			_haveSwitchedSurfaceDuringJump = _jumpCount > 1;
-			return true;
-		}
-		else
+		if ((ceilHitRes.Location - currentPosition).Length() < MinJumpHeight)
 		{
 			return false;
 		}
 	}
-	else
-	{
+
+	if (!inputs)
 		return false;
+
+	if (inputs->ReadInput(JumpInputCommand, bDebugAction, controller).Phase == EInputEntryPhase::InputEntryPhase_Pressed)
+	{
+		inputs->ConsumeInput(JumpInputCommand, bDebugAction, controller);
+		return true;
 	}
 
+	return false;
 }
 
 #pragma endregion
@@ -69,35 +61,43 @@ bool UJumpActionBase::CheckJump(const FKinematicInfos& inDatas, FInputEntryPool&
 /// </summary>
 /// <param name="controller"></param>
 /// <returns></returns>
-FVector UJumpActionBase::Jump(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, const float inDelta)
+FVector UJumpActionBase::Jump(const FKinematicInfos inDatas, FVector moveInput, const FVelocity momentum, const float inDelta, FVector customJumpLocation)
 {
 	//Get the maximum jump height
-	//FHitResult ceilHitRes;
 	FVector currentPosition = inDatas.InitialTransform.GetLocation();
 	FQuat currentRotation = inDatas.InitialTransform.GetRotation();
 	FVector gravityDir = inDatas.Gravity.GetSafeNormal();
 	float gravityAcc = inDatas.Gravity.Length();
 	float jumpHeight = MaxJumpHeight;
-	//if (controller->ComponentTraceCastSingle(ceilHitRes, currentPosition - gravityDir, -gravityDir * MaxJumpHeight, currentRotation))
-	//{
-	//	if (ceilHitRes.Distance < jumpHeight)
-	//	{
-	//		jumpHeight = ceilHitRes.Distance;
-	//	}
-	//}
 
 	//Get the forward vector
 	FVector forwardVector = UseSurfaceNormalOnNoDirection ? _jumpSurfaceNormal : FVector(0);
-	FVector inputVector = inputs.ReadInput(DirectionInputName).Axis;
+	FVector inputVector = moveInput;
 	if (inputVector.Length() > 0)
 	{
 		inputVector.Normalize();
 		forwardVector = inputVector;
 	}
 
+	//Specified jump location
+	float jumpLocationDist = MaxJumpDistance;
+	if (!customJumpLocation.ContainsNaN())
+	{
+		auto locationVector = (customJumpLocation - currentPosition);
+		jumpHeight += locationVector.ProjectOnToNormal(gravityDir).Length();
+		forwardVector = FVector::VectorPlaneProject(locationVector, gravityDir);
+		jumpLocationDist = forwardVector.Length();
+		forwardVector.Normalize();
+	}
+
+	if (bDebugAction)
+	{
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Custom Jump Location: Location(%s)  Distance(%f), Height(%f)"), *GetDescriptionName().ToString(), *customJumpLocation.ToCompactString(), jumpLocationDist, jumpHeight), true, true, FColor::Black, 10, "customJumpLocation");
+	}
+
 	//Get planar movement
 	float n_Height = jumpHeight / 1;
-	FVector dir = FVector::VectorPlaneProject((currentPosition + forwardVector * MaxJumpDistance) - currentPosition, gravityDir);
+	FVector dir = FVector::VectorPlaneProject((currentPosition + forwardVector * jumpLocationDist) - currentPosition, gravityDir);
 	float X_distance = dir.Length() / 1;
 	dir.Normalize();
 	FVector destHeight = FVector(0);// FVector::VectorPlaneProject(point - _currentLocation, dir);
@@ -114,65 +114,23 @@ FVector UJumpActionBase::Jump(const FKinematicInfos& inDatas, const FInputEntryP
 	FVector vertMomentum = (inDatas.FinalSurface.GetSurfaceLinearVelocity() / inDelta).ProjectOnToNormal(gravityDir);
 	FVector horiMomentum = FVector::VectorPlaneProject(inDatas.FinalSurface.GetSurfaceLinearVelocity() / inDelta, gravityDir);
 
-	if (inDatas.GetInitialMomentum().Length() > 0)
+	if (momentum.ConstantLinearVelocity.Length() > 0)
 	{
-		vertMomentum = inDatas.GetInitialMomentum().ProjectOnToNormal(gravityDir);
-		FVector planedMomentum = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), gravityDir);
-		horiMomentum += _jumpCount <= 0 ? planedMomentum : dir * FMath::Max(planedMomentum.Length() * FMath::Clamp(FVector::DotProduct(dir, planedMomentum), 0, 1), Vox);
+		vertMomentum = momentum.ConstantLinearVelocity.ProjectOnToNormal(gravityDir);
+		FVector planedMomentum = FVector::VectorPlaneProject(momentum.ConstantLinearVelocity, gravityDir);
+		horiMomentum += planedMomentum;// : dir * FMath::Max(planedMomentum.Length() * FMath::Clamp(FVector::DotProduct(dir, planedMomentum), 0, 1), Vox);
 	}
 
-	FVector jumpForce = (-gravityDir * Voy) + (_jumpCount <= 0 ? vertMomentum : FVector(0)) + (UseMomentum ? horiMomentum : (dir * Vox * 1));
-	if (jumpForce.Length() > 0)
-	{
-		JumpStart();
-	}
+	FVector jumpForce = (-gravityDir * Voy) + (UseMomentum ? horiMomentum : (dir * Vox * 1));
 
 	return jumpForce;
 }
 
 
-void UJumpActionBase::JumpStart()
+void UJumpActionBase::OnPropulsionOccured_Implementation()
 {
-	if (Montages.IsValidIndex(_jumpCount))
-	{
-		Montage = Montages[_jumpCount];
-	}
-
-	_jumpCount++;
-	_jumpChrono = _actionTimer;
-	_justJumps = true;
 }
 
-
-void UJumpActionBase::OnJump(const FKinematicInfos& inDatas, FVector jumpForce)
-{
-	if (inDatas.actor == nullptr)
-		return;
-
-	const APawn* pawn = Cast<APawn>(inDatas.actor.Get());
-	if (pawn == nullptr)
-		return;
-
-	if (pawn->GetLocalRole() != ROLE_Authority || inDatas.FinalSurface.GetSurfacePrimitive() == nullptr)
-		return;
-
-	//Push Objects
-	if (inDatas.bUsePhysic && inDatas.FinalSurface.GetSurfacePrimitive()->IsSimulatingPhysics())
-	{
-		inDatas.FinalSurface.GetSurfacePrimitive()->AddImpulseAtLocation(-jumpForce * inDatas.GetMass(), inDatas.FinalSurface.GetHitResult().ImpactPoint, inDatas.FinalSurface.GetHitResult().BoneName);
-	}
-}
-
-
-void UJumpActionBase::JumpEnd(FName surfaceName)
-{
-	if (CompatibleStates.Contains(surfaceName))
-	{
-		_jumpCount = 0;
-		_jumpChrono = 0;
-		_landChrono = LandCoolDownTime;
-	}
-}
 
 #pragma endregion
 
@@ -182,78 +140,166 @@ int UJumpActionBase::GetPriority_Implementation() { return BehaviourPriority; }
 
 FName UJumpActionBase::GetDescriptionName_Implementation() { return BehaviourName; }
 
-
-
-
-void UJumpActionBase::ActionIdle_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
+	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta)
 {
+	return CheckJump(inDatas, moveInput, inputs, inDelta, controller);
 }
 
-bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas, FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+FVelocity UJumpActionBase::OnActionProcess_Implementation(FStatusParameters& controllerStatus,
+	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
 {
-	return CheckJump(inDatas, inputs, inDelta);
-}
-
-FVelocity UJumpActionBase::OnActionProcess_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
-{
-	FVelocity move = inDatas.InitialVelocities;
+	FVelocity move = fromVelocity;
 	move.InstantLinearVelocity = FVector(0);
+	bool jumpJustStarted = false;
+
+	if (_jumpDelayTimer >= 0)
+	{
+		_jumpDelayTimer -= inDelta;
+		if (_jumpDelayTimer > 0)
+			return move;
+		jumpJustStarted = true;
+	}
 
 	//Handle rotation
 	{
-		FVector up = -inDatas.Gravity.GetSafeNormal();
-		FVector inputVector = inputs.ReadInput(DirectionInputName).Axis;
+		const FVector up = -inDatas.Gravity.GetSafeNormal();
+		const FVector inputVector = moveInput;
 		FVector fwd = FVector::VectorPlaneProject(inputVector.GetSafeNormal(), up);
 
-		if (fwd.Length() > 1 && fwd.Normalize())
+		if (fwd.Normalize())
 		{
-			FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
-			FQuat rotation = _justJumps ? fwdRot : FQuat::Slerp(inDatas.InitialTransform.GetRotation(), fwdRot, FMath::Clamp(inDelta * TurnTowardDirectionSpeed, 0, 1));
+			const FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
+			const FQuat rotation = jumpJustStarted ? fwdRot : FQuat::Slerp(fromVelocity.Rotation, fwdRot, FMath::Clamp(inDelta * TurnTowardDirectionSpeed, 0, 1));
 			move.Rotation = rotation;
 		}
 	}
 
-	if (_jumpChrono > 0)
-		_jumpChrono -= inDelta;
-
-	if (_jumpForce.Length() > 0)
+	//Propulsion
+	if (jumpJustStarted)
 	{
-		move.ConstantLinearVelocity = _jumpForce;
-		_jumpForce += inDatas.Gravity * inDelta;
-	}
+		const FVector jumpLocation = IsSimulated() ? FVector(NAN) :
+			(JumpLocationInput.IsNone() ? FVector(NAN) : controller->ReadAxisInput(JumpLocationInput, true, bDebugAction, this));
+		const auto jumpForce = Jump(inDatas, moveInput, _startMomentum, inDelta, jumpLocation);
+		move.ConstantLinearVelocity = jumpForce;
+		OnPropulsionOccured();
 
-	if (_justJumps)
-		_justJumps = false;
+		if (bDebugAction)
+		{
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Propulsion Vector: (%s); Velocity: (%s)"), *GetDescriptionName().ToString(), *jumpForce.ToCompactString(), *move.ConstantLinearVelocity.ToCompactString()), true, true, FColor::Yellow, 10, "");
+		}
+
+		//instant rotation if custom location
+		if (!jumpLocation.ContainsNaN())
+		{
+			const FVector up = -inDatas.Gravity.GetSafeNormal();
+			FVector fwd = FVector::VectorPlaneProject(jumpForce, up);
+			if (fwd.Normalize())
+			{
+				const FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
+				move.Rotation = fwdRot;
+			}
+		}
+
+		if (!IsSimulated())
+		{
+			if (inDatas.bUsePhysic && inDatas.FinalSurface.GetSurfacePrimitive() != nullptr)
+			{
+				//Push Objects
+				if (inDatas.FinalSurface.GetSurfacePrimitive()->IsSimulatingPhysics())
+				{
+					inDatas.FinalSurface.GetSurfacePrimitive()->AddImpulseAtLocation(-jumpForce * inDatas.GetMass(), inDatas.FinalSurface.GetHitResult().ImpactPoint, inDatas.FinalSurface.GetHitResult().BoneName);
+				}
+			}
+		}
+	}
 
 	return move;
 }
 
-void UJumpActionBase::OnActionRepeat_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
-{
 
+void UJumpActionBase::OnAnimationEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	_EndDelegate.Unbind();
+
+	if (bDebugAction)
+	{
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Unbond Montage"), *GetDescriptionName().ToString()), true, true, FColor::Red, 5, FName(FString::Printf(TEXT("%s"), *GetDescriptionName().ToString())));
+	}
+
+	if (bUseMontageDuration)
+	{
+		//_remainingActivationTimer = 0;
+	}
 }
+
+
+
+void UJumpActionBase::OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
+{
+	if (!IsSimulated() && controller)
+	{
+		//Bind montage neds call back
+		if (bUseMontageDuration)
+			_EndDelegate.BindUObject(this, &UJumpActionBase::OnAnimationEnded);
+
+		//Play montage
+		float montageDuration = 0;
+		if (bMontageShouldBePlayerOnStateAnimGraph)
+		{
+			if (const auto currentState = controller->GetCurrentControllerState())
+				montageDuration = controller->PlayAnimationMontageOnState_Internal(JumpMontage, currentState->GetDescriptionName(), -1, bUseMontageDuration, _EndDelegate);
+		}
+		else
+		{
+			montageDuration = controller->PlayAnimationMontage_Internal(JumpMontage, -1, bUseMontageDuration, _EndDelegate);
+		}
+
+
+		if (bDebugAction)
+		{
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Montage duration: %f"), *GetDescriptionName().ToString(), montageDuration), true, true, FColor::Emerald, 5, "JumpMontageDuration");
+		}
+
+		if (bUseMontageDuration && montageDuration > 0)
+		{
+			_remainingActivationTimer = montageDuration;
+		}
+	}
+
+	_jumpDelayTimer = JumpPropulsionDelay;
+	_startMomentum = inDatas.InitialVelocities;
+}
+
+
+void UJumpActionBase::SaveActionSnapShot_Internal()
+{
+	_jumpDelayTimer_saved = _jumpDelayTimer;
+	_jumpSurfaceNormal_saved = _jumpSurfaceNormal;
+	_startMomentum_saved = _startMomentum;
+}
+
+void UJumpActionBase::RestoreActionFromSnapShot_Internal()
+{
+	_jumpDelayTimer = _jumpDelayTimer_saved;
+	_jumpSurfaceNormal = _jumpSurfaceNormal_saved;
+	_startMomentum = _startMomentum_saved;
+}
+
+
+void UJumpActionBase::OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
+{
+}
+
 
 void UJumpActionBase::OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState)
 {
 	FName stateName = newState != nullptr ? newState->GetDescriptionName() : "";
-
-	if (!CompatibleStates.Contains(stateName) && !IsJUmping() && _jumpCount <= 0)
+	if (CompatibleStates.Contains(stateName))
 	{
-		_jumpCount++;
-	}
-	_haveSwitchedSurfaceDuringJump = true;
-	_lastJumpVector = FVector(0);
-	JumpEnd(stateName);
-}
-
-void UJumpActionBase::OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
-{
-	if (!_haveSwitchedSurfaceDuringJump)
-	{
-		if (CompatibleStates.Num() > 0)
-		{
-			JumpEnd(CompatibleStates[0]);
-		}
 	}
 }
 

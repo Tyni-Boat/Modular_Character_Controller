@@ -71,6 +71,13 @@ private:
 
 #pragma endregion
 
+#pragma region SnapShot
+private:
+	float _airTime_saved;
+	FVector _gravity_saved;
+
+#pragma endregion
+
 #pragma region Air Velocity and Checks
 public:
 
@@ -107,19 +114,20 @@ public:
 	virtual FName GetDescriptionName_Implementation() override;
 
 
+	virtual  bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs
+		, UModularControllerComponent* controller, const float inDelta, int overrideWasLastStateStatus) override;
+
+	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 	
-	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual FVelocity ProcessState_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
-
-	virtual FMovePreprocessParams PreProcessState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
-
-	virtual FVelocity ProcessState_Implementation(const FKinematicInfos& inDatas, const FMovePreprocessParams params, UModularControllerComponent* controller, const float inDelta) override;
-
-	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
-
+	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
+	
 	virtual	void OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller) override;
 
+
+	virtual void SaveStateSnapShot_Internal() override;
+	virtual void RestoreStateFromSnapShot_Internal() override;
 
 #pragma endregion
 

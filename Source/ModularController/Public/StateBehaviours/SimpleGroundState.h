@@ -74,7 +74,7 @@ public:
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-	virtual bool CheckSurface(const FKinematicInfos& inDatas, UModularControllerComponent* controller, const float inDelta, bool forceMaxDistance = false);
+	virtual bool CheckSurface(const FTransform spacialInfos, const FVector gravityDir, UModularControllerComponent* controller, const float inDelta, bool useMaxDistance = false);
 
 	/// <summary>
 	/// Called when we land on a surface
@@ -114,7 +114,7 @@ public:
 	 * @param inDatas The input datas
 	 * @return The instant force needed to snap the controller on the suarface at FloatingGroundDistance
 	 */
-	FVector ComputeSnappingForce(const FKinematicInfos& inDatas) const;
+	FVector ComputeSnappingForce(const FKinematicInfos& inDatas, UObject* debugObject = NULL) const;
 
 #pragma endregion
 
@@ -153,12 +153,6 @@ protected:
 	float LandingImpactMoveThreshold = 981;
 
 	/// <summary>
-	/// The current ground state mode
-	/// </summary>
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Movement")
-	TEnumAsByte<EGroundLocomotionMode> CurrentLocomotionMode;
-
-	/// <summary>
 	/// The landing impact force remaining. it decrease over time at Landing Impact Absorbtion Speed
 	/// </summary>
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Movement")
@@ -178,7 +172,7 @@ public:
 	 * @param changedState
 	 * @return vector corresponding to the linear movement
 	 */
-	virtual FVector MoveOnTheGround(const FKinematicInfos& inDatas, FVector desiredMovement, const float acceleration, const float decceleration, const float inDelta);
+	virtual FVector MoveOnTheGround(const FKinematicInfos& inDatas, FVector desiredMovement, const float acceleration, const float deceleration, const float inDelta);
 
 	/**
 	 * @brief Correct movement to prevent falling.
@@ -189,6 +183,13 @@ public:
 	 * @return the corrected move
 	 */
 	virtual FVector MoveToPreventFalling(UModularControllerComponent* controller, const FKinematicInfos& inDatas, const FVector attemptedMove, const float inDelta, FVector& adjusmentMove);
+
+#pragma endregion
+
+#pragma region SnapShot
+private:
+
+	float _landingImpactRemainingForce_saved;
 
 #pragma endregion
 
@@ -224,149 +225,35 @@ protected:
 #pragma endregion
 
 
-#pragma region Walk Jog XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+#pragma region Move XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
 	
 	/// <summary>
 	/// The maximum speed of the controller on the surface
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Walk Jog")
-	float MaxJogSpeed = 350;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	float MaxSpeed = 350;
 
 	/// <summary>
 	/// The movement acceleration
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Walk Jog")
-	float JogAcceleration = 27;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	float Acceleration = 27;
 
 	/// <summary>
 	/// The movement deceleration
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Walk Jog")
-	float JogDeceleration = 9;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	float Deceleration = 9;
 
 	/// <summary>
 	/// The speed at wich the target component be rotated with movement direction
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Walk Jog")
-	float JoggingTurnSpeed = 20;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	float TurnSpeed = 20;
 	
 #pragma endregion
-
-
-#pragma region Sprint XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-protected:
 	
-	/// <summary>
-	/// The name of the sprint input value
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Sprinting")
-	FName SprintInputName = "Sprinting";
-	
-	/// <summary>
-	/// The minimum speed of the controller on the surface to start sprinting
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Sprinting")
-	float MinSprintSpeed = 250;
-	
-	/// <summary>
-	/// The maximum speed of the controller on the surface
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Sprinting")
-	float MaxSprintSpeed = 750;
-
-	/// <summary>
-	/// The movement acceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Sprinting")
-	float SprintAcceleration = 27;
-
-	/// <summary>
-	/// The movement deceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Sprinting")
-	float SprintDeceleration = 9;
-
-	/// <summary>
-	/// The speed at wich the target component be rotated with movement direction
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Sprinting")
-	float SprintingTurnSpeed = 12;
-	
-#pragma endregion
-
-
-#pragma region Crouch XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-protected:
-	
-	/// <summary>
-	/// The name of the crouch input value
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crouch")
-	FName CrouchInputName = "Crouching";
-	
-	/// <summary>
-	/// The maximum speed of the controller on the surface
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crouch")
-	float MaxCrouchSpeed = 180;
-
-	/// <summary>
-	/// The movement acceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crouch")
-	float CrouchAcceleration = 27;
-
-	/// <summary>
-	/// The movement deceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crouch")
-	float CrouchDeceleration = 9;
-
-	/// <summary>
-	/// The speed at wich the target component be rotated with movement direction
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crouch")
-	float CrouchTurnSpeed = 25;
-	
-#pragma endregion
-
-
-#pragma region Crawl XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-protected:
-	
-	/// <summary>
-	/// The name of the Crawl input value
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crawl")
-	FName CrawlInputName = "Crawling";
-	
-	/// <summary>
-	/// The maximum speed of the controller on the surface
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crawl")
-	float MaxCrawlSpeed = 90;
-
-	/// <summary>
-	/// The movement acceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crawl")
-	float CrawlAcceleration = 27;
-
-	/// <summary>
-	/// The movement deceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crawl")
-	float CrawlDeceleration = 9;
-
-	/// <summary>
-	/// The speed at wich the target component be rotated with movement direction
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Crawl")
-	float CrawlTurnSpeed = 8;
-	
-#pragma endregion
-
 
 #pragma region Functions XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 public:
@@ -377,19 +264,23 @@ public:
 
 
 	
-	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
+		, const float inDelta, int overrideWasLastStateStatus) override;
 
-	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual FMovePreprocessParams PreProcessState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual FVelocity ProcessState_Implementation(const FKinematicInfos& inDatas, const FMovePreprocessParams params, UModularControllerComponent* controller, const float inDelta) override;
+	virtual FVelocity ProcessState_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 	
-	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta) override;
+	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
 	virtual	void OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller) override;
 
 	virtual FString DebugString() override;
+
+
+	virtual void SaveStateSnapShot_Internal() override;
+	virtual void RestoreStateFromSnapShot_Internal() override;
 	
 
 #pragma endregion

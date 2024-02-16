@@ -1,6 +1,9 @@
 // Copyright © 2023 by Tyni Boat. All Rights Reserved.
 
 #include "ComponentAndBase/ModularControllerComponent.h"
+
+#include <functional>
+#include "CoreTypes.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimInstance.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -50,6 +53,9 @@ void UModularControllerComponent::Initialize()
 		UpdatedPrimitive->SetGenerateOverlapEvents(true);
 	}
 
+	//Inputs
+	_user_inputPool = NewObject<UInputEntryPool>(UInputEntryPool::StaticClass(), UInputEntryPool::StaticClass());
+
 	//State behaviors
 	StatesInstances.Empty();
 	for (int i = StateClasses.Num() - 1; i >= 0; i--)
@@ -67,17 +73,23 @@ void UModularControllerComponent::Initialize()
 	{
 		if (ActionClasses[i] == nullptr)
 			continue;
-		UBaseAction* instance = NewObject<UBaseAction>(ActionClasses[i], ActionClasses[i]);
+		UBaseControllerAction* instance = NewObject<UBaseControllerAction>(ActionClasses[i], ActionClasses[i]);
 		ActionInstances.Add(instance);
 	}
 
 	//Init last move
-	LastMoveMade = FKinematicInfos(GetOwner()->GetActorTransform(), FVelocity(), FSurfaceInfos(), -1, TArray<int>());
+	LastMoveMade = FKinematicInfos(GetOwner()->GetActorTransform(), FVelocity(), FSurfaceInfos());
 	LastMoveMade.FinalTransform = LastMoveMade.InitialTransform;
+	LastMoveMade.FinalVelocities = LastMoveMade.InitialVelocities;
+	if (GetNetRole() == ROLE_Authority)
+	{
+		_lastCmdReceived.ToLocation = LastMoveMade.InitialTransform.GetLocation();
+		_lastCmdReceived.ToRotation = LastMoveMade.InitialTransform.GetRotation().Rotator();
+	}
 
 
 	//Set time elapsed
-	auto timePassedSince = FDateTime::UtcNow() - FDateTime(2023, 11, 26, 0, 0, 0, 0);
+	auto timePassedSince = FDateTime::UtcNow() - FDateTime(2024, 01, 01, 0, 0, 0, 0);
 	_timeElapsed = timePassedSince.GetTotalSeconds();
 }
 
@@ -90,7 +102,7 @@ void UModularControllerComponent::MainUpdateComponent(float delta)
 
 	if (GetNetMode() == ENetMode::NM_Standalone)
 	{
-		FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
+		FKinematicInfos movement = FKinematicInfos(GetGravity(), LastMoveMade, GetMass());
 		movement.bUsePhysic = bUsePhysicAuthority;
 		const FVector moveInp = ConsumeMovementInput();
 		StandAloneUpdateComponent(moveInp, movement, _user_inputPool, delta);
@@ -146,35 +158,137 @@ void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick Tick
 
 
 
-FKinematicInfos UModularControllerComponent::StandAloneUpdateComponent(FVector movementInput, FKinematicInfos& movementInfos, FInputEntryPool& usedInputPool, float delta)
+FKinematicInfos UModularControllerComponent::StandAloneUpdateComponent(FVector movementInput, FKinematicInfos& movementInfos, UInputEntryPool* usedInputPool, float delta, bool noCollision)
 {
-	movementInfos.ChangeActor(this, BoneName, ShowDebug);
-
-	//auto stateIndex = CheckControllerStates(movementInfos, usedInputPool, delta);
-	//TryChangeControllerState(CurrentStateIndex, stateIndex, movementInfos, usedInputPool, delta);
-	//preprocessUsed = PreProcessCurrentControllerState(movementInfos, usedInputPool, delta);
-	//const FVelocity primaryMotion = ProcessCurrentControllerState(movementInfos, preprocessUsed, delta);
-
-	//FVelocity alteredMotion = EvaluateAction(primaryMotion, movementInfos, usedInputPool, delta);
-	FVelocity alteredMotion;
-	alteredMotion.ConstantLinearVelocity = movementInput * 1000;
+	auto controllerStatus = EvaluateControllerStatus(movementInfos, movementInput, usedInputPool, delta);
+	FVelocity alteredMotion = ProcessStatus(controllerStatus, movementInfos, movementInput, usedInputPool, delta);
 
 	EvaluateRootMotionOverride(alteredMotion, movementInfos, delta);
 	const FQuat finalRot = HandleRotation(alteredMotion, movementInfos, delta);
 	alteredMotion.Rotation = finalRot;
-	usedInputPool.UpdateInputs(delta, movementInfos.IsDebugMode);
+	if (usedInputPool)
+		usedInputPool->UpdateInputs(delta);
 
-	FVelocity resultingMove = EvaluateMove(movementInfos, alteredMotion, delta);
+	FVelocity resultingMove = EvaluateMove(movementInfos, alteredMotion, delta, noCollision);
 	resultingMove._rooMotionScale = alteredMotion._rooMotionScale;
 	PostMoveUpdate(movementInfos, resultingMove, CurrentStateIndex, delta);
 	Move(movementInfos.FinalTransform.GetLocation(), movementInfos.FinalTransform.GetRotation(), delta);
+
 	movementInfos.FinalTransform.SetComponents(UpdatedPrimitive->GetComponentRotation().Quaternion(), UpdatedPrimitive->GetComponentLocation(), UpdatedPrimitive->GetComponentScale());
-	if (ShowDebug)
+	if (DebugType)
 	{
 		UKismetSystemLibrary::DrawDebugArrow(this, movementInfos.InitialTransform.GetLocation(), movementInfos.InitialTransform.GetLocation() + alteredMotion.ConstantLinearVelocity * 0.1f, 50, FColor::Magenta);
 		DrawCircle(GetWorld(), movementInfos.FinalTransform.GetLocation(), alteredMotion.Rotation.GetAxisX(), alteredMotion.Rotation.GetAxisY(), FColor::Magenta, 35, 32, false, -1, 0, 2);
 	}
 	return  movementInfos;
+}
+
+
+FClientNetMoveCommand UModularControllerComponent::SimulateMoveCommand(FClientNetMoveCommand moveCmd, const FKinematicInfos fromKinematic, UInputEntryPool* usedInputPool, bool shouldSweep, FHitResult* hitResult, int customInitialStateIndex, int customInitialActionIndexes)
+{
+	FClientNetMoveCommand result = moveCmd;
+
+	//Sweep chk
+	if (shouldSweep)
+	{
+		FHitResult hit;
+		auto currentLocation = UpdatedPrimitive->GetComponentLocation();
+		ComponentTraceCastSingle(hit, currentLocation, moveCmd.FromLocation - currentLocation, moveCmd.FromRotation.Quaternion(), 0.1, bUseComplexCollision);
+		if (hit.IsValidBlockingHit())
+		{
+			result.FromLocation = hit.Location;
+			result.FromRotation = fromKinematic.FinalVelocities.Rotation.Rotator();
+		}
+
+		hitResult = &hit;
+	}
+
+	//move
+	FKinematicInfos movement = FKinematicInfos(GetGravity(), fromKinematic, GetMass());
+	movement.InitialTransform.SetRotation(result.FromRotation.Quaternion());
+	movement.InitialTransform.SetLocation(result.FromLocation);
+	movement.InitialVelocities.ConstantLinearVelocity = result.WithVelocity;
+	const FVector moveInp = result.userMoveInput;
+
+	auto controllerStatus = EvaluateControllerStatus(movement, moveInp, usedInputPool, result.DeltaTime, result.ControllerStatus, true, customInitialStateIndex, customInitialActionIndexes);
+	FVelocity alteredMotion = ProcessStatus(controllerStatus, movement, moveInp, usedInputPool, result.DeltaTime, controllerStatus.StateIndex, controllerStatus.ActionIndex);
+
+	const FQuat finalRot = HandleRotation(alteredMotion, movement, result.DeltaTime);
+	alteredMotion.Rotation = finalRot;
+
+	const FVelocity resultingMove = EvaluateMove(movement, alteredMotion, result.DeltaTime);
+
+	//post move
+	{
+		//Final velocities
+		movement.FinalVelocities.ConstantLinearVelocity = resultingMove.ConstantLinearVelocity;
+		movement.FinalVelocities.InstantLinearVelocity = resultingMove.InstantLinearVelocity;
+		movement.FinalVelocities.Rotation = resultingMove.Rotation;
+
+		//Position
+		movement.FinalTransform = movement.InitialTransform;
+		const FVector mov = (resultingMove.ConstantLinearVelocity * result.DeltaTime + resultingMove.InstantLinearVelocity);
+		movement.FinalTransform.SetLocation(movement.InitialTransform.GetLocation() + mov);
+		movement.FinalTransform.SetRotation(resultingMove.Rotation);
+
+		//Root Motion
+		movement.FinalVelocities._rooMotionScale = resultingMove._rooMotionScale;
+	}
+
+	result.FromLocation = movement.InitialTransform.GetLocation();
+	result.ToLocation = movement.FinalTransform.GetLocation();
+
+	result.FromRotation = movement.InitialTransform.GetRotation().Rotator();
+	result.ToRotation = movement.FinalTransform.GetRotation().Rotator();
+
+	result.ControllerStatus = controllerStatus;
+	result.ToVelocity = movement.FinalVelocities.ConstantLinearVelocity;
+
+	return result;
+}
+
+
+FStatusParameters UModularControllerComponent::EvaluateControllerStatus(FKinematicInfos kinematicInfos, FVector moveInput, UInputEntryPool* usedInputPool, float delta, FStatusParameters statusOverride, bool simulate, int simulatedInitialStateIndex, int simulatedInitialActionIndexes)
+{
+	//State
+	auto statusInfos = statusOverride;
+	int initialState = simulatedInitialStateIndex >= 0 ? simulatedInitialStateIndex : CurrentStateIndex;
+	const auto stateIndex = CheckControllerStates(kinematicInfos, moveInput, usedInputPool, delta, simulate);
+	int targetState = statusInfos.StateIndex < 0 ? stateIndex : statusInfos.StateIndex;
+	if (TryChangeControllerState(initialState, targetState, kinematicInfos, moveInput, delta, simulate))
+	{
+		statusInfos.StateModifiers.Empty();
+		statusInfos.StateIndex = targetState;
+	}
+	else
+	{
+		statusInfos.StateIndex = initialState;
+	}
+
+	//Actions
+	int initialActionIndex = simulatedInitialActionIndexes >= 0 ? simulatedInitialActionIndexes : CurrentActionIndex;
+	const auto actionIndex = CheckControllerActions(kinematicInfos, moveInput, usedInputPool, statusInfos.StateIndex, initialActionIndex, delta, simulate);
+	int targetActionIndex = statusInfos.ActionIndex < 0 ? actionIndex : statusInfos.ActionIndex;
+	if (TryChangeControllerActions(initialActionIndex, targetActionIndex, kinematicInfos, moveInput, delta, simulate))
+	{
+		statusInfos.ActionsModifiers.Empty();
+		statusInfos.ActionIndex = targetActionIndex;
+	}
+	else
+	{
+		statusInfos.ActionIndex = initialActionIndex;
+	}
+
+	return statusInfos;
+}
+
+
+FVelocity UModularControllerComponent::ProcessStatus(FStatusParameters& inStatus,
+	FKinematicInfos kinematicInfos, FVector moveInput, UInputEntryPool* usedInputPool, float delta, int simulatedStateIndex, int simulatedActionIndexes)
+{
+	const FVelocity primaryMotion = ProcessControllerState(inStatus, kinematicInfos, moveInput, delta, simulatedStateIndex);
+	FVelocity alteredMotion = ProcessControllerActions(inStatus, kinematicInfos, primaryMotion, moveInput, delta, simulatedStateIndex, simulatedActionIndexes);
+	return  alteredMotion;
 }
 
 
@@ -200,7 +314,8 @@ void UModularControllerComponent::ListenInput(const FName key, const FInputEntry
 		return;
 	if (!_ownerPawn->IsLocallyControlled())
 		return;
-	_user_inputPool.AddOrReplace(key, entry);
+	if (_user_inputPool)
+		_user_inputPool->AddOrReplace(key, entry);
 }
 
 void UModularControllerComponent::ListenButtonInput(const FName key, const float buttonBufferTime)
@@ -242,31 +357,39 @@ FVector UModularControllerComponent::ConsumeMovementInput()
 		return FVector(0);
 	const FVector move = _userMoveDirectionHistory[0];
 	_userMoveDirectionHistory.RemoveAt(0);
+	if (DebugType == InputDebug)
+	{
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Consumed Move Input: %s"), *move.ToCompactString()), true, true, FColor::Silver, 0, "MoveInput_");
+	}
 	return move;
 }
 
-FInputEntry UModularControllerComponent::ReadInput(const FName key, bool consume)
+FInputEntry UModularControllerComponent::ReadInput(const FName key, bool consume, bool debug, UObject* worldContext)
 {
+	if (debug && !worldContext)
+		worldContext = GetWorld();
+	if (!_user_inputPool)
+		return {};
 	if (consume)
-		return _user_inputPool.ConsumeInput(key);
-	return _user_inputPool.ReadInput(key);
+		return _user_inputPool->ConsumeInput(key, debug && DebugType == InputDebug, worldContext);
+	return _user_inputPool->ReadInput(key, debug && DebugType == InputDebug, worldContext);
 }
 
-bool UModularControllerComponent::ReadButtonInput(const FName key, bool consume)
+bool UModularControllerComponent::ReadButtonInput(const FName key, bool consume, bool debug, UObject* worldContext)
 {
-	const FInputEntry entry = ReadInput(key, consume);
+	const FInputEntry entry = ReadInput(key, consume, debug && DebugType == InputDebug, worldContext);
 	return entry.Phase == EInputEntryPhase::InputEntryPhase_Held || entry.Phase == EInputEntryPhase::InputEntryPhase_Pressed;
 }
 
-float UModularControllerComponent::ReadValueInput(const FName key, bool consume)
+float UModularControllerComponent::ReadValueInput(const FName key, bool consume, bool debug, UObject* worldContext)
 {
-	const FInputEntry entry = ReadInput(key, consume);
+	const FInputEntry entry = ReadInput(key, consume, debug && DebugType == InputDebug, worldContext);
 	return entry.Axis.X;
 }
 
-FVector UModularControllerComponent::ReadAxisInput(const FName key, bool consume)
+FVector UModularControllerComponent::ReadAxisInput(const FName key, bool consume, bool debug, UObject* worldContext)
 {
-	const FInputEntry entry = ReadInput(key, consume);
+	const FInputEntry entry = ReadInput(key, consume, debug && DebugType == InputDebug, worldContext);
 	return entry.Axis;
 }
 
@@ -326,13 +449,7 @@ FName UModularControllerComponent::GetNetRoleDebug(ENetRole role)
 #pragma region Server Logic //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-
-void UModularControllerComponent::MultiCastMoveInput_Implementation(FVector_NetQuantize10 userMoveInput, FVector_NetQuantize atLocation, FVector_NetQuantize withVelocity, double timeStamp)
-{
-	_moveInputCommands.Add(TTuple<double, FVector, FVector, FVector>(timeStamp, userMoveInput, atLocation, withVelocity));
-}
-
-void UModularControllerComponent::MultiCastPosition_Implementation(FVector_NetQuantize10 newPos, double timeStamp)
+void UModularControllerComponent::MultiCastMoveCommand_Implementation(FClientNetMoveCommand command, FServerNetCorrectionData Correction, bool asCorrection)
 {
 	const ENetRole role = GetNetRole();
 	switch (role)
@@ -342,164 +459,29 @@ void UModularControllerComponent::MultiCastPosition_Implementation(FVector_NetQu
 	} break;
 	case ENetRole::ROLE_AutonomousProxy:
 	{
-		_netPosition.Key = timeStamp;
-		_netPosition.Value = newPos;
+		if (asCorrection)
+		{
+			_lastCorrectionReceived = Correction;
+			if (DebugType == NetworkDebug)
+			{
+				UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Autonomous Proxy Received Correction Stamped: %f"), Correction.TimeStamp), true, true, FColor::Orange, 5, TEXT("MultiCastMoveCommand_1"));
+			}
+		}
+
+		_lastCmdReceived = command;
 	}
 	break;
 
 	default:
 	{
-		_netPosition.Key = timeStamp;
-		_netPosition.Value = newPos;
+		_lastCmdReceived = command;
+		if (DebugType == NetworkDebug)
+		{
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Simulated Proxy Received Command Stamped: %f"), command.TimeStamp), true, true, FColor::Cyan, 1, TEXT("MultiCastMoveCommand_2"));
+		}
 	}
 	break;
 	}
-}
-
-void UModularControllerComponent::MultiCastVelocity_Implementation(FVector_NetQuantize10 newVelocity, double timeStamp)
-{
-	const ENetRole role = GetNetRole();
-	switch (role)
-	{
-	case ENetRole::ROLE_Authority:
-	{
-	} break;
-	case ENetRole::ROLE_AutonomousProxy:
-	{
-		_netVelocity.Key = timeStamp;
-		_netVelocity.Value = newVelocity;
-	}
-	break;
-
-	default:
-	{
-		_netVelocity.Key = timeStamp;
-		_netVelocity.Value = newVelocity;
-	}
-	break;
-	}
-}
-
-void UModularControllerComponent::MultiCastRotation_Implementation(FRotator newRot, double timeStamp)
-{
-	const ENetRole role = GetNetRole();
-	switch (role)
-	{
-	case ENetRole::ROLE_Authority:
-	{
-	} break;
-	case ENetRole::ROLE_AutonomousProxy:
-	{
-		_netRotation.Key = timeStamp;
-		_netRotation.Value = newRot.Quaternion();
-	}
-	break;
-
-	default:
-	{
-		_netRotation.Key = timeStamp;
-		_netRotation.Value = newRot.Quaternion();
-	}
-	break;
-	}
-}
-
-
-void UModularControllerComponent::MultiCastState_Implementation(uint32 stateIndex, double timeStamp)
-{
-	const ENetRole role = GetNetRole();
-	switch (role)
-	{
-	case ENetRole::ROLE_Authority:
-	{
-	} break;
-	case ENetRole::ROLE_AutonomousProxy:
-	{
-		_netMoveState.Key = timeStamp;
-		_netMoveState.Value = stateIndex;
-	}
-	break;
-
-	default:
-	{
-		_netMoveState.Key = timeStamp;
-		_netMoveState.Value = stateIndex;
-	}
-	break;
-	}
-}
-
-void UModularControllerComponent::MultiCastMoveParams_Implementation(FMovePreprocessParams params, double timeStamp)
-{
-	const ENetRole role = GetNetRole();
-	switch (role)
-	{
-	case ENetRole::ROLE_Authority:
-	{
-	} break;
-	case ENetRole::ROLE_AutonomousProxy:
-	{
-		_netStateMoveParams.Key = timeStamp;
-		_netStateMoveParams.Value = params;
-	}
-	break;
-
-	default:
-	{
-		_netStateMoveParams.Key = timeStamp;
-		_netStateMoveParams.Value = params;
-	}
-	break;
-	}
-}
-
-
-bool UModularControllerComponent::MulticastMovement(FKinematicInfos movement, FMovePreprocessParams movementParams, double timeStamp)
-{
-	bool somethingChanged = false;
-
-	if (movementParams.ParamChanged(_netStateMoveParams.Value))
-	{
-		movementParams.Serialize();
-		_netStateMoveParams.Key = timeStamp;
-		_netStateMoveParams.Value = movementParams;
-		MultiCastMoveParams(movementParams, timeStamp);
-		somethingChanged = true;
-	}
-
-	if (FVector_NetQuantize(_netPosition.Value) != FVector_NetQuantize(movement.FinalTransform.GetLocation()))
-	{
-		_netPosition.Value = movement.FinalTransform.GetLocation();
-		_netPosition.Key = timeStamp;
-		MultiCastPosition(_netPosition.Value, timeStamp);
-		somethingChanged = true;
-	}
-
-	if (FVector_NetQuantize(_netVelocity.Value) != FVector_NetQuantize(movement.FinalVelocities.ConstantLinearVelocity))
-	{
-		_netVelocity.Key = timeStamp;
-		_netVelocity.Value = movement.FinalVelocities.ConstantLinearVelocity;
-		MultiCastVelocity(movement.FinalVelocities.ConstantLinearVelocity, timeStamp);
-		somethingChanged = true;
-	}
-
-	if (FMath::RadiansToDegrees(movement.FinalTransform.GetRotation().AngularDistance(_netRotation.Value)) > 4)
-	{
-		_netRotation.Key = timeStamp;
-		_netRotation.Value = movement.FinalTransform.GetRotation();
-		MultiCastRotation(_netRotation.Value.Rotator(), timeStamp);
-		somethingChanged = true;
-	}
-
-	if (_netMoveState.Value != CurrentStateIndex)
-	{
-		_netMoveState.Key = timeStamp;
-		_netMoveState.Value = CurrentStateIndex;
-		MultiCastState(_netMoveState.Value, timeStamp);
-		somethingChanged = true;
-	}
-
-	return somethingChanged;
 }
 
 
@@ -508,22 +490,41 @@ bool UModularControllerComponent::MulticastMovement(FKinematicInfos movement, FM
 
 void UModularControllerComponent::ListenServerUpdateComponent(float delta)
 {
-	FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), false);
+	FKinematicInfos movement = FKinematicInfos(GetGravity(), LastMoveMade, GetMass());
 	const FVector moveInp = ConsumeMovementInput();
 
 	//Execute the move
+	movement.bUsePhysic = bUsePhysicAuthority;
+	auto statusInfos = EvaluateControllerStatus(movement, moveInp, _user_inputPool, delta);
+	//
 	{
-		movement.bUsePhysic = bUsePhysicAuthority;
-		movement = StandAloneUpdateComponent(moveInp, movement, _user_inputPool, delta);
-		LastMoveMade = movement;
-	}
+		FVelocity alteredMotion = ProcessStatus(statusInfos, movement, moveInp, _user_inputPool, delta);
 
-	if (_lastMoveCommand.Get<1>() != moveInp || _lastMoveCommand.Get<2>() != LastMoveMade.FinalTransform.GetLocation() || _lastMoveCommand.Get<3>() != LastMoveMade.FinalVelocities.ConstantLinearVelocity)
-	{
-		MultiCastMoveInput(moveInp, LastMoveMade.FinalTransform.GetLocation(), LastMoveMade.FinalVelocities.ConstantLinearVelocity, _timeElapsed);
-		_lastMoveCommand = TTuple<double, FVector, FVector, FVector>(_timeElapsed, moveInp, LastMoveMade.FinalTransform.GetLocation(), LastMoveMade.FinalVelocities.ConstantLinearVelocity);
+		EvaluateRootMotionOverride(alteredMotion, movement, delta);
+		alteredMotion.Rotation = HandleRotation(alteredMotion, movement, delta);
+		if (_user_inputPool)
+			_user_inputPool->UpdateInputs(delta);
+
+		FVelocity resultingMove = EvaluateMove(movement, alteredMotion, delta);
+		resultingMove._rooMotionScale = alteredMotion._rooMotionScale;
+		PostMoveUpdate(movement, resultingMove, CurrentStateIndex, delta);
+		Move(movement.FinalTransform.GetLocation(), movement.FinalTransform.GetRotation(), delta);
+
+		movement.FinalTransform.SetComponents(UpdatedPrimitive->GetComponentRotation().Quaternion(), UpdatedPrimitive->GetComponentLocation(), UpdatedPrimitive->GetComponentScale());
 	}
-	//MulticastMovement(LastMoveMade, movementParams, _timeElapsed);
+	LastMoveMade = movement;
+	auto moveCmd = FClientNetMoveCommand(_timeElapsed, delta, moveInp, LastMoveMade, statusInfos);
+
+	if (_lastCmdReceived.HasChanged(moveCmd, 1, 5) || !_startPositionSet)
+	{
+		_startPositionSet = true;
+		_lastCmdReceived = moveCmd;
+		MultiCastMoveCommand(moveCmd);
+		if (DebugType == NetworkDebug)
+		{
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Listen Send Command Stamped: %f"), moveCmd.TimeStamp), true, true, FColor::White, 1, TEXT("ListenServerUpdateComponent"));
+		}
+	}
 }
 
 
@@ -534,12 +535,99 @@ void UModularControllerComponent::ListenServerUpdateComponent(float delta)
 
 void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 {
-	if (bUseClientAuthorative)
+	FHitResult initialChk;
+	bool madeCorrection = false;
+	bool ackCorrection = false;
+
+	//Verification
 	{
-		SimulatedProxyUpdateComponent(delta);
+		if (_servercmdCheckPool.Num() > 0)
+		{
+			if (bUseClientAuthorative)
+			{
+				_lastCmdReceived = _servercmdCheckPool[0];
+				_servercmdCheckPool.RemoveAt(0);
+			}
+			else
+			{
+				_lastCmdReceived = _servercmdCheckPool[0];
+				if (ComponentTraceCastSingle(initialChk, UpdatedComponent->GetComponentLocation(), _lastCmdReceived.FromLocation - UpdatedComponent->GetComponentLocation(), _lastCmdReceived.FromRotation.Quaternion()))
+				{
+					madeCorrection = true;
+				}
+				else if (ComponentTraceCastSingle(initialChk, _lastCmdReceived.FromLocation, _lastCmdReceived.ToLocation - _lastCmdReceived.FromLocation, _lastCmdReceived.ToRotation.Quaternion()))
+				{
+					madeCorrection = true;
+				}
+
+				if (madeCorrection)
+				{
+					_lastCmdReceived.FromLocation = initialChk.TraceStart;
+					_lastCmdReceived.ToLocation = initialChk.Location;
+				}
+				else
+				{
+					ackCorrection = _lastCmdReceived.CorrectionAckowledgement;
+				}
+
+				_servercmdCheckPool.RemoveAt(0);
+			}
+		}
 	}
-	else
+
+
+	FKinematicInfos movement = FKinematicInfos(GetGravity(), LastMoveMade, GetMass());
+
+	//Move
+	FVector currentLocation = UpdatedPrimitive->GetComponentLocation();
+	FVector targetLocation = _lastCmdReceived.ToLocation;
+	FVector lerpLocation = FMath::Lerp(currentLocation, targetLocation, delta * AdjustmentSpeed);
+	FHitResult sweepHit;
+	UpdatedPrimitive->SetWorldLocation(lerpLocation, true, &sweepHit);
+	movement.InitialTransform.SetLocation(UpdatedPrimitive->GetComponentLocation());
+
+	//Rotate
+	FQuat currentRotation = UpdatedPrimitive->GetComponentRotation().Quaternion();
+	FQuat targetRotation = _lastCmdReceived.ToRotation.Quaternion();
+	FQuat slerpRot = FQuat::Slerp(currentRotation, targetRotation, delta * AdjustmentSpeed);
+	UpdatedPrimitive->SetWorldRotation(slerpRot.Rotator());
+	movement.InitialTransform.SetRotation(currentRotation);
+	movement.FinalVelocities.Rotation = targetRotation;
+
+	//Velocity
+	movement.FinalVelocities.ConstantLinearVelocity = _lastCmdReceived.WithVelocity;
+
+	//Status
+	EvaluateControllerStatus(movement, _lastCmdReceived.userMoveInput, _user_inputPool, delta, _lastCmdReceived.ControllerStatus);
+	auto copyOfStatus = _lastCmdReceived.ControllerStatus;
+	ProcessStatus(copyOfStatus, movement, _lastCmdReceived.userMoveInput, _user_inputPool, delta);
+
+	PostMoveUpdate(movement, movement.FinalVelocities, _lastCmdReceived.ControllerStatus.StateIndex, delta);
+	LastMoveMade = movement;
+
+	//Network
+	if (_lastCmdExecuted.HasChanged(_lastCmdReceived, 1, 5) || !_startPositionSet)
 	{
+		//Set a time stamp to be able to initialize client
+		if (!_startPositionSet)
+			_lastCmdReceived.TimeStamp = _timeElapsed;
+
+		_lastCmdExecuted = _lastCmdReceived;
+		if (madeCorrection || ackCorrection)
+		{
+			auto hitResult = initialChk.IsValidBlockingHit() ? initialChk : sweepHit;
+			FServerNetCorrectionData correction = FServerNetCorrectionData(ackCorrection ? 0 : _lastCmdReceived.TimeStamp, LastMoveMade, &hitResult);
+			MultiCastMoveCommand(_lastCmdReceived, correction, true);
+		}
+		else
+		{
+			MultiCastMoveCommand(_lastCmdReceived);
+		}
+
+		if (DebugType == NetworkDebug)
+		{
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Dedicated Send Command Stamped: %f as correction? %d"), _lastCmdReceived.TimeStamp, madeCorrection), true, true, FColor::White, 1, TEXT("DedicatedServerUpdateComponent"));
+		}
 	}
 }
 
@@ -554,98 +642,138 @@ void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 
 #pragma region Automonous Proxy OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 
-void UModularControllerComponent::ServerCastPosition_Implementation(FVector_NetQuantize10 newPos, double timeStamp)
+
+void UModularControllerComponent::ServerCastMoveCommand_Implementation(FClientNetMoveCommand command)
 {
+	//Stop trying to initialize when receiving the first move request.
+	_startPositionSet = true;
+
+	_servercmdCheckPool.Add(command);
 	if (bUseClientAuthorative)
 	{
-		MultiCastPosition(newPos, timeStamp);
+		MultiCastMoveCommand(command);
 	}
-}
 
-void UModularControllerComponent::ServerCastRotation_Implementation(FRotator newRot, double timeStamp)
-{
-	if (bUseClientAuthorative)
+	if (DebugType == NetworkDebug)
 	{
-		MultiCastRotation(newRot, timeStamp);
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Dedicated received command Stamped: %f"), command.TimeStamp), true, true, FColor::Black, 1, TEXT("ServerCastMoveCommand"));
 	}
-}
-
-void UModularControllerComponent::ServerCastVelocity_Implementation(FVector_NetQuantize10 newVelocity, double timeStamp)
-{
-	if (bUseClientAuthorative)
-	{
-		MultiCastVelocity(newVelocity, timeStamp);
-	}
-}
-
-void UModularControllerComponent::ServerCastState_Implementation(uint32 stateIndex, double timeStamp)
-{
-	if (bUseClientAuthorative)
-	{
-		MultiCastState(stateIndex, timeStamp);
-	}
-}
-
-void UModularControllerComponent::ServerCastMoveParams_Implementation(FMovePreprocessParams params, double timeStamp)
-{
-	if (bUseClientAuthorative)
-	{
-		MultiCastMoveParams(params, timeStamp);
-	}
-}
-
-void UModularControllerComponent::ServerCastClientRequest_Implementation(FVector_NetQuantize10 startLocation, FTranscodedInput inputs, double timeStamp)
-{
-	_serverPendingRequests.Add(TKeyValuePair<double, TKeyValuePair<FVector, FTranscodedInput>>(timeStamp, TKeyValuePair<FVector, FTranscodedInput>(startLocation, inputs)));
-}
-
-int UModularControllerComponent::ServerCastAllMovement(FKinematicInfos lastMove, FKinematicInfos currentMove, FMovePreprocessParams movementParams, double timeStamp)
-{
-	int result = 0;
-
-	if (FVector_NetQuantize(lastMove.FinalTransform.GetLocation()) != FVector_NetQuantize(currentMove.FinalTransform.GetLocation()))
-	{
-		ServerCastPosition(currentMove.FinalTransform.GetLocation(), timeStamp);
-		result += 10;
-	}
-
-	if (FVector_NetQuantize(lastMove.FinalVelocities.ConstantLinearVelocity) != FVector_NetQuantize(currentMove.FinalVelocities.ConstantLinearVelocity))
-	{
-		ServerCastVelocity(currentMove.FinalVelocities.ConstantLinearVelocity, timeStamp);
-		result += 100;
-	}
-
-	if (FMath::RadiansToDegrees(currentMove.FinalTransform.GetRotation().AngularDistance(lastMove.FinalTransform.GetRotation())) > 4)
-	{
-		ServerCastRotation(lastMove.FinalTransform.GetRotation().Rotator(), timeStamp);
-		result += 1000;
-	}
-
-	if (lastMove.FinalStateIndex != CurrentStateIndex)
-	{
-		ServerCastState(CurrentStateIndex, timeStamp);
-		result += 10000;
-	}
-
-	return result;
 }
 
 
 void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 {
-	if (bUseClientAuthorative)
+	//Handle Starting Location
 	{
-		FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
-		movement.bUsePhysic = bUsePhysicAuthority;
-		const FVector moveInp = ConsumeMovementInput();
-		StandAloneUpdateComponent(moveInp, movement, _user_inputPool, delta);
-		LastMoveMade = movement;
-
-		//ServerCastAllMovement();
+		if (_lastCmdReceived.TimeStamp == 0 && !_startPositionSet)
+			return;
+		if (!_startPositionSet)
+		{
+			UpdatedComponent->SetWorldLocationAndRotation(_lastCmdReceived.ToLocation, _lastCmdReceived.ToRotation);
+			LastMoveMade.FinalTransform.SetComponents(_lastCmdReceived.ToRotation.Quaternion(), _lastCmdReceived.ToLocation, LastMoveMade.FinalTransform.GetScale3D());
+			_startPositionSet = true;
+		}
 	}
-	else
-	{
 
+
+	////Correction
+	bool corrected = false;
+	if (!bUseClientAuthorative)
+	{
+		FClientNetMoveCommand cmdBefore;
+		if (_clientcmdHistory.Num() > 0)
+		{
+			cmdBefore = _clientcmdHistory[_clientcmdHistory.Num() - 1];
+		}
+		FClientNetMoveCommand correctionCmd = cmdBefore;
+		if (_lastCorrectionReceived.ApplyCorrectionRecursive(_clientcmdHistory, correctionCmd))
+		{
+			if (cmdBefore.HasChanged(correctionCmd))
+			{
+				corrected = true;
+
+				LastMoveMade.FinalTransform.SetComponents(correctionCmd.ToRotation.Quaternion(), correctionCmd.ToLocation, FVector::OneVector);
+				LastMoveMade.FinalVelocities.ConstantLinearVelocity = correctionCmd.ToVelocity;
+				LastMoveMade.FinalVelocities.Rotation = LastMoveMade.InitialTransform.GetRotation();
+
+				if (DebugType == NetworkDebug)
+				{
+					UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Autonomous Set Correction to Stamped: %f"), _lastCorrectionReceived.TimeStamp), true, true, FColor::Orange, 1, TEXT("AutonomousProxyUpdateComponent_correction_1"));
+				}
+			}
+		}
+
+		if (DebugType == NetworkDebug)
+		{
+			DrawDebugCapsule(GetWorld(), correctionCmd.FromLocation, 90, 40, correctionCmd.FromRotation.Quaternion(), FColor::Orange, false, 1);
+			DrawDebugDirectionalArrow(GetWorld(), correctionCmd.FromLocation, correctionCmd.FromLocation + correctionCmd.FromRotation.Vector() * 40, 20, FColor::Red, false, -1);
+
+			auto acceleration = correctionCmd.ToVelocity.Length() - correctionCmd.WithVelocity.Length();
+			FLinearColor accColor = FLinearColor(-acceleration, acceleration, 0);
+			DrawDebugLine(GetWorld(), correctionCmd.FromLocation + FVector::UpVector * 15, correctionCmd.ToLocation + FVector::UpVector * 15, accColor.ToFColor(true), false, -1);
+		}
+	}
+
+
+	FKinematicInfos movement = FKinematicInfos(GetGravity(), LastMoveMade, GetMass());
+	const FVector moveInp = ConsumeMovementInput();
+
+	//Execute the move
+	movement.bUsePhysic = bUsePhysicAuthority;
+	auto statusInfos = EvaluateControllerStatus(movement, moveInp, _user_inputPool, delta);
+	//
+	{
+		FVelocity alteredMotion = ProcessStatus(statusInfos, movement, moveInp, _user_inputPool, delta);
+
+		EvaluateRootMotionOverride(alteredMotion, movement, delta);
+		alteredMotion.Rotation = HandleRotation(alteredMotion, movement, delta);
+		if (_user_inputPool)
+			_user_inputPool->UpdateInputs(delta);
+
+		FVelocity resultingMove = EvaluateMove(movement, alteredMotion, delta);
+		if (_lastCorrectionReceived.CollisionOccured)
+		{
+			const bool tryMoveThroughObstacle_Linear = FVector::DotProduct(resultingMove.ConstantLinearVelocity, _lastCorrectionReceived.CollisionNormal) <= 0;
+			if (tryMoveThroughObstacle_Linear)
+				resultingMove.ConstantLinearVelocity = FVector::VectorPlaneProject(resultingMove.ConstantLinearVelocity, _lastCorrectionReceived.CollisionNormal);
+
+			const bool tryMoveThroughObstacle_Instant = FVector::DotProduct(resultingMove.InstantLinearVelocity, _lastCorrectionReceived.CollisionNormal) <= 0;
+			if (tryMoveThroughObstacle_Instant)
+				resultingMove.InstantLinearVelocity = FVector::VectorPlaneProject(resultingMove.InstantLinearVelocity, _lastCorrectionReceived.CollisionNormal);
+		}
+		resultingMove._rooMotionScale = alteredMotion._rooMotionScale;
+		PostMoveUpdate(movement, resultingMove, CurrentStateIndex, delta);
+
+		if (bUseClientAuthorative)
+		{
+			Move(movement.FinalTransform.GetLocation(), movement.FinalTransform.GetRotation(), delta);
+			movement.FinalTransform.SetComponents(UpdatedPrimitive->GetComponentRotation().Quaternion(), UpdatedPrimitive->GetComponentLocation()
+				, UpdatedPrimitive->GetComponentScale());
+		}
+		else
+		{
+			const FVector lerpPos = FMath::Lerp(UpdatedComponent->GetComponentLocation(), movement.FinalTransform.GetLocation(), delta * AdjustmentSpeed);
+			const FQuat slerpRot = FQuat::Slerp(UpdatedComponent->GetComponentQuat(), movement.FinalTransform.GetRotation(), delta * AdjustmentSpeed);
+			UpdatedComponent->SetWorldLocationAndRotation(lerpPos, slerpRot);
+		}
+	}
+	LastMoveMade = movement;
+	auto moveCmd = FClientNetMoveCommand(_timeElapsed, delta, moveInp, LastMoveMade, statusInfos);
+
+	//Changes and Network
+	if (_lastCmdExecuted.HasChanged(moveCmd, 1, 5))
+	{
+		_lastCmdExecuted = moveCmd;
+		_clientcmdHistory.Add(moveCmd);
+		if (!corrected)
+		{
+			moveCmd.CorrectionAckowledgement = _lastCorrectionReceived.TimeStamp != 0;
+			ServerCastMoveCommand(moveCmd);
+			if (DebugType == NetworkDebug)
+			{
+				UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Autonomous Send Command Stamped: %f"), moveCmd.TimeStamp), true, true, FColor::Orange, 1, TEXT("AutonomousProxyUpdateComponent"));
+			}
+		}
 	}
 }
 
@@ -656,57 +784,33 @@ void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 
 void UModularControllerComponent::SimulatedProxyUpdateComponent(float delta)
 {
-	if (_moveInputCommands.Num() > 0)
-	{
-		_lastMoveCommand = _moveInputCommands[0];
-		GEngine->AddOnScreenDebugMessage(1, 1, FColor::Black, FString::Printf(TEXT("Move commands Remaining: %d"), _moveInputCommands.Num()));
-		_moveInputCommands.RemoveAt(0);
-	}
+	FKinematicInfos movement = FKinematicInfos(GetGravity(), LastMoveMade, GetMass());
 
-	auto moveCmd = _lastMoveCommand;
+	//Move
+	FVector currentLocation = UpdatedPrimitive->GetComponentLocation();
+	FVector targetLocation = _lastCmdReceived.ToLocation;
+	FVector lerpLocation = FMath::Lerp(currentLocation, targetLocation, delta * AdjustmentSpeed);
+	UpdatedPrimitive->SetWorldLocation(lerpLocation);
+	movement.InitialTransform.SetLocation(currentLocation);
 
-	if (moveCmd.Get<0>() != 0)
-	{
-		const FVector lerpLocation = FMath::Lerp(LastMoveMade.FinalTransform.GetLocation(), moveCmd.Get<2>(), delta * AdjustmentSpeed);
-		UpdatedPrimitive->SetWorldLocation(lerpLocation);
-		LastMoveMade.FinalTransform.SetLocation(lerpLocation);
-		LastMoveMade.FinalVelocities.ConstantLinearVelocity = moveCmd.Get<3>();
-		MovementInput(moveCmd.Get<1>());
-	}
+	//Rotate
+	FQuat currentRotation = UpdatedPrimitive->GetComponentRotation().Quaternion();
+	FQuat targetRotation = _lastCmdReceived.ToRotation.Quaternion();
+	FQuat slerpRot = FQuat::Slerp(currentRotation, targetRotation, delta * AdjustmentSpeed);
+	UpdatedPrimitive->SetWorldRotation(slerpRot.Rotator());
+	movement.InitialTransform.SetRotation(currentRotation);
+	movement.FinalVelocities.Rotation = targetRotation;
 
-	FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), ShowDebug);
-	movement.bUsePhysic = bUsePhysicAuthority;
-	FVector moveInp = ConsumeMovementInput();
-	StandAloneUpdateComponent(moveInp, movement, _user_inputPool, delta);
+	//Velocity
+	movement.FinalVelocities.ConstantLinearVelocity = _lastCmdReceived.WithVelocity;
+
+	//Status
+	EvaluateControllerStatus(movement, _lastCmdReceived.userMoveInput, _user_inputPool, delta, _lastCmdReceived.ControllerStatus);
+	auto copyOfStatus = _lastCmdReceived.ControllerStatus;
+	ProcessStatus(copyOfStatus, movement, _lastCmdReceived.userMoveInput, _user_inputPool, delta);
+
+	PostMoveUpdate(movement, movement.FinalVelocities, _lastCmdReceived.ControllerStatus.StateIndex, delta);
 	LastMoveMade = movement;
-
-	//FKinematicInfos movement = FKinematicInfos(this, GetGravity(), LastMoveMade, GetMass(), false);
-	//movement.InitialTransform.SetComponents(UpdatedPrimitive->GetComponentRotation().Quaternion(), UpdatedPrimitive->GetComponentLocation(), UpdatedPrimitive->GetComponentScale());
-	//movement.ChangeActor(this, BoneName, ShowDebug);
-
-	////States Handling
-	//{
-	//	auto copyOfInputs = _user_inputPool;
-	//	TryChangeControllerState(CurrentStateIndex, _netMoveState.Value, movement, copyOfInputs, delta);
-	//	FMovePreprocessParams stateParams = _netStateMoveParams.Value;
-	//	stateParams.Deserialize();
-	//	ProcessCurrentControllerState(movement, stateParams, delta);
-	//}
-
-	////Move and calculate velocity
-	//{
-	//	FVelocity primaryMotion;
-
-	//	//Velocity deduction
-	//	primaryMotion.Rotation = _netRotation.Value;
-	//	primaryMotion.ConstantLinearVelocity = _netVelocity.Value;
-
-	//	//Lerp initials
-	//	UpdatedPrimitive->SetWorldLocationAndRotation(FMath::Lerp(UpdatedPrimitive->GetComponentLocation(), _netPosition.Value, delta * AdjustmentSpeed * 2), FQuat::Slerp(UpdatedPrimitive->GetComponentQuat(), _netRotation.Value, delta * AdjustmentSpeed * 2));
-
-	//	PostMoveUpdate(movement, primaryMotion, CurrentStateIndex, delta);
-	//	LastMoveMade = movement;
-	//}
 }
 
 
@@ -735,7 +839,7 @@ void UModularControllerComponent::BeginOverlap(UPrimitiveComponent* OverlappedCo
 	////overlap objects
 	if (OverlappedComponent != nullptr && OtherComp != nullptr && OtherActor != nullptr)
 	{
-		if (ShowDebug)
+		if (DebugType)
 			GEngine->AddOnScreenDebugMessage((int32)GetOwner()->GetUniqueID() + 9, 1, FColor::Green, FString::Printf(TEXT("Overlaped With: %s"), *OtherActor->GetActorNameOrLabel()));
 	}
 }
@@ -743,7 +847,7 @@ void UModularControllerComponent::BeginOverlap(UPrimitiveComponent* OverlappedCo
 
 void UModularControllerComponent::BeginCollision(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-	if (OtherActor != nullptr && ShowDebug)
+	if (OtherActor != nullptr && DebugType)
 		GEngine->AddOnScreenDebugMessage((int32)GetOwner()->GetUniqueID() + 10, 1, FColor::Green, FString::Printf(TEXT("Collision With: %s"), *OtherActor->GetActorNameOrLabel()));
 
 	if (OtherComp)
@@ -849,6 +953,16 @@ UBaseControllerState* UModularControllerComponent::GetControllerStateByType(TSub
 	return nullptr;
 }
 
+UBaseControllerState* UModularControllerComponent::GetControllerStateByName(FName moduleName)
+{
+	if (StatesInstances.Num() <= 0)
+		return nullptr;
+	auto index = StatesInstances.IndexOfByPredicate([moduleName](UBaseControllerState* state) -> bool { return state->GetDescriptionName() == moduleName; });
+	if (StatesInstances.IsValidIndex(index))
+		return StatesInstances[index];
+	return nullptr;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void UModularControllerComponent::RemoveControllerStateByType_Implementation(TSubclassOf<UBaseControllerState> moduleType)
@@ -889,11 +1003,12 @@ void UModularControllerComponent::RemoveControllerStateByPriority_Implementation
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas, FInputEntryPool& inputs,
-	const float inDelta)
+int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas, FVector moveInput, UInputEntryPool* inputs, const float inDelta, bool simulation
+	, int simulatedCurrentStateIndex, int simulatedActiveActionIndex)
 {
 	int maxStatePriority = -1;
 	int selectedStateIndex = -1;
+	bool disableStateWasLastFrameStateStatus = false;
 
 
 	//Check if a behaviour's check have success state
@@ -901,15 +1016,24 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 		//Check if a valid action freeze the current state
 		if (selectedStateIndex < 0)
 		{
-			for (int i = inDatas.InitialActionsIndexes.Num() - 1; i >= 0; i--)
+			int activeActionIndex = CurrentActionIndex;
+			if (simulatedActiveActionIndex >= 0)
 			{
-				if (!ActionInstances.IsValidIndex(inDatas.InitialActionsIndexes[i]))
-					continue;
+				activeActionIndex = simulatedActiveActionIndex;
+			}
 
-				if (ActionInstances[inDatas.InitialActionsIndexes[i]]->FreezeCurrentState)
+			if (ActionInstances.IsValidIndex(activeActionIndex) && ActionInstances[activeActionIndex])
+			{
+				//Find state freeze
+				if (ActionInstances[activeActionIndex]->FreezeCurrentState)
 				{
-					selectedStateIndex = inDatas.InitialStateIndex;
-					break;
+					selectedStateIndex = simulatedCurrentStateIndex < 0 ? CurrentStateIndex : simulatedCurrentStateIndex;
+				}
+
+				//Find last frame status voider
+				if (ActionInstances[activeActionIndex]->bShouldControllerStateCheckOverride)
+				{
+					disableStateWasLastFrameStateStatus = true;
 				}
 			}
 		}
@@ -921,7 +1045,13 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 				if (StatesInstances[i] == nullptr)
 					continue;
 
-				if (StatesInstances[i]->CheckState(inDatas, inputs, this, inDelta))
+				//Handle state snapshot
+				if (simulation)
+					StatesInstances[i]->SaveStateSnapShot();
+				else
+					StatesInstances[i]->RestoreStateFromSnapShot();
+
+				if (StatesInstances[i]->CheckState(inDatas, moveInput, inputs, this, inDelta, disableStateWasLastFrameStateStatus ? 0 : -1))
 				{
 					if (StatesInstances[i]->GetPriority() > maxStatePriority)
 					{
@@ -931,13 +1061,14 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 				}
 			}
 		}
+
 	}
 
 	return selectedStateIndex;
 }
 
 
-bool UModularControllerComponent::TryChangeControllerState(int fromStateIndex, int toStateIndex, FKinematicInfos& inDatas, FInputEntryPool& inputs, const float inDelta)
+bool UModularControllerComponent::TryChangeControllerState(int fromStateIndex, int toStateIndex, FKinematicInfos& inDatas, FVector moveInput, const float inDelta, bool simulate)
 {
 	if (fromStateIndex == toStateIndex)
 		return false;
@@ -946,14 +1077,15 @@ bool UModularControllerComponent::TryChangeControllerState(int fromStateIndex, i
 		return false;
 
 	//Landing
-	StatesInstances[toStateIndex]->OnEnterState(inDatas, inputs, this, inDelta);
-	LinkAnimBlueprint(GetSkeletalMesh(), "State", StatesInstances[toStateIndex]->StateBlueprintClass);
-	StatesInstances[toStateIndex]->SetWasTheLastFrameBehaviour(true);
+	StatesInstances[toStateIndex]->OnEnterState(inDatas, moveInput, this, inDelta);
+	if (!simulate)
+		LinkAnimBlueprint(GetSkeletalMesh(), "State", StatesInstances[toStateIndex]->StateBlueprintClass);
+	StatesInstances[toStateIndex]->SetWasTheLastFrameControllerState(true);
 
 	if (StatesInstances.IsValidIndex(fromStateIndex))
 	{
 		//Leaving
-		StatesInstances[fromStateIndex]->OnExitState(inDatas, inputs, this, inDelta);
+		StatesInstances[fromStateIndex]->OnExitState(inDatas, moveInput, this, inDelta);
 		StatesInstances[fromStateIndex]->SurfaceInfos.Reset();
 	}
 
@@ -962,54 +1094,57 @@ bool UModularControllerComponent::TryChangeControllerState(int fromStateIndex, i
 		if (i == toStateIndex)
 			continue;
 
-		StatesInstances[i]->SetWasTheLastFrameBehaviour(false);
-		StatesInstances[i]->OnControllerStateChanged(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex]->GetDescriptionName() : "", StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex]->GetPriority() : -1, this);
+		StatesInstances[i]->SetWasTheLastFrameControllerState(false);
+		if (!simulate)
+		{
+			StatesInstances[i]->OnControllerStateChanged(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex]->GetDescriptionName() : "", StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex]->GetPriority() : -1, this);
+		}
 	}
 
-
-	OnControllerStateChanged(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex] : nullptr
-		, StatesInstances.IsValidIndex(fromStateIndex) ? StatesInstances[fromStateIndex] : nullptr);
-	OnControllerStateChangedEvent.Broadcast(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex] : nullptr
-		, StatesInstances.IsValidIndex(fromStateIndex) ? StatesInstances[fromStateIndex] : nullptr);
-
-
-	//Notify actions the change of state
-	for (int i = 0; i < ActionInstances.Num(); i++)
+	if (!simulate)
 	{
-		ActionInstances[i]->OnStateChanged(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex] : nullptr
+		OnControllerStateChanged(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex] : nullptr
+			, StatesInstances.IsValidIndex(fromStateIndex) ? StatesInstances[fromStateIndex] : nullptr);
+		OnControllerStateChangedEvent.Broadcast(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex] : nullptr
 			, StatesInstances.IsValidIndex(fromStateIndex) ? StatesInstances[fromStateIndex] : nullptr);
 	}
 
-	CurrentStateIndex = toStateIndex;
+	if (!simulate)
+	{
+		//Notify actions the change of state
+		for (int i = 0; i < ActionInstances.Num(); i++)
+		{
+			ActionInstances[i]->OnStateChanged(StatesInstances.IsValidIndex(toStateIndex) ? StatesInstances[toStateIndex] : nullptr
+				, StatesInstances.IsValidIndex(fromStateIndex) ? StatesInstances[fromStateIndex] : nullptr);
+		}
+	}
+
+	if (!simulate)
+	{
+		CurrentStateIndex = toStateIndex;
+	}
+
 	return true;
 }
 
 
-FMovePreprocessParams UModularControllerComponent::PreProcessCurrentControllerState(FKinematicInfos& inDatas,
-	FInputEntryPool& inputs, const float inDelta)
-{
-	FMovePreprocessParams stateParams;
-
-	if (StatesInstances.IsValidIndex(CurrentStateIndex))
-	{
-		stateParams = StatesInstances[CurrentStateIndex]->PreProcessState(inDatas, inputs, this, inDelta);
-	}
-
-	return stateParams;
-}
-
-
-
-FVelocity UModularControllerComponent::ProcessCurrentControllerState(FKinematicInfos& inDatas,
-	FMovePreprocessParams preProcessParams, const float inDelta)
+FVelocity UModularControllerComponent::ProcessControllerState(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, const float inDelta, int simulatedStateIndex)
 {
 	FVelocity movement = inDatas.InitialVelocities;
-	if (StatesInstances.IsValidIndex(CurrentStateIndex))
-	{
-		FVelocity processMotion = movement;
-		processMotion = StatesInstances[CurrentStateIndex]->ProcessState(inDatas, preProcessParams, this, inDelta);
+	int index = simulatedStateIndex >= 0 ? simulatedStateIndex : CurrentStateIndex;
 
-		if (StatesInstances[CurrentStateIndex]->RootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
+	if (StatesInstances.IsValidIndex(index))
+	{
+		//Handle state snapshot
+		if (simulatedStateIndex >= 0)
+			StatesInstances[index]->SaveStateSnapShot();
+		else
+			StatesInstances[index]->RestoreStateFromSnapShot();
+
+		FVelocity processMotion = movement;
+		processMotion = StatesInstances[index]->ProcessState(controllerStatus, inDatas, moveInput, this, inDelta);
+
+		if (StatesInstances[index]->RootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
 		{
 			//Rotation
 			processMotion.Rotation *= GetRootMotionQuat(GetSkeletalMesh());
@@ -1019,7 +1154,7 @@ FVelocity UModularControllerComponent::ProcessCurrentControllerState(FKinematicI
 			float processMotionScale = 1 - processMotion._rooMotionScale;
 
 			//Translation
-			switch (StatesInstances[CurrentStateIndex]->RootMotionMode)
+			switch (StatesInstances[index]->RootMotionMode)
 			{
 			case RootMotionType_AdditivePrimary:
 			{
@@ -1080,11 +1215,11 @@ void UModularControllerComponent::OnControllerStateChanged_Implementation(UBaseC
 #pragma region Actions
 
 
-bool UModularControllerComponent::CheckActionBehaviourByType(TSubclassOf<UBaseAction> moduleType)
+bool UModularControllerComponent::CheckActionBehaviourByType(TSubclassOf<UBaseControllerAction> moduleType)
 {
 	if (ActionInstances.Num() <= 0)
 		return false;
-	auto index = ActionInstances.IndexOfByPredicate([moduleType](UBaseAction* action) -> bool { return action->GetClass() == moduleType; });
+	auto index = ActionInstances.IndexOfByPredicate([moduleType](UBaseControllerAction* action) -> bool { return action->GetClass() == moduleType; });
 	return ActionInstances.IsValidIndex(index);
 }
 
@@ -1092,7 +1227,7 @@ bool UModularControllerComponent::CheckActionBehaviourByName(FName moduleName)
 {
 	if (ActionInstances.Num() <= 0)
 		return false;
-	auto index = ActionInstances.IndexOfByPredicate([moduleName](UBaseAction* action) -> bool { return action->GetDescriptionName() == moduleName; });
+	auto index = ActionInstances.IndexOfByPredicate([moduleName](UBaseControllerAction* action) -> bool { return action->GetDescriptionName() == moduleName; });
 	return ActionInstances.IsValidIndex(index);
 }
 
@@ -1100,7 +1235,7 @@ bool UModularControllerComponent::CheckActionBehaviourByPriority(int modulePrior
 {
 	if (ActionInstances.Num() <= 0)
 		return false;
-	auto index = ActionInstances.IndexOfByPredicate([modulePriority](UBaseAction* action) -> bool { return action->GetPriority() == modulePriority; });
+	auto index = ActionInstances.IndexOfByPredicate([modulePriority](UBaseControllerAction* action) -> bool { return action->GetPriority() == modulePriority; });
 	return ActionInstances.IsValidIndex(index);
 }
 
@@ -1108,22 +1243,22 @@ bool UModularControllerComponent::CheckActionBehaviourByPriority(int modulePrior
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-void UModularControllerComponent::AddActionBehaviour_Implementation(TSubclassOf<UBaseAction> moduleType)
+void UModularControllerComponent::AddActionBehaviour_Implementation(TSubclassOf<UBaseControllerAction> moduleType)
 {
 	if (moduleType == nullptr)
 		return;
 	if (CheckActionBehaviourByType(moduleType))
 		return;
-	UBaseAction* instance = NewObject<UBaseAction>(moduleType, moduleType);
+	UBaseControllerAction* instance = NewObject<UBaseControllerAction>(moduleType, moduleType);
 	ActionInstances.Add(instance);
 }
 
 
-UBaseAction* UModularControllerComponent::GetActionByType(TSubclassOf<UBaseAction> moduleType)
+UBaseControllerAction* UModularControllerComponent::GetActionByType(TSubclassOf<UBaseControllerAction> moduleType)
 {
 	if (ActionInstances.Num() <= 0)
 		return nullptr;
-	auto index = ActionInstances.IndexOfByPredicate([moduleType](UBaseAction* action) -> bool { return action->GetClass() == moduleType; });
+	auto index = ActionInstances.IndexOfByPredicate([moduleType](UBaseControllerAction* action) -> bool { return action->GetClass() == moduleType; });
 	if (ActionInstances.IsValidIndex(index))
 	{
 		return ActionInstances[index];
@@ -1133,11 +1268,11 @@ UBaseAction* UModularControllerComponent::GetActionByType(TSubclassOf<UBaseActio
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void UModularControllerComponent::RemoveActionBehaviourByType_Implementation(TSubclassOf<UBaseAction> moduleType)
+void UModularControllerComponent::RemoveActionBehaviourByType_Implementation(TSubclassOf<UBaseControllerAction> moduleType)
 {
 	if (CheckActionBehaviourByType(moduleType))
 	{
-		auto behaviour = ActionInstances.FindByPredicate([moduleType](UBaseAction* action) -> bool { return action->GetClass() == moduleType->GetClass(); });
+		auto behaviour = ActionInstances.FindByPredicate([moduleType](UBaseControllerAction* action) -> bool { return action->GetClass() == moduleType->GetClass(); });
 		ActionInstances.Remove(*behaviour);
 		return;
 	}
@@ -1147,7 +1282,7 @@ void UModularControllerComponent::RemoveActionBehaviourByName_Implementation(FNa
 {
 	if (CheckActionBehaviourByName(moduleName))
 	{
-		auto behaviour = ActionInstances.FindByPredicate([moduleName](UBaseAction* action) -> bool { return action->GetDescriptionName() == moduleName; });
+		auto behaviour = ActionInstances.FindByPredicate([moduleName](UBaseControllerAction* action) -> bool { return action->GetDescriptionName() == moduleName; });
 		ActionInstances.Remove(*behaviour);
 		return;
 	}
@@ -1157,7 +1292,7 @@ void UModularControllerComponent::RemoveActionBehaviourByPriority_Implementation
 {
 	if (CheckActionBehaviourByPriority(modulePriority))
 	{
-		auto behaviour = ActionInstances.FindByPredicate([modulePriority](UBaseAction* action) -> bool { return action->GetPriority() == modulePriority; });
+		auto behaviour = ActionInstances.FindByPredicate([modulePriority](UBaseControllerAction* action) -> bool { return action->GetPriority() == modulePriority; });
 		ActionInstances.Remove(*behaviour);
 		return;
 	}
@@ -1166,311 +1301,289 @@ void UModularControllerComponent::RemoveActionBehaviourByPriority_Implementation
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-
-
-FVelocity UModularControllerComponent::EvaluateAction(const FVelocity inVelocities, FKinematicInfos& inDatas, FInputEntryPool& inputs, const float inDelta, const bool asSimulation)
+int UModularControllerComponent::CheckControllerActions(FKinematicInfos& inDatas, FVector moveInput,
+	UInputEntryPool* inputs, const int controllerStateIndex, const int controllerActionIndex, const float inDelta, bool simulation)
 {
-	//Fill current actions
-	TArray<UBaseAction*> actions;
-	TArray<int> actionsIndexToActivate;
+	int activeActionIndex = -1;
+	int priority = -1;
 
-	if (inDatas.FinalActionsIndexes.Num() <= 0)
+	for (int i = ActionInstances.Num() - 1; i >= 0; i--)
 	{
-		for (int i = 0; i < inDatas.InitialActionsIndexes.Num(); i++)
-		{
-			if (ActionInstances.IsValidIndex(inDatas.InitialActionsIndexes[i]))
-			{
-				if (ActionInstances[inDatas.InitialActionsIndexes[i]]->IsActive())
-				{
-					actions.Add(ActionInstances[inDatas.InitialActionsIndexes[i]]);
-				}
-			}
-		}
-	}
-
-	for (int i = 0; i < inDatas.FinalActionsIndexes.Num(); i++)
-	{
-		if (ActionInstances.IsValidIndex(inDatas.FinalActionsIndexes[i]))
-		{
-			if (ActionInstances[inDatas.FinalActionsIndexes[i]]->IsActive())
-			{
-				if (!actions.Contains(ActionInstances[inDatas.FinalActionsIndexes[i]]))
-					actions.Add(ActionInstances[inDatas.FinalActionsIndexes[i]]);
-			}
-			else
-			{
-				actionsIndexToActivate.Add(inDatas.FinalActionsIndexes[i]);
-			}
-		}
-	}
-
-	//Inner actions update
-	for (int i = actions.Num() - 1; i >= 0; i--)
-	{
-		if (actions[i]->IsActionCompleted(asSimulation))
-		{
-			if (actions[i]->Montage.Montage == nullptr || !actions[i]->IsWaitingMontage() || asSimulation)
-			{
-				if (!asSimulation)
-					OnActionEndsEvent.Broadcast(actions[i]);
-				actions[i]->OnExitInner();
-			}
-			actions[i]->OnActionEnds(inDatas, inputs, this, inDelta);
-			actions.RemoveAt(i);
+		if (ActionInstances[i] == nullptr)
 			continue;
-		}
 
-		actions[i]->ActiveActionUpdate(inDelta);
-	}
+		if (ActionInstances[i]->GetPriority() < priority)
+			continue;
 
-	UBaseControllerState* state = StatesInstances.IsValidIndex(inDatas.FinalStateIndex) ? StatesInstances[inDatas.FinalStateIndex] : nullptr;
-	if (state == nullptr)
-	{
-		inDatas.FinalActionsIndexes.Empty();
-		for (int i = 0; i < inDatas.InitialActionsIndexes.Num(); i++)
-			inDatas.FinalActionsIndexes.Add(inDatas.InitialActionsIndexes[i]);
+		//Handle state snapshot
+		if (simulation)
+			ActionInstances[i]->SaveActionSnapShot();
+		else
+			ActionInstances[i]->RestoreActionFromSnapShot();
 
-		return inVelocities;
-	}
-
-
-	FVelocity move = inVelocities;
-
-	//Check if an action can be launched
-	{
-		FInputEntryPool emptyInputPool;
-		FInputEntryPool& usedInputs = actionsIndexToActivate.Num() <= 0 ? inputs : emptyInputPool;
-
-		for (int i = 0; i < ActionInstances.Num(); i++)
+		if ((CheckActionCompatibility(ActionInstances[i], controllerStateIndex, controllerActionIndex) && ActionInstances[i]->CheckAction_Internal(inDatas, moveInput, inputs, this, inDelta))
+			|| ActionInstances[i]->GetRemainingActivationTime() > 0)
 		{
-			if (ActionInstances[i] == nullptr)
-				continue;
-
-			bool forceActivation = actionsIndexToActivate.Num() > 0 && actionsIndexToActivate.Contains(i);
-
-			//Run action idle.
-			ActionInstances[i]->ActionIdle(inDatas, usedInputs, this, inDelta);
-
-			//if action were not passed as already activated
-			if (!forceActivation)
+			activeActionIndex = i;
+			priority = ActionInstances[i]->GetPriority();
+			if (!simulation && DebugType == StatusDebug)
 			{
-
-				//Check state validity
-				{
-					if (ActionInstances[i]->CompatibleStates.Num() > 0 && state == nullptr)
-					{
-						continue;
-					}
-
-					if (state != nullptr
-						&& ActionInstances[i]->UseCompatibleStatesOnly
-						&& ActionInstances[i]->CompatibleStates.Num() > 0
-						&& !ActionInstances[i]->CompatibleStates.Contains(state->GetDescriptionName()))
-					{
-						continue;
-					}
-
-					if (state != nullptr && ActionInstances[i]->CompatibleStates.Num() <= 0)
-					{
-						continue;
-					}
-				}
-			}
-
-			//Check if we can repeat the action now
-			if (actions.Contains(ActionInstances[i]))
-			{
-				if (!ActionInstances[i]->CheckCanRepeat(inDatas, usedInputs, this, inDelta))
-					continue;
-			}
-			//Check cooldown
-			else
-			{
-				ActionInstances[i]->PassiveActionUpdate(inDelta);
-				if (ActionInstances[i]->IsActionCoolingDown())
-					continue;
-			}
-
-
-			if (ActionInstances[i]->CheckAction(inDatas, usedInputs, this, inDelta) || forceActivation)
-			{
-				//if (ShowDebug)
-				//	GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Blue, FString::Printf(TEXT("[%s] - Activating Action %s. forced? %d"), *GetNetRoleDebug(inDatas.GetActor()->GetLocalRole()).ToString(), *ActionInstances[i]->GetDescriptionName().ToString(), forceActivation));
-
-				//There is an action constraint? find if a compatible action found. if not, continue
-				if (!forceActivation)
-				{
-					if (ActionInstances[i]->CompatibleActions.Num() > 0 && ActionInstances[i]->CompatibleActions.IndexOfByPredicate([actions](FName compActions)-> bool { for (int j = 0; j < actions.Num(); j++)
-					{
-						if (actions[j]->GetDescriptionName() == compActions)
-							return true;
-					}
-					return false; }) == INDEX_NONE)
-					{
-						continue;
-					}
-				}
-
-				bool okAction = false;
-				TSoftObjectPtr<UAnimInstance> animInstance = ActionInstances[i]->OnEnterInner(this, okAction, asSimulation);
-
-				if (okAction)
-				{
-					//Action Begins
-					{
-						if (actions.Contains(ActionInstances[i]))
-						{
-							ActionInstances[i]->OnActionRepeat(inDatas, usedInputs, this, inDelta);
-						}
-						else
-						{
-							ActionInstances[i]->OnActionBegins(inDatas, usedInputs, this, inDelta);
-						}
-					}
-
-					//Register montage call backs
-					if (ActionInstances[i]->Montage.Montage != nullptr && animInstance != nullptr && !asSimulation)
-					{
-						ActionInstances[i]->_EndDelegate.BindUObject(this, &UModularControllerComponent::OnAnimationEnded);
-						animInstance->Montage_SetEndDelegate(ActionInstances[i]->_EndDelegate);
-					}
-					else if (actions.Contains(ActionInstances[i]) && !asSimulation)
-					{
-						OnActionCancelledEvent.Broadcast(ActionInstances[i]);
-					}
-
-					if (!actions.Contains(ActionInstances[i]))
-					{
-						actions.Add(ActionInstances[i]);
-					}
-				}
-				else
-				{
-					ActionInstances[i]->OnActionEnds(inDatas, usedInputs, this, inDelta);
-				}
+				UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) was checked as active. Remaining Time: %f"), *ActionInstances[i]->DebugString(), ActionInstances[i]->GetRemainingActivationTime()), true, true, FColor::Silver, 0
+					, FName(FString::Printf(TEXT("CheckControllerActions_%s"), *ActionInstances[i]->GetDescriptionName().ToString())));
 			}
 		}
 	}
 
-	//Get velocity and rotation from valid behaviour or the master one
+	if (!simulation && DebugType == StatusDebug)
 	{
-		if (actions.Num() > 0)
-		{
-			int rmActionIndex = -1;
-			int RMpriority = -1;
-			for (int i = 0; i < actions.Num(); i++)
-			{
-				if (actions[i]->RootMotionMode != ERootMotionType::RootMotionType_No_RootMotion && actions[i]->GetPriority() > RMpriority)
-				{
-					rmActionIndex = i;
-					RMpriority = actions[i]->GetPriority();
-				}
-			}
-
-			//Is there an action using Root Motion?
-			if (actions.IsValidIndex(rmActionIndex))
-			{
-				move = actions[rmActionIndex]->OnActionProcess(inDatas, inputs, this, inDelta);
-
-				//Rotation
-				if (actions[rmActionIndex]->RootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
-				{
-					move.Rotation *= GetRootMotionQuat(GetSkeletalMesh());
-				}
-
-				//Translation
-				switch (actions[rmActionIndex]->RootMotionMode)
-				{
-				case RootMotionType_AdditivePrimary:
-				{
-					move.ConstantLinearVelocity += GetRootMotionVector(GetSkeletalMesh()) * move._rooMotionScale;
-				}break;
-				case RootMotionType_AdditiveSecondary:
-				{
-					move.InstantLinearVelocity += GetRootMotionVector(GetSkeletalMesh()) * move._rooMotionScale * inDelta;
-				}break;
-				case RootMotionType_OverridePrimary:
-				{
-					move.ConstantLinearVelocity = GetRootMotionVector(GetSkeletalMesh()) * move._rooMotionScale * 1 / (inDelta);
-				}break;
-				case RootMotionType_OverrideSecondary:
-				{
-					move.InstantLinearVelocity = GetRootMotionVector(GetSkeletalMesh()) * move._rooMotionScale * inDelta;
-				}break;
-				case RootMotionType_OverrideAll:
-				{
-					move.ConstantLinearVelocity = GetRootMotionVector(GetSkeletalMesh()) * move._rooMotionScale * 1 / inDelta;
-					move.InstantLinearVelocity = FVector::ZeroVector;
-				}break;
-				}
-
-				actions[rmActionIndex]->OnActionPostProcess(move, inDatas, inputs, this, inDelta);
-			}
-			else
-			{
-				//Find the highest priority action
-				int priority = -1;
-				int indexOfItem = -1;
-				for (int i = 0; i < actions.Num(); i++)
-				{
-					if (actions[i]->GetPriority() > priority)
-					{
-						indexOfItem = i;
-						priority = actions[i]->GetPriority();
-					}
-				}
-
-				if (!actions.IsValidIndex(indexOfItem))
-					indexOfItem = 0;
-
-				move = actions[indexOfItem]->OnActionProcess(inDatas, inputs, this, inDelta);
-				actions[indexOfItem]->OnActionPostProcess(move, inDatas, inputs, this, inDelta);
-			}
-		}
+		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Action Phase: %d"), activeActionIndex), true, true, FColor::Silver, 0
+			, TEXT("CheckControllerActions"));
 	}
+	return activeActionIndex;
+}
 
-	inDatas.FinalActionsIndexes.Empty();
-	for (int i = 0; i < ActionInstances.Num(); i++)
+
+
+bool UModularControllerComponent::CheckActionCompatibility(UBaseControllerAction* actionInstance, int stateIndex, int actionIndex)
+{
+	if (actionInstance == nullptr)
+		return false;
+
+	bool incompatible = false;
+	switch (actionInstance->ActionCompatibilityMode)
 	{
-		if (actions.Contains(ActionInstances[i]))
+	default:
+		break;
+	case WhileCompatibleActionOnly:
+	{
+		incompatible = true;
+		if (actionInstance->CompatibleActions.Num() > 0)
 		{
-			inDatas.FinalActionsIndexes.Add(i);
+			if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex])
+			{
+				const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
+				if (actionInstance->CompatibleActions.Contains(actionName))
+				{
+					incompatible = false;
+				}
+			}
+		}
+	}
+	break;
+	case OnCompatibleStateOnly:
+	{
+		incompatible = true;
+		if (StatesInstances.IsValidIndex(stateIndex) && actionInstance->CompatibleStates.Num() > 0)
+		{
+			const auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
+			if (actionInstance->CompatibleStates.Contains(stateName))
+			{
+				incompatible = false;
+			}
+		}
+	}
+	break;
+	case OnBothCompatiblesStateAndAction:
+	{
+		int compatibilityCount = 0;
+		//State
+		if (StatesInstances.IsValidIndex(stateIndex) && actionInstance->CompatibleStates.Num() > 0)
+		{
+			auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
+			if (actionInstance->CompatibleStates.Contains(stateName))
+			{
+				compatibilityCount++;
+			}
+		}
+		//Actions
+		if (actionInstance->CompatibleActions.Num() > 0)
+		{
+			if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex])
+			{
+				const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
+				if (actionInstance->CompatibleActions.Contains(actionName))
+				{
+					compatibilityCount++;
+				}
+			}
+		}
+		incompatible = compatibilityCount < 2;
+	}
+	break;
+	}
+
+	return !incompatible;
+}
+
+
+
+bool UModularControllerComponent::TryChangeControllerActions(int fromActionIndex, int toActionIndex,
+	FKinematicInfos& inDatas, FVector moveInput, const float inDelta, bool simulate, bool allowPartialChange)
+{
+	if (fromActionIndex == toActionIndex)
+		return false;
+
+	if (!simulate && DebugType == StatusDebug)
+	{
+		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Trying to change action from: %d to: %d"), fromActionIndex, toActionIndex), true, true
+			, FColor::White, 5, TEXT("TryChangeControllerActions_1"));
+	}
+
+	//Disable last action
+	if (ActionInstances.IsValidIndex(fromActionIndex))
+	{
+		ActionInstances[fromActionIndex]->SetActivatedLastFrame(false);
+		ActionInstances[fromActionIndex]->OnActionEnds_Internal(inDatas, moveInput, this, inDelta);
+		if (!simulate)
+		{
+			OnActionEnds(ActionInstances[fromActionIndex]);
+			if (DebugType == StatusDebug)
+			{
+				UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Disabled. Remaining Time: %f"), *ActionInstances[fromActionIndex]->DebugString(), ActionInstances[fromActionIndex]->GetRemainingActivationTime()), true, true, FColor::Red, 5
+					, FName(FString::Printf(TEXT("TryChangeControllerActions_%s"), *ActionInstances[fromActionIndex]->GetDescriptionName().ToString())));
+			}
 		}
 	}
 
-	return move;
+	//Activate action
+	if (ActionInstances.IsValidIndex(toActionIndex))
+	{
+		ActionInstances[toActionIndex]->OnActionBegins_Internal(inDatas, moveInput, this, inDelta);
+		ActionInstances[toActionIndex]->SetActivatedLastFrame(true);
+		if (!simulate)
+		{
+			OnActionBegins(ActionInstances[toActionIndex]);
+			if (DebugType == StatusDebug)
+			{
+				UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Activated. Remaining Time: %f"), *ActionInstances[toActionIndex]->DebugString(), ActionInstances[toActionIndex]->GetRemainingActivationTime()), true, true, FColor::Green, 5
+					, FName(FString::Printf(TEXT("TryChangeControllerActions_%s"), *ActionInstances[toActionIndex]->GetDescriptionName().ToString())));
+			}
+		}
+	}
+
+	if (!simulate)
+	{
+		CurrentActionIndex = toActionIndex;
+
+		if (DebugType == StatusDebug)
+		{
+			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Changed actions from: %d  to: %d"), fromActionIndex, toActionIndex), true, true
+				, FColor::Yellow, 5, TEXT("TryChangeControllerActions_2"));
+		}
+	}
+	return true;
 }
 
-void UModularControllerComponent::OnActionBegins_Implementation(UBaseAction* action)
+
+
+FVelocity UModularControllerComponent::ProcessControllerActions(FStatusParameters& controllerStatus,
+	const FKinematicInfos& inDatas, FVelocity fromStateVelocity, const FVector moveInput, const float inDelta, int simulatedStateIndex,
+	int simulatedActionIndex)
 {
+	FVelocity actionVelocity = fromStateVelocity;
+	const FQuat initialRotation = fromStateVelocity.Rotation;
+	int activeActionIndex = simulatedActionIndex >= 0 ? simulatedActionIndex : CurrentActionIndex;
+
+	if (ActionInstances.IsValidIndex(activeActionIndex))
+	{
+		actionVelocity = ProcessSingleAction(ActionInstances[activeActionIndex], controllerStatus, inDatas, fromStateVelocity, moveInput
+			, inDelta, simulatedStateIndex, simulatedActionIndex);
+
+		if (DebugType == StatusDebug)
+		{
+			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Processed. Remaining Time: %f"), *ActionInstances[activeActionIndex]->DebugString(), ActionInstances[activeActionIndex]->GetRemainingActivationTime()), true, true, FColor::White, 5
+				, FName(FString::Printf(TEXT("ProcessControllerActions_%s"), *ActionInstances[activeActionIndex]->GetDescriptionName().ToString())));
+		}
+	}
+
+	return actionVelocity;
 }
 
-void UModularControllerComponent::OnActionEnds_Implementation(UBaseAction* action)
+
+FVelocity UModularControllerComponent::ProcessSingleAction(UBaseControllerAction* actionInstance,
+	FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, FVelocity previousVelocity,
+	const FVector moveInput, const float inDelta, int simulatedStateIndex, int simulatedActionIndex)
 {
-}
+	if (actionInstance == nullptr)
+		return previousVelocity;
 
-void UModularControllerComponent::OnActionCancelled_Implementation(UBaseAction* action)
-{
-}
+	FVelocity movement = previousVelocity;
+	int stateIndex = simulatedStateIndex >= 0 ? simulatedStateIndex : CurrentStateIndex;
+	int activeActionIndex = simulatedActionIndex >= 0 ? simulatedActionIndex : CurrentActionIndex;
 
-void UModularControllerComponent::OnAnimationEnded(UAnimMontage* Montage, bool bInterrupted)
-{
-	TArray<UBaseAction*> actions = ActionInstances;
-	if (actions.Num() <= 0)
-		return;
-
-	int index = actions.IndexOfByPredicate([Montage](UBaseAction* action)->bool { return action->Montage.Montage == Montage; });
-
-	if (index == INDEX_NONE)
-		return;
-
-	if (bInterrupted)
-		OnActionCancelledEvent.Broadcast(actions[index]);
+	//Handle state snapshot
+	if (simulatedStateIndex >= 0 || simulatedActionIndex >= 0)
+		actionInstance->SaveActionSnapShot();
 	else
-		OnActionEndsEvent.Broadcast(actions[index]);
+		actionInstance->RestoreActionFromSnapShot();
 
-	actions[index]->_EndDelegate.Unbind();
-	actions[index]->OnExitInner(true);
+	FVelocity processMotion = movement;
+	processMotion = actionInstance->OnActionProcess_Internal(controllerStatus, inDatas, previousVelocity, moveInput, this, inDelta);
+
+	if (actionInstance->RootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
+	{
+		//Rotation
+		processMotion.Rotation *= GetRootMotionQuat(GetSkeletalMesh());
+
+		FVelocity rootMotion = processMotion;
+		float rootMotionScale = processMotion._rooMotionScale;
+		float processMotionScale = 1 - processMotion._rooMotionScale;
+
+		//Translation
+		switch (actionInstance->RootMotionMode)
+		{
+		case RootMotionType_AdditivePrimary:
+		{
+			rootMotion.ConstantLinearVelocity += GetRootMotionVector(GetSkeletalMesh()) * rootMotionScale;
+		}
+		break;
+		case RootMotionType_AdditiveSecondary:
+		{
+			rootMotion.InstantLinearVelocity += GetRootMotionVector(GetSkeletalMesh()) * rootMotionScale
+				* inDelta;
+		}
+		break;
+		case RootMotionType_OverridePrimary:
+		{
+			rootMotion.ConstantLinearVelocity = (GetRootMotionVector(GetSkeletalMesh()) * rootMotionScale
+				* 1 / (inDelta)) + processMotion.ConstantLinearVelocity * processMotionScale;
+		}
+		break;
+		case RootMotionType_OverrideSecondary:
+		{
+			rootMotion.InstantLinearVelocity = GetRootMotionVector(GetSkeletalMesh()) * rootMotionScale *
+				inDelta + processMotion.InstantLinearVelocity * processMotionScale;
+		}
+		break;
+		case RootMotionType_OverrideAll:
+		{
+			rootMotion.ConstantLinearVelocity = (GetRootMotionVector(GetSkeletalMesh()) * rootMotionScale
+				* 1 / (inDelta)) + processMotion.ConstantLinearVelocity * processMotionScale;
+			processMotion.InstantLinearVelocity = FVector::ZeroVector;
+		}
+		break;
+		}
+
+		//Fuse RM
+		processMotion = rootMotion;
+	}
+
+	movement = processMotion;
+
+	return movement;
+}
+
+
+void UModularControllerComponent::OnActionBegins_Implementation(UBaseControllerAction* action)
+{
+}
+
+void UModularControllerComponent::OnActionEnds_Implementation(UBaseControllerAction* action)
+{
+}
+
+void UModularControllerComponent::OnActionCancelled_Implementation(UBaseControllerAction* action)
+{
 }
 
 
@@ -1513,6 +1626,45 @@ USkeletalMeshComponent* UModularControllerComponent::GetSkeletalMesh()
 	return _skeletalMesh.Get();
 }
 
+double UModularControllerComponent::PlayAnimationMontage_Internal(FActionMotionMontage Montage, float customAnimStartTime
+	, bool useMontageEndCallback, FOnMontageEnded endCallBack)
+{
+	if (const USkeletalMeshComponent* mesh = GetSkeletalMesh())
+	{
+		UAnimInstance* animInstance = mesh->GetAnimInstance();
+		return PlayAnimMontageSingle(animInstance, Montage, customAnimStartTime, useMontageEndCallback, endCallBack);
+	}
+
+	return -1;
+}
+
+double UModularControllerComponent::PlayAnimationMontageOnState_Internal(FActionMotionMontage Montage, FName stateName, float customAnimStartTime
+	, bool useMontageEndCallback, FOnMontageEnded endCallBack)
+{
+	if (const USkeletalMeshComponent* mesh = GetSkeletalMesh())
+	{
+		const UBaseControllerState* state = GetControllerStateByName(stateName);
+		if (state == nullptr)
+			return -1;
+		if (state->StateBlueprintClass == nullptr)
+			return -1;
+		UAnimInstance* animInstance = mesh->GetLinkedAnimLayerInstanceByClass(state->StateBlueprintClass);
+		return PlayAnimMontageSingle(animInstance, Montage, customAnimStartTime, useMontageEndCallback, endCallBack);
+	}
+
+	return -1;
+}
+
+double UModularControllerComponent::PlayAnimationMontage(FActionMotionMontage Montage, float customAnimStartTime)
+{
+	return PlayAnimationMontage_Internal(Montage, customAnimStartTime);
+}
+
+double UModularControllerComponent::PlayAnimationMontageOnState(FActionMotionMontage Montage, FName stateName, float customAnimStartTime)
+{
+	return PlayAnimationMontageOnState_Internal(Montage, stateName, customAnimStartTime);
+}
+
 
 void UModularControllerComponent::LinkAnimBlueprint(USkeletalMeshComponent* skeletalMeshReference, FName key, TSubclassOf<UAnimInstance> animClass)
 {
@@ -1542,8 +1694,6 @@ void UModularControllerComponent::LinkAnimBlueprint(USkeletalMeshComponent* skel
 					auto instance = Pair.Value;
 					if (instance == nullptr)
 						continue;
-					for (int i = 0; i < instance->MontageInstances.Num(); i++)
-						OnAnimationEnded(instance->MontageInstances[i]->Montage, true);
 				}
 			}
 			target->LinkAnimClassLayers(nullptr);
@@ -1577,8 +1727,6 @@ void UModularControllerComponent::LinkAnimBlueprint(USkeletalMeshComponent* skel
 					auto instance = Pair.Value;
 					if (instance == nullptr)
 						continue;
-					for (int i = 0; i < instance->MontageInstances.Num(); i++)
-						OnAnimationEnded(instance->MontageInstances[i]->Montage, true);
 				}
 			}
 			target->LinkAnimClassLayers(nullptr);
@@ -1596,13 +1744,9 @@ void UModularControllerComponent::LinkAnimBlueprint(USkeletalMeshComponent* skel
 
 	if (_linkedAnimClasses[target][key] != nullptr)
 	{
+		if (_linkedAnimClasses[target][key]->GetClass() == animClass)
+			return;
 		//Unlink
-		auto instance = _linkedAnimClasses[target][key];
-		if (instance != nullptr)
-		{
-			for (int i = 0; i < instance->MontageInstances.Num(); i++)
-				OnAnimationEnded(instance->MontageInstances[i]->Montage, true);
-		}
 		target->UnlinkAnimClassLayers(_linkedAnimClasses[target][key]->GetClass());
 	}
 	if (animClass != nullptr)
@@ -1613,6 +1757,46 @@ void UModularControllerComponent::LinkAnimBlueprint(USkeletalMeshComponent* skel
 	}
 
 	target->SetWorldRotation(lookDir);
+}
+
+
+double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animInstance, FActionMotionMontage montage, float customAnimStartTime
+	, bool useMontageEndCallback, FOnMontageEnded endCallBack)
+{
+	if (animInstance == nullptr)
+	{
+		return -1;
+	}
+
+	if (montage.Montage == nullptr)
+	{
+		return -1;
+	}
+
+	const float startTime = customAnimStartTime >= 0 ? customAnimStartTime : 0;
+	float duration = animInstance->Montage_Play(montage.Montage, 1, EMontagePlayReturnType::Duration, startTime);
+	duration = montage.Montage->GetSectionLength(0);
+
+	if (useMontageEndCallback)
+	{
+		animInstance->Montage_SetEndDelegate(endCallBack, montage.Montage);
+	}
+
+	if (duration <= 0)
+	{
+		return -1;
+	}
+
+	if (!montage.MontageSection.IsNone())
+	{
+		//Jumps to a section
+		animInstance->Montage_JumpToSection(montage.MontageSection, montage.Montage);
+		const float newMontagePos = animInstance->Montage_GetPosition(montage.Montage);
+		auto sectionID = montage.Montage->GetSectionIndex(montage.MontageSection);
+		duration = montage.Montage->GetSectionLength(sectionID);
+	}
+
+	return duration;
 }
 
 
@@ -1721,7 +1905,7 @@ void UModularControllerComponent::Move_Implementation(const FVector endLocation,
 }
 
 
-FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDatas, FVelocity movement, float delta)
+FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDatas, FVelocity movement, float delta, bool noCollision)
 {
 	auto owner = GetOwner();
 	FVelocity result = FVelocity::Null();
@@ -1737,10 +1921,10 @@ FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDat
 	FVector pushObjectForce = priMove;
 
 	////get Pushed by objects
-	if (inDatas.bUsePhysic && _collisionForces.Length() > 0)
+	if (inDatas.bUsePhysic && _collisionForces.Length() > 0 && !noCollision)
 	{
 		priMove += (_collisionForces / inDatas.GetMass()) * (priMove.Length() > 0 ? FMath::Clamp(FVector::DotProduct(priMove.GetSafeNormal(), _collisionForces.GetSafeNormal()), 0, 1) : 1);
-		if (ShowDebug)
+		if (DebugType)
 		{
 			GEngine->AddOnScreenDebugMessage((int32)GetOwner()->GetUniqueID() + 10, 1, FColor::Green, FString::Printf(TEXT("Applying collision force: %s"), *_collisionForces.ToString()));
 		}
@@ -1752,7 +1936,7 @@ FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDat
 		FHitResult sweepMoveHit = FHitResult(EForceInit::ForceInitToZero);
 		bool blockingHit = false;
 
-		blockingHit = ComponentTraceCastSingle(sweepMoveHit, initialLocation, priMove * delta, primaryRotation, 0.100, bUseComplexCollision);
+		blockingHit = noCollision ? false : ComponentTraceCastSingle(sweepMoveHit, initialLocation, priMove * delta, primaryRotation, 0.100, bUseComplexCollision);
 		if (blockingHit)
 		{
 			//Push objects around
@@ -1771,24 +1955,28 @@ FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDat
 		}
 
 		//delta
-		primaryDelta = ((blockingHit ? sweepMoveHit.Location : sweepMoveHit.TraceEnd) - location);
-		location = (blockingHit ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
+		primaryDelta = noCollision ? priMove * delta : ((blockingHit ? sweepMoveHit.Location : sweepMoveHit.TraceEnd) - location);
+		location = noCollision ? location + primaryDelta : (blockingHit ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
 	}
 
 	//Secondary Movement (Adjustement movement)
 	{
 		FHitResult sweepMoveHit;
 
-		ComponentTraceCastSingle(sweepMoveHit, location, secMove, primaryRotation, 0.100, bUseComplexCollision);
+		if (!noCollision)
+			ComponentTraceCastSingle(sweepMoveHit, location, secMove, primaryRotation, 0.100, bUseComplexCollision);
 
-		FVector newLocation = (sweepMoveHit.IsValidBlockingHit() ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
-		FVector depenetrationForce = FVector(0);
-		if (CheckPenetrationAt(depenetrationForce, newLocation, primaryRotation))
+		FVector newLocation = noCollision ? location + secMove : (sweepMoveHit.IsValidBlockingHit() ? sweepMoveHit.Location : sweepMoveHit.TraceEnd);
+		if (!noCollision)
 		{
-			newLocation += depenetrationForce;
-			if (inDatas.IsDebugMode)
+			FVector depenetrationForce = FVector(0);
+			if (CheckPenetrationAt(depenetrationForce, newLocation, primaryRotation))
 			{
-				UKismetSystemLibrary::DrawDebugArrow(this, newLocation, newLocation + depenetrationForce, 50, FColor::Red, 0, 3);
+				newLocation += depenetrationForce;
+				if (DebugType == MovementDebug)
+				{
+					UKismetSystemLibrary::DrawDebugArrow(this, newLocation, newLocation + depenetrationForce, 50, FColor::Red, 0, 3);
+				}
 			}
 		}
 
@@ -1821,7 +2009,7 @@ void UModularControllerComponent::PostMoveUpdate(FKinematicInfos& inDatas, const
 	inDatas.FinalVelocities._rooMotionScale = moveMade._rooMotionScale;
 
 	//State and actions
-	inDatas.FinalStateIndex = stateIndex;
+	//inDatas.FinalStateIndex = stateIndex;
 
 	Velocity = inDatas.GetFinalMomentum();
 
@@ -1853,11 +2041,11 @@ FQuat UModularControllerComponent::HandleRotation(const FVelocity inVelocities, 
 	}
 	if (!virtualRightDir.Normalize())
 	{
-		if (inDatas.IsDebugMode)
+		if (DebugType == MovementDebug)
 		{
 			GEngine->AddOnScreenDebugMessage(152, 1, FColor::Red, FString::Printf(TEXT("Cannot normalize right vector: up = %s, fwd= %s"), *desiredUpVector.ToCompactString(), *virtualFwdDir.ToCompactString()));
 		}
-		return GetOwner()->GetActorQuat();
+		return inVelocities.Rotation;
 	}
 	FRotator desiredRotator = UKismetMathLibrary::MakeRotFromZX(desiredUpVector, virtualFwdDir);
 
@@ -1882,7 +2070,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 	FVector SlideDelta = ComputeSlideVector(Delta, Time, Normal, Hit);
 	FVector endLocation = Position + SlideDelta;
 
-	if (ShowDebug) {
+	if (DebugType) {
 		UKismetSystemLibrary::DrawDebugArrow(this, Position, Position + Normal.GetSafeNormal() * 30, 50, FColor::Blue);
 		UKismetSystemLibrary::DrawDebugArrow(this, Position, Position + SlideDelta, 50, FColor::Cyan);
 	}
@@ -1895,7 +2083,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 			FVector move = Hit.TraceEnd - Hit.TraceStart;
 			TwoWallAdjust(move, Hit, OldHitNormal);
 
-			if (ShowDebug) {
+			if (DebugType) {
 				UKismetSystemLibrary::DrawDebugArrow(this, Hit.Location, Hit.Location + move, 50, FColor::Purple);
 				DrawCircle(GetWorld(), Hit.Location, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Purple, 25, 32, false, -1, 0, 3);
 			}
@@ -1913,13 +2101,13 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 						depth--;
 						endLocation = SlideAlongSurfaceAt(secondaryMove.Location, Rotation, secondaryMove.TraceEnd - secondaryMove.TraceStart, 1 - secondaryMove.Time, secondaryMove.Normal, secondaryMove, depth);
 						secondaryMove.Location = endLocation;
-						if (ShowDebug) {
+						if (DebugType) {
 							DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Yellow, 25, 32, false, -1, 0, 3);
 						}
 					}
 					else {
 						endLocation = secondaryMove.Location;
-						if (ShowDebug) {
+						if (DebugType) {
 							DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Orange, 25, 32, false, -1, 0, 3);
 						}
 					}
@@ -1928,7 +2116,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 				{
 					endLocation = secondaryMove.TraceEnd;
 
-					if (ShowDebug) {
+					if (DebugType) {
 						DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Red, 25, 32, false, -1, 0, 3);
 					}
 				}

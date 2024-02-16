@@ -80,3 +80,32 @@ enum EShapeMode
 	ShapeMode_Cube,
 };
 
+
+
+/// <summary>
+/// The type of debug to use on the controller.
+/// </summary>
+UENUM(BlueprintType)
+enum EControllerDebugType
+{
+	None,
+	MovementDebug,
+	PhysicDebug,
+	NetworkDebug,
+	StatusDebug,
+	AnimationDebug,
+	InputDebug,
+};
+
+
+/// <summary>
+/// The type of compatibility mode an controller action.
+/// </summary>
+UENUM(BlueprintType)
+enum EActionCompatibilityMode
+{
+	AlwaysCompatible,
+	OnCompatibleStateOnly,
+	WhileCompatibleActionOnly,
+	OnBothCompatiblesStateAndAction,
+};

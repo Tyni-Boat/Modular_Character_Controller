@@ -37,7 +37,6 @@ FVector UFreeFallState::AddGravity(FVector verticalVelocity, float delta)
 	{
 		gravity = _gravity * delta + verticalVelocity;
 	}
-	_airTime += delta;
 	return gravity;
 }
 
@@ -59,16 +58,14 @@ FName UFreeFallState::GetDescriptionName_Implementation()
 	return BehaviourName;
 }
 
-
-
-
-bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
+	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta, int overrideWasLastStateStatus)
 {
 	return true;
 }
 
-
-void UFreeFallState::OnEnterState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+void UFreeFallState::OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
 {
 	_gravity = Gravity;
 	if (controller)
@@ -76,52 +73,53 @@ void UFreeFallState::OnEnterState_Implementation(const FKinematicInfos& inDatas,
 	_airTime = 0;
 }
 
-FMovePreprocessParams UFreeFallState::PreProcessState_Implementation(const FKinematicInfos& inDatas,
-	const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+FVelocity UFreeFallState::ProcessState_Implementation(FStatusParameters& controllerStatus,
+	const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller,
+	const float inDelta)
 {
-	FMovePreprocessParams params;
-	FVector inputAxis = inputs.ReadInput(MovementInputName).Axis.GetSafeNormal();
+	auto inputAxis = moveInput;
 	if (inputAxis.Normalize())
 	{
 		const FVector planarInput = FVector::VectorPlaneProject(inputAxis, Gravity.GetSafeNormal());
 		const FVector resultingVector = planarInput * AirControlSpeed;
-		params.MoveVector = resultingVector;
+		inputAxis = resultingVector;
 	}
-	params.StateFlag = 0;
-	return params;
-}
+	if (controllerStatus.StateModifiers.IsValidIndex(0))
+		_airTime = controllerStatus.StateModifiers[0];
 
-FVelocity UFreeFallState::ProcessState_Implementation(const FKinematicInfos& inDatas,
-	const FMovePreprocessParams params, UModularControllerComponent* controller, const float inDelta)
-{
-	FVector hori = FVector(0);
-	FVector vert = FVector(0);
+	FVector HorizontalVelocity = FVector(0);
+	FVector VerticalVelocity = FVector(0);
 	FVelocity move = FVelocity();
 	move.Rotation = inDatas.InitialTransform.GetRotation();
 
 	if (inDatas.GetInitialMomentum().Length() > 0)
 	{
-		hori = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), inDatas.Gravity.GetSafeNormal());
-		vert = inDatas.GetInitialMomentum().ProjectOnToNormal(inDatas.Gravity.GetSafeNormal());
+		HorizontalVelocity = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), inDatas.Gravity.GetSafeNormal());
+		VerticalVelocity = inDatas.GetInitialMomentum().ProjectOnToNormal(inDatas.Gravity.GetSafeNormal());
 	}
+
 	FVector velocity = FVector(0);
-	if (GetWasTheLastFrameBehaviour()) 
+	if (GetWasTheLastFrameControllerState())
 	{
-		velocity = AirControl(params.MoveVector, hori, inDelta);
+		velocity = AirControl(inputAxis, HorizontalVelocity, inDelta);
 	}
-	if (params.MoveVector.SquaredLength() > 0)
+	if (inputAxis.SquaredLength() > 0)
 	{
-		auto lookDir = params.MoveVector.GetSafeNormal();
+		const auto lookDir = inputAxis.GetSafeNormal();
 		move.Rotation = UStructExtensions::GetProgressiveRotation(inDatas.InitialTransform.GetRotation(), -inDatas.Gravity.GetSafeNormal(), lookDir, AirControlRotationSpeed, inDelta);
 	}
-	velocity += AddGravity(vert, inDelta);
+
+	velocity += AddGravity(VerticalVelocity, inDelta);
+	_airTime += inDelta;
 	move.ConstantLinearVelocity = velocity;
+
+	controllerStatus.StateModifiers = { _airTime };
 
 	return move;
 }
 
-
-void UFreeFallState::OnExitState_Implementation(const FKinematicInfos& inDatas, const FInputEntryPool& inputs, UModularControllerComponent* controller, const float inDelta)
+void UFreeFallState::OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
 {
 	_airTime = 0;
 }
@@ -129,6 +127,18 @@ void UFreeFallState::OnExitState_Implementation(const FKinematicInfos& inDatas, 
 
 void UFreeFallState::OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller)
 {
+}
+
+void UFreeFallState::SaveStateSnapShot_Internal()
+{
+	_airTime_saved = _airTime;
+	_gravity_saved = _gravity;
+}
+
+void UFreeFallState::RestoreStateFromSnapShot_Internal()
+{
+	_airTime = _airTime_saved;
+	_gravity = _gravity_saved;
 }
 
 
