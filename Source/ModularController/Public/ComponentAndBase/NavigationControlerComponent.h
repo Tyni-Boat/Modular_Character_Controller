@@ -4,7 +4,7 @@
 #include "GameFramework/NavMovementComponent.h"
 #include "NavigationSystem.h"
 #include "NavLinkCustomInterface.h"
-#include "AIModule/Classes/Navigation/PathFollowingComponent.h"
+#include "Navigation/PathFollowingComponent.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "UObject/WeakObjectPtr.h"
 #include "NavigationControlerComponent.generated.h"

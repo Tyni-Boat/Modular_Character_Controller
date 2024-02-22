@@ -6,16 +6,18 @@
 #include <Kismet/KismetSystemLibrary.h>
 #include "NavigationPath.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "AIModule/Classes/AIController.h"
-#include "AIModule/Classes/Blueprint/AIBlueprintHelperLibrary.h"
+#include "AIController.h"
+#include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "NavigationSystem.h"
 #include "ComponentAndBase/ModularControllerComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "Kismet/GameplayStatics.h"	
 #include "NavMesh/NavMeshPath.h"
+#include "Engine.h"
 #include "Net/UnrealNetwork.h"
 #include "NavLinkCustomInterface.h"
 #include "Engine/ActorChannel.h"
+
 
 
 #pragma region Network path type XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

@@ -7,6 +7,10 @@
 #define MODULAR_CONTROLLER_COMPONENT
 #include "ModularControllerComponent.h"
 #endif
+#ifndef BASE_ACTION
+#define BASE_ACTION
+#include "BaseControllerAction.h"
+#endif
 #include "Engine/DataAsset.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -28,33 +32,23 @@ class MODULARCONTROLLER_API UBaseControllerState : public UDataAsset
 
 public:
 
-	/// <summary>
-	/// The linked animation blueprint class
-	/// </summary>
+	// The linked animation blueprint class that will be used while this state is active.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "State|Basic Parameters")
 	TSubclassOf<UAnimInstance> StateBlueprintClass;
 
-	/// <summary>
-	/// The behaviour Root motion Mode
-	/// </summary>
+	// The State's Root motion Mode
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "State|Basic Parameters")
 	TEnumAsByte<ERootMotionType> RootMotionMode;
 
-	/// <summary>
-	/// This is used to track one surface movements
-	/// </summary>
+	// The informations on the current surface. This is used to track one surface movements
 	UPROPERTY(BlueprintReadOnly, category = "State|Basic Parameters")
 	FSurfaceInfos SurfaceInfos;
 
-	/// <summary>
-	/// The state's flag, often used as binary. to relay this State's state over the network.
-	/// </summary>
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, category = "State|Basic Parameters")
+	// The state's flag, often used as binary. to relay this State's state over the network.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "State|Basic Parameters")
 	int StateFlag;
 
-	/// <summary>
-	/// Enable or disable debug
-	/// </summary>
+	// Enable or disable debug for this state
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State|Basic Parameters")
 	bool bDebugState;
 
@@ -105,6 +99,13 @@ public:
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
 	void OnControllerStateChanged(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller);
+
+	/// <summary>
+	/// Get Notify actions the active action change. whether the action is active or not.
+	/// </summary>
+	/// <returns></returns>
+	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
+	void OnActionChanged(UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -215,7 +216,7 @@ public:
 
 
 	///Check if this is running as a part of a simulation
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "State|Others")
 	FORCEINLINE bool IsSimulated() { return _snapShotSaved; }
 
 protected:

@@ -17,46 +17,28 @@ class MODULARCONTROLLER_API UFreeFallState : public UBaseControllerState
 #pragma region Parameters
 protected:
 
-	/// <summary>
-	/// The behaviour key name
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
-	FName BehaviourName = "InAir";
+	// The State's unique name
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	FName StateName = "InAir";
 
-	/// <summary>
-	/// The behaviour priority
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
-	int BehaviourPriority = 0;
+	// The State's priority
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	int StatePriority = 0;
 
-	/// <summary>
-	/// The in air control max speed
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Air Control")
+	// The maximun velocity the user can move planar to the gravity force
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
 	float AirControlSpeed = 300;
 
-	/// <summary>
-	/// The in air control rotation speed
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Air Control")
+	// In air controlled user rotation speed
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
 	float AirControlRotationSpeed = 3;
-	
-	/// <summary>
-	/// The name of the movement input
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Air Control")
-	FName MovementInputName = "Move";
 
-	/// <summary>
-	/// The Gravity
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Gravity")
+	// The Gravity force
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Gravity")
 	FVector Gravity = FVector(0, 0, -981);
 
-	/// <summary>
-	/// The maximum fall speed, in cm/s
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Gravity")
+	// The maximum fall speed, in cm/s
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Gravity")
 	float TerminalVelocity = 5364;
 
 #pragma endregion
@@ -102,6 +84,10 @@ public:
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "Properties")
 	FORCEINLINE float GetAirTime() { return _airTime; }
+
+	//Set new gravity force.
+	UFUNCTION(BlueprintCallable, Category="Gravity Control")
+	void SetGravityForce(FVector newGravity);
 	
 
 #pragma endregion

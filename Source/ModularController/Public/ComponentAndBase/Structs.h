@@ -379,7 +379,7 @@ public:
 				debugColor = FColor::Cyan;
 				break;
 			}
-			UKismetSystemLibrary::PrintString(worldContext->GetWorld(), FString::Printf(TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %d, Held: %d"), *key.ToString(), *UEnum::GetValueAsName<EInputEntryNature>(entry.Nature).ToString(), *UEnum::GetValueAsName<EInputEntryPhase>(entry.Phase).ToString(), static_cast<int>(bufferChrono * 1000)
+			UKismetSystemLibrary::PrintString(worldContext, FString::Printf(TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %d, Held: %d"), *key.ToString(), *UEnum::GetValueAsName<EInputEntryNature>(entry.Nature).ToString(), *UEnum::GetValueAsName<EInputEntryPhase>(entry.Phase).ToString(), static_cast<int>(bufferChrono * 1000)
 				, static_cast<int>(activeDuration * 1000)), true, true, debugColor, 0, key);
 		}
 
@@ -774,19 +774,19 @@ public:
 	}
 
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
 	int StateIndex = -1;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
 	int ActionIndex = -1;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
 	int PrimaryStateFlag = 0;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
 	TArray<double> StateModifiers;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
 	TArray<double> ActionsModifiers;
 };
 
@@ -877,8 +877,9 @@ public:
 	{
 	}
 
-	FORCEINLINE FKinematicInfos(const  FVector InGravity, const  FKinematicInfos fromLastMove, const float inMass = 0)
+	FORCEINLINE FKinematicInfos(const FVector moveVector, const  FVector InGravity, const  FKinematicInfos fromLastMove, const float inMass = 0)
 	{
+		UserMoveVector = moveVector;
 		Gravity = InGravity;
 		InitialTransform = fromLastMove.FinalTransform;
 		InitialVelocities = fromLastMove.FinalVelocities;
@@ -891,6 +892,7 @@ public:
 		InitialTransform = fromTransform;
 		InitialVelocities = fromVelocity;
 		InitialSurface = onSurface;
+		UserMoveVector = FVector(0);
 	}
 
 
@@ -914,6 +916,14 @@ public:
 		}
 	}
 
+
+	//User Intent *************************************************************************************
+
+	/// <summary>
+	/// The movement vector used.
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "User")
+	FVector UserMoveVector;
 
 	//Velocities *************************************************************************************
 
@@ -1149,37 +1159,37 @@ public:
 		return locationOffset > minLocationOffset || angularOffset >= minAngularOffset || speedOffset >= velocityOffset || ControllerStatus.HasChanged(otherCmd.ControllerStatus);
 	}
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	double TimeStamp;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	float DeltaTime;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	bool CorrectionAckowledgement;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FVector_NetQuantize10 userMoveInput;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FVector_NetQuantize10 FromLocation;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FVector_NetQuantize10 ToLocation;
 
-	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FVector_NetQuantize10 ToVelocity;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FVector_NetQuantize10 WithVelocity;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FRotator FromRotation;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FRotator ToRotation;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
 	FStatusParameters ControllerStatus;
 
 };
@@ -1258,25 +1268,25 @@ struct FServerNetCorrectionData
 	}
 
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
 	double TimeStamp;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
 	bool CollisionOccured;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
 	FVector_NetQuantize10 CollisionNormal;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
 	FVector_NetQuantize10 ToLocation;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
 	FVector_NetQuantize10 WithVelocity;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
 	FRotator ToRotation;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
 	FStatusParameters ControllerStatus;
 };
 
@@ -1472,15 +1482,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
 	static FVector AccelerateTo(const FVector fromVelocity, const FVector toVelocity, const float withAcceleration, const float deltaTime)
 	{
-		float trueAcceleration = withAcceleration;
-		if (toVelocity.SquaredLength() > fromVelocity.SquaredLength())
-			trueAcceleration = 1 / ((toVelocity.Length() * 0.01f) / withAcceleration);
-		else if (toVelocity.SquaredLength() <= fromVelocity.SquaredLength())
-			trueAcceleration = 1 / ((fromVelocity.Length() * 0.01f) / withAcceleration);
-		else
-			trueAcceleration = 0;
-		const FVector endVel = FMath::Lerp(fromVelocity, toVelocity, FMath::Clamp(deltaTime * trueAcceleration, 0, 1));
-		return  endVel;
+		if (withAcceleration > 0)
+		{
+			float trueAcceleration = withAcceleration;
+			if (toVelocity.SquaredLength() > fromVelocity.SquaredLength())
+				trueAcceleration = 1 / ((toVelocity.Length() * 0.01f) / withAcceleration);
+			else if (toVelocity.SquaredLength() <= fromVelocity.SquaredLength())
+				trueAcceleration = 1 / ((fromVelocity.Length() * 0.01f) / withAcceleration);
+			else
+				trueAcceleration = 0;
+			const FVector endVel = FMath::Lerp(fromVelocity, toVelocity, FMath::Clamp(deltaTime * trueAcceleration, 0, 1));
+			return  endVel;
+		}
+		return toVelocity;
 	}
 
 };

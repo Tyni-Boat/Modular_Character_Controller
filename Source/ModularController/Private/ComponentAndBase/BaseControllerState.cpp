@@ -79,6 +79,11 @@ FString UBaseControllerState::DebugString()
 }
 
 
+void UBaseControllerState::OnActionChanged_Implementation(UBaseControllerAction* newAction,
+	UBaseControllerAction* lastAction)
+{
+}
+
 bool UBaseControllerState::GetWasTheLastFrameControllerState()
 {
 	return _wasTheLastFrameBehaviour;

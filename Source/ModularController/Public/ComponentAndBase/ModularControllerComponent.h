@@ -25,27 +25,17 @@
 
 
 
-
 /// <summary>
-/// Declare a multicast for when an action begins
-/// </summary>
-DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_OneParam(FActionBeginsSignature, UModularControllerComponent, OnActionBeginsEvent, UBaseControllerAction*, Action);
-
-/// <summary>
-/// Declare a multicast for when an action Ends
-/// </summary>
-DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_OneParam(FActionEndsSignature, UModularControllerComponent, OnActionEndsEvent, UBaseControllerAction*, Action);
-
-/// <summary>
-/// Declare a multicast for when an action Cancelled
-/// </summary>
-DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_OneParam(FActionCancelledSignature, UModularControllerComponent, OnActionCancelledEvent, UBaseControllerAction*, Action);
-
-/// <summary>
-/// Declare a multicast for when a behaviour changed
+/// Declare a multicast for when a State changed
 /// </summary>
 DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerStateChangedSignature, UModularControllerComponent,
 	OnControllerStateChangedEvent, UBaseControllerState*, LastOne, UBaseControllerState*, NewOne);
+
+/// <summary>
+/// Declare a multicast for when a action changed
+/// </summary>
+DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerActionChangedSignature, UModularControllerComponent,
+	OnControllerActionChangedEvent, UBaseControllerAction*, LastOne, UBaseControllerAction*, NewOne);
 
 
 // Modular pawn controller, handle the logic to move the pawn based on any movement state.
@@ -286,6 +276,14 @@ public:
 	UFUNCTION(NetMulticast, Unreliable, Category = "Controllers|Network|Server To CLient|RPC")
 	void MultiCastMoveCommand(FClientNetMoveCommand command, FServerNetCorrectionData Correction = FServerNetCorrectionData(), bool asCorrection = false);
 
+	/// Replicate server's statesClasses to clients on request
+	UFUNCTION(NetMulticast, Reliable, Category = "Controllers|Network|Server To CLient|RPC")
+	void MultiCastStates(const TArray<TSubclassOf<UBaseControllerState>>& statesClasses, UModularControllerComponent* caller);
+
+	/// Replicate server's actionsClasses to clients on request
+	UFUNCTION(NetMulticast, Reliable, Category = "Controllers|Network|Server To CLient|RPC")
+	void MultiCastActions(const TArray<TSubclassOf<UBaseControllerAction>>& actionsClasses, UModularControllerComponent* caller);
+
 
 #pragma region Listened
 
@@ -315,6 +313,13 @@ protected:
 
 #pragma region Client Logic
 
+	/// Replicate server's states to clients on request
+	UFUNCTION(Server, Reliable, Category = "Controllers|Network|Client To Server|RPC")
+	void ServerRequestStates(UModularControllerComponent* caller);
+
+	/// Replicate server's actions to clients on request
+	UFUNCTION(Server, Reliable, Category = "Controllers|Network|Client To Server|RPC")
+	void ServerRequestActions(UModularControllerComponent* caller);
 
 #pragma region Automonous Proxy
 
@@ -611,25 +616,16 @@ public:
 
 	// The current controller active action index
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller Action")
-	int CurrentActionIndex;
+	int CurrentActionIndex = -1;
 
 	/// The actions instances used on this controller.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller Action")
 	TArray<UBaseControllerAction*> ActionInstances;
 
-	/// The action begins event
+	// The action changed event
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|Controller Action|Events")
-	FActionBeginsSignature OnActionBeginsEvent;
-
-
-	/// The action Ends event
-	UPROPERTY(BlueprintAssignable, Category = "Controllers|Controller Action|Events")
-	FActionEndsSignature OnActionEndsEvent;
-
-	/// The action cancelled event
-	UPROPERTY(BlueprintAssignable, Category = "Controllers|Controller Action|Events")
-	FActionCancelledSignature OnActionCancelledEvent;
-
+	FControllerActionChangedSignature OnControllerActionChangedEvent;
+	
 
 public:
 
@@ -664,11 +660,11 @@ public:
 
 	/// Add an action behaviour
 	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|Controller Action")
-	void AddActionBehaviour(TSubclassOf<UBaseControllerAction> moduleType);
+	void AddControllerAction(TSubclassOf<UBaseControllerAction> moduleType);
 
 
 	/// Add an action behaviour
-	void AddActionBehaviour_Implementation(TSubclassOf<UBaseControllerAction> moduleType);
+	void AddControllerAction_Implementation(TSubclassOf<UBaseControllerAction> moduleType);
 
 	/// Get an action behaviour by type
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action")
@@ -701,19 +697,9 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	/// When an action begins this controller, it call this function
+	/// Triggered when the active action is changed.
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Controllers|Controller Action|Events")
-	void OnActionBegins(UBaseControllerAction* action);
-
-
-	/// When an action Ends this controller, it call this function
-	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Controller Action|Events")
-	void OnActionEnds(UBaseControllerAction* action);
-
-
-	/// When an action is Cancelled or repeated this controller, it call this function
-	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Controller Action|Events")
-	void OnActionCancelled(UBaseControllerAction* action);
+	void OnControllerActionChanged(UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
 
 protected:
 
@@ -721,7 +707,7 @@ protected:
 	/// Check controller Actions and returns the index of the active one.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
 	int CheckControllerActions(FKinematicInfos& inDatas, FVector moveInput, UInputEntryPool* inputs, const int controllerStateIndex, const int controllerActionIndex
-		, const float inDelta, bool simulation = false);
+		, const float inDelta, bool& transitionToSelf, bool simulation = false);
 
 	/**
 	 * @brief Check if an action is compatible with this state and those actions
@@ -734,31 +720,19 @@ protected:
 
 	/// Change actions from action index 1 to 2
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
-	bool TryChangeControllerActions(int fromActionIndex, int toActionIndex, FKinematicInfos& inDatas, FVector moveInput, const float inDelta
-		, bool simulate = false , bool allowPartialChange = false);
+	bool TryChangeControllerAction(int fromActionIndex, int toActionIndex, FKinematicInfos& inDatas, FVector moveInput, const float inDelta
+		, const bool transitionToSelf = false, bool simulate = false);
 
 	/// Evaluate the component state
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
-	FVelocity ProcessControllerActions(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, FVelocity fromStateVelocity, const FVector moveInput
+	FVelocity ProcessControllerAction(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, FVelocity fromStateVelocity, const FVector moveInput
 		, const float inDelta, int simulatedStateIndex = -1 , int simulatedActionIndex = -1);
 
 
 	// Process single action's velocity.
 	FVelocity ProcessSingleAction(UBaseControllerAction* actionInstance, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, FVelocity previousVelocity, const FVector moveInput
 		, const float inDelta, int simulatedStateIndex = -1, int simulatedActionIndex = -1);
-
-
-
-	/// When an action begins this controller, it call this function
-	void OnActionBegins_Implementation(UBaseControllerAction* action);
-
-
-	/// When an action Ends this controller, it call this function
-	void OnActionEnds_Implementation(UBaseControllerAction* action);
-
-	/// When an action is Cancelled or repeated this controller, it call this function
-	void OnActionCancelled_Implementation(UBaseControllerAction* action);
-	
+			
 
 #pragma endregion
 

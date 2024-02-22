@@ -13,41 +13,29 @@ class MODULARCONTROLLER_API UJumpActionBase : public UBaseControllerAction
 	GENERATED_BODY()
 
 protected:
+	
+	// The Action unique name
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	FName ActionName = "JumpingAction";
 
-	UJumpActionBase();
-
-	/// <summary>
-	/// The behaviour key name
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
-	FName BehaviourName = "JumpingAction";
-
-	/// <summary>
-	/// The behaviour priority
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
-	int BehaviourPriority = 6;
+	// The action's priority
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	int ActionPriority = 6;
 
 #pragma region Check
 protected:
 
-	/// <summary>
-	/// The Name of the jump command
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Inputs")
+	//[Button] The Name of the jump Button Input
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Inputs")
 	FName JumpInputCommand;
 
-	/// <summary>
-	/// The Name of the jump location input. this is the location where the controller will try to land. If a value is set and not used, the controller will always try to jump at zero location.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Inputs")
+	//[Axis] The Name of the jump location Axis input. this is the location where the controller will try to land. If a value is set and not used, the controller will always try to jump at zero location.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Inputs")
 	FName JumpLocationInput;
 
 
-	/// <summary>
-	/// Should the controller apply force below when jumping?
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// Should the controller apply force on current surface when jumping?
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	bool UsePhysicOnInteractions = true;
 
 	//------------------------------------------------------------------------------------------
@@ -68,73 +56,47 @@ public:
 #pragma region Jump
 protected:
 
-	/// <summary>
-	/// The maximum Jump height
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// The maximum Jump height
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	float MaxJumpHeight = 200;
 
-	/// <summary>
-	/// The minimum distance from the ceiling for the jump to happen
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// The minimum distance from the ceiling for the jump to happen
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	float MinJumpHeight = 50;
 
-	/// <summary>
-	/// The maximum Jump Distance
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// The maximum Jump Distance
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	float MaxJumpDistance = 150;
 	
-	/// <summary>
-	/// The delai of the propulsion of the jump.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters", meta = (ClampMin = "0.0", UIMin = "0.0")) //Limit to only positive values; only inferior to duration
-	double JumpPropulsionDelay = 0.1;
 
-	/// <summary>
-	/// Rotation speed we turn toward the jump direction
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+
+	// Rotation speed to turn toward the jump direction
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	float TurnTowardDirectionSpeed = 15;
 
-	/// <summary>
-	/// The array of animations to play per jump count.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// The Montage to play when jumping
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	FActionMotionMontage JumpMontage;
 
-	/// <summary>
-	/// The montage should be played on the current state's linked animation graph or on the root graph
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// The montage should be played on the current state's linked animation blueprint or on the root skeletal mesh anim blueprint
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	bool bMontageShouldBePlayerOnStateAnimGraph;
 	
-	/// <summary>
-	/// Should the montage be used as action duration?
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// Should the montage lenght be used as action duration?
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	bool bUseMontageDuration;
 
-	/// <summary>
-	/// Should we use the momentum instead of jump distance?
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// Should we use the momentum instead of jump distance?
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	bool UseMomentum;
 
-	/// <summary>
-	/// Should we use the surface normal when no directional input is given?
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Jump Parameters")
+	// Should we use the surface normal when no directional input is given?
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Jump Parameters")
 	bool UseSurfaceNormalOnNoDirection;
 
 
 	//------------------------------------------------------------------------------------------
-
-	//The remaining time before the jump force occurs.
-	float _jumpDelayTimer;
-	float _jumpDelayTimer_saved;
-	
+		
 	//the normal of the surface we jumped from
 	FVector _jumpSurfaceNormal;
 	FVector _jumpSurfaceNormal_saved;
@@ -142,6 +104,10 @@ protected:
 	//the momentum when entered action
 	FVelocity _startMomentum;
 	FVelocity _startMomentum_saved;
+
+	//the jump propulsion just occured
+	bool _jumped;
+	bool _jumped_saved;
 
 
 	/// <summary>
@@ -166,13 +132,7 @@ public:
 	/// <param name="controller"></param>
 	/// <returns></returns>
 	FVector Jump(const FKinematicInfos inDatas, FVector moveInput, const FVelocity momentum, const float inDelta, FVector customJumpLocation = FVector(NAN));
-
-
-	/// <summary>
-	/// Called when the propulsion occured
-	/// </summary>
-	UFUNCTION(BlueprintNativeEvent, category = "Jump Action|Events")
-	void OnPropulsionOccured();
+	
 
 #pragma endregion
 
@@ -186,8 +146,12 @@ public:
 
 	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta) override;
 
-	virtual FVelocity OnActionProcess_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
+	virtual FVelocity OnActionProcessAnticipationPhase_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
+
+	virtual FVelocity OnActionProcessActivePhase_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
 		, UModularControllerComponent* controller, const float inDelta) override;
+
+	virtual FVelocity OnActionProcessRecoveryPhase_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
 
 	virtual	void OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState) override;

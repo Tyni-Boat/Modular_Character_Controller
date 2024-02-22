@@ -238,12 +238,12 @@ FVector USimpleGroundState::MoveToPreventFalling(UModularControllerComponent* co
 
 int USimpleGroundState::GetPriority_Implementation()
 {
-	return BehaviourPriority;
+	return StatePriority;
 }
 
 FName USimpleGroundState::GetDescriptionName_Implementation()
 {
-	return BehaviourName;
+	return StateName;
 }
 
 
@@ -256,6 +256,15 @@ bool USimpleGroundState::CheckState_Implementation(const FKinematicInfos& inData
 	{
 		willUseMaxDistance = overrideWasLastStateStatus > 0;
 	}
+
+	const FVector_NetQuantize currentPos = inDatas.InitialTransform.GetLocation();
+	if(currentPos == _lastControlledPosition && willUseMaxDistance)
+	{
+		return true;
+	}
+
+	_lastControlledPosition = currentPos;
+
 	return CheckSurface(inDatas.InitialTransform, inDatas.Gravity, controller, inDelta, willUseMaxDistance);
 }
 
@@ -356,11 +365,13 @@ FString USimpleGroundState::DebugString()
 void USimpleGroundState::SaveStateSnapShot_Internal()
 {
 	_landingImpactRemainingForce_saved = LandingImpactRemainingForce;
+	_lastControlledPosition_saved = _lastControlledPosition;
 }
 
 void USimpleGroundState::RestoreStateFromSnapShot_Internal()
 {
 	LandingImpactRemainingForce = _landingImpactRemainingForce_saved;
+	_lastControlledPosition = _lastControlledPosition_saved;
 }
 
 

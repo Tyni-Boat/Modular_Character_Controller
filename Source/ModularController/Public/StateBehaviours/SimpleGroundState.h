@@ -16,51 +16,37 @@ class MODULARCONTROLLER_API USimpleGroundState : public UBaseControllerState
 
 protected:
 
-	/// <summary>
-	/// The behaviour key name.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
-	FName BehaviourName = "OnGround";
 
-	/// <summary>
-	/// The behaviour priority.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base")
-	int BehaviourPriority = 5;
+	// The State's unique name
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	FName StateName = "OnGround";
+
+	// The State's priority.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	int StatePriority = 5;
 
 
 #pragma region Check XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
 	
-	/// <summary>
-	/// The distance the compoenet will be floationg above the ground
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main")
+	// The distance the component will be floating above the ground
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	float FloatingGroundDistance = 10;
 
-	/// <summary>
-	/// The inflation of the component while checking
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main")
+	// The inflation of the component while checking for ground
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	float HullInflation = -10;
 
-	/// <summary>
-	/// The maximum distance to check for the ground if the last state was on ground. it prevent controller from leaving the ground when moving down stairs.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main")
+	// The maximum distance to check for the ground. it prevent controller from leaving the ground when moving down stairs.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	float MaxCheckDistance = 10;
-
-	
-	/// <summary>
-	/// Should we hit complex colliders?
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main")
+		
+	// Ground check should check against complex collision?
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	bool bCanTraceComplex = false;
 
-	/// <summary>
-	/// The collision Channel.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Main")
+	// The ground collision Channel.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	TEnumAsByte<ECollisionChannel> ChannelGround;
 	
 
@@ -122,39 +108,23 @@ public:
 #pragma region General Movement XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
 
-	/// <summary>
-	/// The name of the movement input
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement")
-	FName MovementInputName = "Move";
-
-	/// <summary>
-	/// The name of the lock-on input direction.
-	/// </summary>
+	//[Axis] The name of the lock-on input direction.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement")
 	FName LockOnDirection = "LockOnDirection";
 
-	/// <summary>
-	/// Prevent the controller from falling
-	/// </summary>
+	// Prevent the controller from falling off ledges
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement")
 	bool IsPreventingFalling = false;
 
-	/// <summary>
-	/// the speed at wich the controller absorb landing impacts. the higher the speed the shorter the time the controller get stuck on the ground.
-	/// </summary>
+	// the speed at wich the controller absorb landing impacts. the higher the speed the shorter the time the controller get stuck on the ground.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement")
 	float LandingImpactAbsorbtionSpeed = 2682;
 
-	/// <summary>
-	/// the force threshold for the controller be able to move despite still absorbing landing impact
-	/// </summary>
+	// the force threshold for the controller be able to move despite still absorbing landing impact
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement")
 	float LandingImpactMoveThreshold = 981;
 
-	/// <summary>
-	/// The landing impact force remaining. it decrease over time at Landing Impact Absorbtion Speed
-	/// </summary>
+	// The landing impact force remaining. it decrease over time at Landing Impact Absorption Speed
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Movement")
 	float LandingImpactRemainingForce;
 
@@ -191,35 +161,30 @@ private:
 
 	float _landingImpactRemainingForce_saved;
 
+	FVector_NetQuantize _lastControlledPosition;
+	FVector_NetQuantize _lastControlledPosition_saved;
+
 #pragma endregion
 
 
 #pragma region Slope And Sliding XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
 
-	/// <summary>
-	/// The maximum surface inclination angle in degree
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Slope and Slide")
+	// The maximum surface inclination angle in degree
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Slope and Slide")
 	float MaxSlopeAngle = 30;
 
 
-	/// <summary>
-	/// The maximum speed of the controller on the surface while sliding
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Slope and Slide")
+	// The maximum speed of the controller on the surface while sliding
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Slope and Slide")
 	float MaxSlidingSpeed = 981;
 
-	/// <summary>
-	/// The movement acceleration while sliding
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Slope and Slide")
+	// The movement acceleration while sliding
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Slope and Slide")
 	float SlidingAcceleration = 35;
 
-	/// <summary>
-	/// Should the slope increase or decrease speed when we are ascending and descending.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Slope and Slide")
+	// Should the slope increase or decrease speed when we are ascending and descending?
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Slope and Slide")
 	bool bSlopeAffectSpeed = false;
 
 #pragma endregion
@@ -228,28 +193,20 @@ protected:
 #pragma region Move XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
 	
-	/// <summary>
-	/// The maximum speed of the controller on the surface
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	// The maximum speed of the controller on the surface
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
 	float MaxSpeed = 350;
 
-	/// <summary>
-	/// The movement acceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	// The movement acceleration
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
 	float Acceleration = 27;
 
-	/// <summary>
-	/// The movement deceleration
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	// The movement deceleration
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
 	float Deceleration = 9;
 
-	/// <summary>
-	/// The speed at wich the target component be rotated with movement direction
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Movement|Move Parameters")
+	// The speed used to rotate toward movement direction
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
 	float TurnSpeed = 20;
 	
 #pragma endregion

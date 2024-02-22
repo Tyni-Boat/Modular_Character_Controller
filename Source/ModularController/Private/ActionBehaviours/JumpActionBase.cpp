@@ -11,12 +11,6 @@
 
 
 
-UJumpActionBase::UJumpActionBase()
-{
-	if (Duration <= JumpPropulsionDelay)
-		Duration = JumpPropulsionDelay;
-}
-
 #pragma region Check
 
 /// <summary>
@@ -127,18 +121,13 @@ FVector UJumpActionBase::Jump(const FKinematicInfos inDatas, FVector moveInput, 
 }
 
 
-void UJumpActionBase::OnPropulsionOccured_Implementation()
-{
-}
-
-
 #pragma endregion
 
 #pragma region Functions
 
-int UJumpActionBase::GetPriority_Implementation() { return BehaviourPriority; }
+int UJumpActionBase::GetPriority_Implementation() { return ActionPriority; }
 
-FName UJumpActionBase::GetDescriptionName_Implementation() { return BehaviourName; }
+FName UJumpActionBase::GetDescriptionName_Implementation() { return ActionName; }
 
 bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
 	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta)
@@ -146,20 +135,27 @@ bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas,
 	return CheckJump(inDatas, moveInput, inputs, inDelta, controller);
 }
 
-FVelocity UJumpActionBase::OnActionProcess_Implementation(FStatusParameters& controllerStatus,
+
+
+FVelocity UJumpActionBase::OnActionProcessAnticipationPhase_Implementation(FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
 	FVelocity move = fromVelocity;
 	move.InstantLinearVelocity = FVector(0);
-	bool jumpJustStarted = false;
+	return move;
+}
 
-	if (_jumpDelayTimer >= 0)
+FVelocity UJumpActionBase::OnActionProcessActivePhase_Implementation(FStatusParameters& controllerStatus,
+	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
+{
+	FVelocity move = fromVelocity;
+	move.InstantLinearVelocity = FVector(0);	
+
+	if (_jumped)
 	{
-		_jumpDelayTimer -= inDelta;
-		if (_jumpDelayTimer > 0)
-			return move;
-		jumpJustStarted = true;
+		return move;
 	}
 
 	//Handle rotation
@@ -171,50 +167,57 @@ FVelocity UJumpActionBase::OnActionProcess_Implementation(FStatusParameters& con
 		if (fwd.Normalize())
 		{
 			const FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
-			const FQuat rotation = jumpJustStarted ? fwdRot : FQuat::Slerp(fromVelocity.Rotation, fwdRot, FMath::Clamp(inDelta * TurnTowardDirectionSpeed, 0, 1));
+			const FQuat rotation = fwdRot;
 			move.Rotation = rotation;
 		}
 	}
 
-	//Propulsion
-	if (jumpJustStarted)
+	const FVector jumpLocation = IsSimulated() ? FVector(NAN) :
+		(JumpLocationInput.IsNone() ? FVector(NAN) : controller->ReadAxisInput(JumpLocationInput, true, bDebugAction, this));
+	const auto jumpForce = Jump(inDatas, moveInput, _startMomentum, inDelta, jumpLocation);
+	move.ConstantLinearVelocity = jumpForce;
+
+	if (bDebugAction)
 	{
-		const FVector jumpLocation = IsSimulated() ? FVector(NAN) :
-			(JumpLocationInput.IsNone() ? FVector(NAN) : controller->ReadAxisInput(JumpLocationInput, true, bDebugAction, this));
-		const auto jumpForce = Jump(inDatas, moveInput, _startMomentum, inDelta, jumpLocation);
-		move.ConstantLinearVelocity = jumpForce;
-		OnPropulsionOccured();
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Propulsion Vector: (%s); Velocity: (%s)"), *GetDescriptionName().ToString(), *jumpForce.ToCompactString(), *move.ConstantLinearVelocity.ToCompactString()), true, true, FColor::Yellow, 10, "");
+	}
 
-		if (bDebugAction)
+	//instant rotation if custom location
+	if (!jumpLocation.ContainsNaN())
+	{
+		const FVector up = -inDatas.Gravity.GetSafeNormal();
+		FVector fwd = FVector::VectorPlaneProject(jumpForce, up);
+		if (fwd.Normalize())
 		{
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Propulsion Vector: (%s); Velocity: (%s)"), *GetDescriptionName().ToString(), *jumpForce.ToCompactString(), *move.ConstantLinearVelocity.ToCompactString()), true, true, FColor::Yellow, 10, "");
+			const FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
+			move.Rotation = fwdRot;
 		}
+	}
 
-		//instant rotation if custom location
-		if (!jumpLocation.ContainsNaN())
+	if (!IsSimulated())
+	{
+		if (inDatas.bUsePhysic && inDatas.FinalSurface.GetSurfacePrimitive() != nullptr)
 		{
-			const FVector up = -inDatas.Gravity.GetSafeNormal();
-			FVector fwd = FVector::VectorPlaneProject(jumpForce, up);
-			if (fwd.Normalize())
+			//Push Objects
+			if (inDatas.FinalSurface.GetSurfacePrimitive()->IsSimulatingPhysics())
 			{
-				const FQuat fwdRot = UKismetMathLibrary::MakeRotationFromAxes(fwd, FVector::CrossProduct(up, fwd), up).Quaternion();
-				move.Rotation = fwdRot;
-			}
-		}
-
-		if (!IsSimulated())
-		{
-			if (inDatas.bUsePhysic && inDatas.FinalSurface.GetSurfacePrimitive() != nullptr)
-			{
-				//Push Objects
-				if (inDatas.FinalSurface.GetSurfacePrimitive()->IsSimulatingPhysics())
-				{
-					inDatas.FinalSurface.GetSurfacePrimitive()->AddImpulseAtLocation(-jumpForce * inDatas.GetMass(), inDatas.FinalSurface.GetHitResult().ImpactPoint, inDatas.FinalSurface.GetHitResult().BoneName);
-				}
+				inDatas.FinalSurface.GetSurfacePrimitive()->AddImpulseAtLocation(-jumpForce * inDatas.GetMass(), inDatas.FinalSurface.GetHitResult().ImpactPoint, inDatas.FinalSurface.GetHitResult().BoneName);
 			}
 		}
 	}
 
+	_jumped = true;
+
+	return move;
+}
+
+FVelocity UJumpActionBase::OnActionProcessRecoveryPhase_Implementation(FStatusParameters& controllerStatus,
+	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
+{
+	FVelocity move = fromVelocity;
+	move.InstantLinearVelocity = FVector(0);
+	_jumped = false;
 	return move;
 }
 
@@ -265,25 +268,25 @@ void UJumpActionBase::OnActionBegins_Implementation(const FKinematicInfos& inDat
 
 		if (bUseMontageDuration && montageDuration > 0)
 		{
-			_remainingActivationTimer = montageDuration;
+			RemapDuration(montageDuration);
 		}
 	}
 
-	_jumpDelayTimer = JumpPropulsionDelay;
+	_jumped = false;
 	_startMomentum = inDatas.InitialVelocities;
 }
 
 
 void UJumpActionBase::SaveActionSnapShot_Internal()
 {
-	_jumpDelayTimer_saved = _jumpDelayTimer;
+	_jumped_saved = _jumped;
 	_jumpSurfaceNormal_saved = _jumpSurfaceNormal;
 	_startMomentum_saved = _startMomentum;
 }
 
 void UJumpActionBase::RestoreActionFromSnapShot_Internal()
 {
-	_jumpDelayTimer = _jumpDelayTimer_saved;
+	_jumped = _jumped_saved;
 	_jumpSurfaceNormal = _jumpSurfaceNormal_saved;
 	_startMomentum = _startMomentum_saved;
 }

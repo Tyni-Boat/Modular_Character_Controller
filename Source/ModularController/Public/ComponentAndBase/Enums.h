@@ -63,10 +63,10 @@ enum ERootMotionType
 UENUM(BlueprintType)
 enum EGroundLocomotionMode
 {
-	Jogging,
-	Sprinting,
-	Crouching,
-	Crawling,
+	GroundLocomotionMode_Jogging,
+	GroundLocomotionMode_Sprinting,
+	GroundLocomotionMode_Crouching,
+	GroundLocomotionMode_Crawling,
 };
 
 
@@ -88,13 +88,13 @@ enum EShapeMode
 UENUM(BlueprintType)
 enum EControllerDebugType
 {
-	None,
-	MovementDebug,
-	PhysicDebug,
-	NetworkDebug,
-	StatusDebug,
-	AnimationDebug,
-	InputDebug,
+	ControllerDebugType_None,
+	ControllerDebugType_MovementDebug,
+	ControllerDebugType_PhysicDebug,
+	ControllerDebugType_NetworkDebug,
+	ControllerDebugType_StatusDebug,
+	ControllerDebugType_AnimationDebug,
+	ControllerDebugType_InputDebug,
 };
 
 
@@ -104,8 +104,21 @@ enum EControllerDebugType
 UENUM(BlueprintType)
 enum EActionCompatibilityMode
 {
-	AlwaysCompatible,
-	OnCompatibleStateOnly,
-	WhileCompatibleActionOnly,
-	OnBothCompatiblesStateAndAction,
+	ActionCompatibilityMode_AlwaysCompatible,
+	ActionCompatibilityMode_OnCompatibleStateOnly,
+	ActionCompatibilityMode_WhileCompatibleActionOnly,
+	ActionCompatibilityMode_OnBothCompatiblesStateAndAction,
+};
+
+
+/// <summary>
+/// The type of phases an action can be in
+/// </summary>
+UENUM(BlueprintType)
+enum EActionPhase
+{
+	ActionPhase_Undetermined,
+	ActionPhase_Anticipation,
+	ActionPhase_Active,
+	ActionPhase_Recovery,
 };

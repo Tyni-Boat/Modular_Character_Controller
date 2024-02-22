@@ -41,6 +41,11 @@ FVector UFreeFallState::AddGravity(FVector verticalVelocity, float delta)
 }
 
 
+void UFreeFallState::SetGravityForce(FVector newGravity)
+{
+	Gravity = newGravity;
+}
+
 #pragma endregion
 
 
@@ -49,13 +54,13 @@ FVector UFreeFallState::AddGravity(FVector verticalVelocity, float delta)
 
 int UFreeFallState::GetPriority_Implementation()
 {
-	return BehaviourPriority;
+	return StatePriority;
 }
 
 
 FName UFreeFallState::GetDescriptionName_Implementation()
 {
-	return BehaviourName;
+	return StateName;
 }
 
 bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
