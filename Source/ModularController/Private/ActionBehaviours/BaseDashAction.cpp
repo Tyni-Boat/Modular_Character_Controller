@@ -5,7 +5,7 @@
 
 
 
-bool UBaseDashAction::CheckDash(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs,
+bool UBaseDashAction::CheckDash(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus,
 	const float inDelta, UModularControllerComponent* controller)
 {
 	FVector currentPosition = inDatas.InitialTransform.GetLocation();
@@ -33,6 +33,10 @@ bool UBaseDashAction::CheckDash(const FKinematicInfos& inDatas, const FVector mo
 			const FVector dashLocation = inputs->ConsumeInput(DashLocationInput).Axis;
 			_dashToLocation = dashLocation;
 		}
+		
+		controllerStatusParam.ActionsModifiers1 = _dashToLocation;
+
+		currentStatus = controllerStatusParam;
 		return true;
 	}
 
@@ -99,12 +103,12 @@ FName UBaseDashAction::GetDescriptionName_Implementation()
 
 
 bool UBaseDashAction::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta)
+	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
-	return CheckDash(inDatas, moveInput, inputs, inDelta, controller);
+	return CheckDash(inDatas, moveInput, inputs, controllerStatusParam, currentStatus, inDelta, controller);
 }
 
-FVelocity UBaseDashAction::OnActionProcessAnticipationPhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UBaseDashAction::OnActionProcessAnticipationPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
@@ -116,9 +120,9 @@ FVelocity UBaseDashAction::OnActionProcessAnticipationPhase_Implementation(FStat
 	return move;
 }
 
-FVelocity UBaseDashAction::OnActionProcessActivePhase_Implementation(FStatusParameters& controllerStatus,
-                                                                     const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
-                                                                     UModularControllerComponent* controller, const float inDelta)
+FVelocity UBaseDashAction::OnActionProcessActivePhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
+	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
+	UModularControllerComponent* controller, const float inDelta)
 {
 	FVelocity move = inDatas.InitialVelocities;
 	move.InstantLinearVelocity = fromVelocity.InstantLinearVelocity;
@@ -161,13 +165,13 @@ FVelocity UBaseDashAction::OnActionProcessActivePhase_Implementation(FStatusPara
 	return move;
 }
 
-FVelocity UBaseDashAction::OnActionProcessRecoveryPhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UBaseDashAction::OnActionProcessRecoveryPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
 	FVelocity move = inDatas.InitialVelocities;
 	move.InstantLinearVelocity = fromVelocity.InstantLinearVelocity;
-	
+
 	move.ConstantLinearVelocity = UStructExtensions::AccelerateTo(move.ConstantLinearVelocity, FVector(0), 50, inDelta);
 	return move;
 }
@@ -185,15 +189,21 @@ void UBaseDashAction::OnStateChanged_Implementation(UBaseControllerState* newSta
 }
 
 void UBaseDashAction::OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+	UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
-	Super::OnActionEnds_Implementation(inDatas, moveInput, controller, inDelta);
+	Super::OnActionEnds_Implementation(inDatas, moveInput, controller, controllerStatusParam, currentStatus, inDelta);
 }
 
 void UBaseDashAction::OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+	UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
 	FVector closestDir = inDatas.InitialTransform.GetRotation().Vector();
+	
+	if (controllerStatusParam.ActionsModifiers1.SquaredLength() > 0)
+		_dashToLocation = controllerStatusParam.ActionsModifiers1;
+
+	currentStatus = controllerStatusParam;
+
 	const FVector moveDirection = (_dashToLocation - inDatas.InitialTransform.GetLocation()).GetSafeNormal();
 
 	if (!IsSimulated() && controller)

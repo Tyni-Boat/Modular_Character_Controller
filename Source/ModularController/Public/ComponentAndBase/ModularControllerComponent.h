@@ -583,7 +583,7 @@ protected:
 
 	/// Check controller states and returns the index of the highest priority available state.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller State|Events")
-	int CheckControllerStates(FKinematicInfos& inDatas, FVector moveInput, UInputEntryPool* inputs, const float inDelta, bool simulation = false
+	int CheckControllerStates(FKinematicInfos& inDatas, FVector moveInput, UInputEntryPool* inputs, FStatusParameters& currentStatus, const float inDelta, bool simulation = false
 		, int simulatedCurrentStateIndex = -1, int simulatedActiveActionIndex = -1);
 
 	/// Change from state 1 to 2
@@ -707,7 +707,7 @@ protected:
 	/// Check controller Actions and returns the index of the active one.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
 	int CheckControllerActions(FKinematicInfos& inDatas, FVector moveInput, UInputEntryPool* inputs, const int controllerStateIndex, const int controllerActionIndex
-		, const float inDelta, bool& transitionToSelf, bool simulation = false);
+		, const float inDelta, FStatusParameters& currentStatus, bool simulation = false);
 
 	/**
 	 * @brief Check if an action is compatible with this state and those actions
@@ -721,7 +721,7 @@ protected:
 	/// Change actions from action index 1 to 2
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
 	bool TryChangeControllerAction(int fromActionIndex, int toActionIndex, FKinematicInfos& inDatas, FVector moveInput, const float inDelta
-		, const bool transitionToSelf = false, bool simulate = false);
+		, FStatusParameters& currentStatus, const bool transitionToSelf = false, bool simulate = false);
 
 	/// Evaluate the component state
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")

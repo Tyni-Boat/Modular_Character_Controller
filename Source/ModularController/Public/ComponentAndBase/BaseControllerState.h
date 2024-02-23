@@ -76,7 +76,8 @@ public:
 	/// Check if the state is Valid
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	bool CheckState(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta
+	bool CheckState(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam
+		,FStatusParameters& currentStatus, const float inDelta
 		, int overrideWasLastStateStatus = -1);
 
 
@@ -87,7 +88,7 @@ public:
 	/// Process state and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	FVelocity ProcessState(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	FVelocity ProcessState(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
 
 
 
@@ -195,15 +196,15 @@ public:
 	/// Check if the state is Valid
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta
-		, int overrideWasLastStateStatus = -1);
+	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
+		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta , int overrideWasLastStateStatus = -1);
 
 
 	/// <summary>
 	/// Process state and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual FVelocity ProcessState_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	virtual FVelocity ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
 
 
 

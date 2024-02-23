@@ -107,38 +107,38 @@ double UBaseControllerAction::GetRemainingCoolDownTime()
 
 
 void UBaseControllerAction::OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-                                                          UModularControllerComponent* controller, const float inDelta)
+                                                          UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
 }
 
 void UBaseControllerAction::OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+	UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
 }
 
 bool UBaseControllerAction::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta)
+	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
 	return false;
 }
 
 
 
-FVelocity UBaseControllerAction::OnActionProcessAnticipationPhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UBaseControllerAction::OnActionProcessAnticipationPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
 	return {};
 }
 
-FVelocity UBaseControllerAction::OnActionProcessActivePhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UBaseControllerAction::OnActionProcessActivePhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller,
 	const float inDelta)
 {
 	return {};
 }
 
-FVelocity UBaseControllerAction::OnActionProcessRecoveryPhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UBaseControllerAction::OnActionProcessRecoveryPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
@@ -149,9 +149,9 @@ FVelocity UBaseControllerAction::OnActionProcessRecoveryPhase_Implementation(FSt
 
 
 void UBaseControllerAction::OnActionBegins_Internal(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+	UModularControllerComponent* controller, FStatusParameters& currentStatus, const float inDelta)
 {
-	OnActionBegins(inDatas, moveInput, controller, inDelta);
+	OnActionBegins(inDatas, moveInput, controller, currentStatus, currentStatus, inDelta);
 
 	//Set timers
 	_remainingActivationTimer = AnticipationPhaseDuration + ActivePhaseDuration + RecoveryPhaseDuration;
@@ -159,9 +159,9 @@ void UBaseControllerAction::OnActionBegins_Internal(const FKinematicInfos& inDat
 }
 
 void UBaseControllerAction::OnActionEnds_Internal(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+	UModularControllerComponent* controller, FStatusParameters& currentStatus, const float inDelta)
 {
-	OnActionEnds(inDatas, moveInput, controller, inDelta);
+	OnActionEnds(inDatas, moveInput, controller, currentStatus, currentStatus, inDelta);
 
 	//Reset timers
 	_remainingActivationTimer = 0;
@@ -170,7 +170,7 @@ void UBaseControllerAction::OnActionEnds_Internal(const FKinematicInfos& inDatas
 }
 
 bool UBaseControllerAction::CheckAction_Internal(const FKinematicInfos& inDatas, const FVector moveInput,
-	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta)
+	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters& currentStatus, const float inDelta)
 {
 	//Update cooldown timer
 	if (_cooldownTimer > 0)
@@ -185,7 +185,7 @@ bool UBaseControllerAction::CheckAction_Internal(const FKinematicInfos& inDatas,
 	if (CurrentPhase == ActionPhase_Recovery && !bCanTransitionToSelf)
 		return false;
 
-	return CheckAction(inDatas, moveInput, inputs, controller, inDelta);
+	return CheckAction(inDatas, moveInput, inputs, controller, currentStatus, currentStatus, inDelta);
 }
 
 FVelocity UBaseControllerAction::OnActionProcess_Internal(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity,
@@ -203,7 +203,7 @@ FVelocity UBaseControllerAction::OnActionProcess_Internal(FStatusParameters& con
 				OnActionPhaseChanged(ActionPhase_Anticipation, CurrentPhase);
 				CurrentPhase = ActionPhase_Anticipation;
 			}
-			return OnActionProcessAnticipationPhase(controllerStatus, inDatas, fromVelocity, moveInput, controller, inDelta);
+			return OnActionProcessAnticipationPhase(controllerStatus, controllerStatus, inDatas, fromVelocity, moveInput, controller, inDelta);
 		}
 		else if (_remainingActivationTimer > RecoveryPhaseDuration && _remainingActivationTimer <= (ActivePhaseDuration + RecoveryPhaseDuration))
 		{
@@ -212,7 +212,7 @@ FVelocity UBaseControllerAction::OnActionProcess_Internal(FStatusParameters& con
 				OnActionPhaseChanged(ActionPhase_Active, CurrentPhase);
 				CurrentPhase = ActionPhase_Active;
 			}
-			return OnActionProcessActivePhase(controllerStatus, inDatas, fromVelocity, moveInput, controller, inDelta);
+			return OnActionProcessActivePhase(controllerStatus, controllerStatus, inDatas, fromVelocity, moveInput, controller, inDelta);
 		}
 		else
 		{
@@ -221,7 +221,7 @@ FVelocity UBaseControllerAction::OnActionProcess_Internal(FStatusParameters& con
 				OnActionPhaseChanged(ActionPhase_Recovery, CurrentPhase);
 				CurrentPhase = ActionPhase_Recovery;
 			}
-			return OnActionProcessRecoveryPhase(controllerStatus, inDatas, fromVelocity, moveInput, controller, inDelta);
+			return OnActionProcessRecoveryPhase(controllerStatus, controllerStatus, inDatas, fromVelocity, moveInput, controller, inDelta);
 		}
 	}
 

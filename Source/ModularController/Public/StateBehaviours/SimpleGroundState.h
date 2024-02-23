@@ -203,7 +203,7 @@ protected:
 
 	// The movement deceleration
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
-	float Deceleration = 9;
+	float Deceleration = 27;
 
 	// The speed used to rotate toward movement direction
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
@@ -222,12 +222,12 @@ public:
 
 	
 	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
-		, const float inDelta, int overrideWasLastStateStatus) override;
+		, FStatusParameters currentStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus) override;
 
 	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
 
-	virtual FVelocity ProcessState_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
+	virtual FVelocity ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 	
 	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 

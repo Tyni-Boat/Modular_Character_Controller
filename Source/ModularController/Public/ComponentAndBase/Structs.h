@@ -491,35 +491,6 @@ public:
 };
 
 
-/// <summary>
-/// Encoded input for net transmission.
-/// </summary>
-USTRUCT(BlueprintType)
-struct FTranscodedInput
-{
-	GENERATED_BODY()
-
-public:
-
-	FORCEINLINE FTranscodedInput()
-	{
-		axisCode = -1;
-		valuesCode = -1;
-		buttonsCode = -1;
-	}
-
-	UPROPERTY()
-	double axisCode = -1;
-
-	UPROPERTY()
-	double valuesCode = -1;
-
-	UPROPERTY()
-	int buttonsCode = -1;
-};
-
-
-
 #pragma endregion
 
 
@@ -770,7 +741,8 @@ public:
 		const bool stateChange = StateIndex != otherStatus.StateIndex;
 		const bool stateFlagChange = PrimaryStateFlag != otherStatus.PrimaryStateFlag;
 		const bool actionChange = ActionIndex != otherStatus.ActionIndex;
-		return  stateChange || stateFlagChange || actionChange;
+		const bool actionFlagChange = PrimaryActionFlag != otherStatus.PrimaryActionFlag;
+		return  stateChange || stateFlagChange || actionChange || actionFlagChange;
 	}
 
 
@@ -784,10 +756,19 @@ public:
 	int PrimaryStateFlag = 0;
 
 	UPROPERTY(EditAnywhere, Category = "StatusParameters")
-	TArray<double> StateModifiers;
+	int PrimaryActionFlag = 0;
 
 	UPROPERTY(EditAnywhere, Category = "StatusParameters")
-	TArray<double> ActionsModifiers;
+	FVector_NetQuantize10 StateModifiers1;
+
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
+	FVector_NetQuantize10 StateModifiers2;
+
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
+	FVector_NetQuantize10 ActionsModifiers1;
+
+	UPROPERTY(EditAnywhere, Category = "StatusParameters")
+	FVector_NetQuantize10 ActionsModifiers2;
 };
 
 

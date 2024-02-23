@@ -96,21 +96,21 @@ public:
 	/// When we enters the action behaviour.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-	void OnActionBegins(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	void OnActionBegins(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta);
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Base Events|C++ Implementation")
-	virtual void OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	virtual void OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta);
 
 
 	/// <summary>
 	/// When we exit the action.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-	void OnActionEnds(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	void OnActionEnds(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta);
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Base Events|C++ Implementation")
-	virtual void OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	virtual void OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta);
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -119,11 +119,13 @@ public:
 	/// Check if the action is Valid
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-	bool CheckAction(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta);
+	bool CheckAction(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam
+		, FStatusParameters& currentStatus, const float inDelta);
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Base Events|C++ Implementation")
-	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta);
+	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
+		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta);
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -133,11 +135,11 @@ public:
 	/// Process action's anticipation phase and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-	FVelocity OnActionProcessAnticipationPhase(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	FVelocity OnActionProcessAnticipationPhase(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Base Events|C++ Implementation")
-	virtual FVelocity OnActionProcessAnticipationPhase_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
+	virtual FVelocity OnActionProcessAnticipationPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
 		, UModularControllerComponent* controller, const float inDelta);
 
 
@@ -145,11 +147,11 @@ public:
 	/// Process action's active phase and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-	FVelocity OnActionProcessActivePhase(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	FVelocity OnActionProcessActivePhase(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Base Events|C++ Implementation")
-	virtual FVelocity OnActionProcessActivePhase_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
+	virtual FVelocity OnActionProcessActivePhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
 		, UModularControllerComponent* controller, const float inDelta);
 
 
@@ -157,11 +159,11 @@ public:
 	/// Process action's recovery phase and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-	FVelocity OnActionProcessRecoveryPhase(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	FVelocity OnActionProcessRecoveryPhase(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Base Events|C++ Implementation")
-	virtual FVelocity OnActionProcessRecoveryPhase_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
+	virtual FVelocity OnActionProcessRecoveryPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
 		, UModularControllerComponent* controller, const float inDelta);
 
 
@@ -283,17 +285,18 @@ public:
 	/// <summary>
 	/// When we enters the action behaviour.
 	/// </summary>
-	void OnActionBegins_Internal(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	void OnActionBegins_Internal(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, FStatusParameters& currentStatus, const float inDelta);
 
 	/// <summary>
 	/// When we exit the action.
 	/// </summary>
-	void OnActionEnds_Internal(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	void OnActionEnds_Internal(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, FStatusParameters& currentStatus, const float inDelta);
 
 	/// <summary>
 	/// Check if the action is Valid
 	/// </summary>
-	bool CheckAction_Internal(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta);
+	bool CheckAction_Internal(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
+		, FStatusParameters& currentStatus, const float inDelta);
 
 	/// <summary>
 	/// Process action and return velocity.

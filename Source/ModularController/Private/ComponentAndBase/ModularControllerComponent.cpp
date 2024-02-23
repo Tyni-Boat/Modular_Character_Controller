@@ -269,34 +269,48 @@ FClientNetMoveCommand UModularControllerComponent::SimulateMoveCommand(FClientNe
 FStatusParameters UModularControllerComponent::EvaluateControllerStatus(FKinematicInfos kinematicInfos, FVector moveInput, UInputEntryPool* usedInputPool, float delta, FStatusParameters statusOverride, bool simulate, int simulatedInitialStateIndex, int simulatedInitialActionIndexes)
 {
 	//State
-	auto statusInfos = statusOverride;
+	auto stateStatusInfos = statusOverride;
 	int initialState = simulatedInitialStateIndex >= 0 ? simulatedInitialStateIndex : CurrentStateIndex;
-	const auto stateIndex = CheckControllerStates(kinematicInfos, moveInput, usedInputPool, delta, simulate);
-	int targetState = statusInfos.StateIndex < 0 ? stateIndex : statusInfos.StateIndex;
+	const auto stateIndex = CheckControllerStates(kinematicInfos, moveInput, usedInputPool, stateStatusInfos, delta, simulate);
+	int targetState = stateStatusInfos.StateIndex < 0 ? stateIndex : stateStatusInfos.StateIndex;
 	if (TryChangeControllerState(initialState, targetState, kinematicInfos, moveInput, delta, simulate))
 	{
-		statusInfos.StateModifiers.Empty();
-		statusInfos.StateIndex = targetState;
+		stateStatusInfos.StateIndex = targetState;
 	}
 	else
 	{
-		statusInfos.StateIndex = initialState;
+		stateStatusInfos.StateIndex = initialState;
 	}
 
 	//Actions
+	auto actionStatusInfos = statusOverride;
 	const int initialActionIndex = simulatedInitialActionIndexes >= 0 ? simulatedInitialActionIndexes : CurrentActionIndex;
-	bool actionSelfTransition = false;
-	const auto actionIndex = CheckControllerActions(kinematicInfos, moveInput, usedInputPool, statusInfos.StateIndex, initialActionIndex, delta, actionSelfTransition, simulate);
-	const int targetActionIndex = statusInfos.ActionIndex < 0 ? actionIndex : statusInfos.ActionIndex;
-	if (TryChangeControllerAction(initialActionIndex, targetActionIndex, kinematicInfos, moveInput, delta, actionSelfTransition, simulate))
+	const auto actionIndex = CheckControllerActions(kinematicInfos, moveInput, usedInputPool, stateStatusInfos.StateIndex, initialActionIndex, delta, actionStatusInfos, simulate);
+	const bool actionSelfTransition = statusOverride.PrimaryActionFlag > 0 ? true : (actionStatusInfos.PrimaryActionFlag > 0 ? true : false);
+	const int targetActionIndex = statusOverride.ActionIndex < 0 ? actionIndex : statusOverride.ActionIndex;
+	if (TryChangeControllerAction(initialActionIndex, targetActionIndex, kinematicInfos, moveInput, delta, actionStatusInfos, actionSelfTransition, simulate))
 	{
-		statusInfos.ActionsModifiers.Empty();
-		statusInfos.ActionIndex = targetActionIndex;
+		actionStatusInfos.ActionIndex = targetActionIndex;
+		if (actionSelfTransition)
+		{
+			actionStatusInfos.PrimaryActionFlag = 1;
+		}
 	}
 	else
 	{
-		statusInfos.ActionIndex = initialActionIndex;
+		actionStatusInfos.ActionIndex = initialActionIndex;
 	}
+
+	FStatusParameters statusInfos;
+	statusInfos.StateIndex = stateStatusInfos.StateIndex;
+	statusInfos.PrimaryStateFlag = stateStatusInfos.PrimaryStateFlag;
+	statusInfos.StateModifiers1 = stateStatusInfos.StateModifiers1;
+	statusInfos.StateModifiers2 = stateStatusInfos.StateModifiers2;
+
+	statusInfos.ActionIndex = actionStatusInfos.ActionIndex;
+	statusInfos.PrimaryActionFlag = actionStatusInfos.PrimaryActionFlag;
+	statusInfos.ActionsModifiers1 = actionStatusInfos.ActionsModifiers1;
+	statusInfos.ActionsModifiers2 = actionStatusInfos.ActionsModifiers2;
 
 	return statusInfos;
 }
@@ -1070,13 +1084,13 @@ void UModularControllerComponent::RemoveControllerStateByPriority_Implementation
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas, FVector moveInput, UInputEntryPool* inputs, const float inDelta, bool simulation
+int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas, FVector moveInput, UInputEntryPool* inputs, FStatusParameters& currentStatus, const float inDelta, bool simulation
 	, int simulatedCurrentStateIndex, int simulatedActiveActionIndex)
 {
 	int maxStatePriority = -1;
 	int selectedStateIndex = -1;
 	bool disableStateWasLastFrameStateStatus = false;
-
+	FStatusParameters selectedStatus = currentStatus;
 
 	//Check if a State's check have success state
 	{
@@ -1124,9 +1138,11 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 				else
 					StatesInstances[i]->RestoreStateFromSnapShot();
 
-				if (StatesInstances[i]->CheckState(inDatas, moveInput, inputs, this, inDelta, disableStateWasLastFrameStateStatus ? 0 : -1))
+				auto copyOfStatus = currentStatus;
+				if (StatesInstances[i]->CheckState(inDatas, moveInput, inputs, this, copyOfStatus, copyOfStatus, inDelta, disableStateWasLastFrameStateStatus ? 0 : -1))
 				{
 					selectedStateIndex = i;
+					selectedStatus = copyOfStatus;
 					maxStatePriority = StatesInstances[i]->GetPriority();
 				}
 			}
@@ -1134,6 +1150,7 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 
 	}
 
+	currentStatus = selectedStatus;
 	return selectedStateIndex;
 }
 
@@ -1212,7 +1229,7 @@ FVelocity UModularControllerComponent::ProcessControllerState(FStatusParameters&
 			StatesInstances[index]->RestoreStateFromSnapShot();
 
 		FVelocity processMotion = movement;
-		processMotion = StatesInstances[index]->ProcessState(controllerStatus, inDatas, moveInput, this, inDelta);
+		processMotion = StatesInstances[index]->ProcessState(controllerStatus, controllerStatus, inDatas, moveInput, this, inDelta);
 
 		if (StatesInstances[index]->RootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
 		{
@@ -1380,9 +1397,10 @@ void UModularControllerComponent::RemoveActionBehaviourByPriority_Implementation
 
 
 int UModularControllerComponent::CheckControllerActions(FKinematicInfos& inDatas, FVector moveInput,
-	UInputEntryPool* inputs, const int controllerStateIndex, const int controllerActionIndex, const float inDelta, bool& transitionToSelf, bool simulation)
+	UInputEntryPool* inputs, const int controllerStateIndex, const int controllerActionIndex, const float inDelta, FStatusParameters& currentStatus, bool simulation)
 {
 	int activeActionIndex = -1;
+	currentStatus.PrimaryActionFlag = 0;
 
 	////Check active action still active
 	activeActionIndex = controllerActionIndex;
@@ -1391,9 +1409,9 @@ int UModularControllerComponent::CheckControllerActions(FKinematicInfos& inDatas
 		if (ActionInstances[activeActionIndex]->CurrentPhase == ActionPhase_Recovery
 			&& ActionInstances[activeActionIndex]->bCanTransitionToSelf
 			&& CheckActionCompatibility(ActionInstances[activeActionIndex], controllerStateIndex, controllerActionIndex)
-			&& ActionInstances[activeActionIndex]->CheckAction_Internal(inDatas, moveInput, inputs, this, inDelta))
+			&& ActionInstances[activeActionIndex]->CheckAction_Internal(inDatas, moveInput, inputs, this, currentStatus, inDelta))
 		{
-			transitionToSelf = true;
+			currentStatus.PrimaryActionFlag = 1;
 		}
 
 		if (ActionInstances[activeActionIndex]->GetRemainingActivationTime() <= 0)
@@ -1432,10 +1450,12 @@ int UModularControllerComponent::CheckControllerActions(FKinematicInfos& inDatas
 		else
 			ActionInstances[i]->RestoreActionFromSnapShot();
 
+		auto copyOfStatus = currentStatus;
 		if (CheckActionCompatibility(ActionInstances[i], controllerStateIndex, controllerActionIndex)
-			&& ActionInstances[i]->CheckAction_Internal(inDatas, moveInput, inputs, this, inDelta))
+			&& ActionInstances[i]->CheckAction_Internal(inDatas, moveInput, inputs, this, copyOfStatus, inDelta))
 		{
 			activeActionIndex = i;
+			currentStatus = copyOfStatus;
 
 			if (!simulation && DebugType == ControllerDebugType_StatusDebug)
 			{
@@ -1531,7 +1551,7 @@ bool UModularControllerComponent::CheckActionCompatibility(UBaseControllerAction
 
 
 bool UModularControllerComponent::TryChangeControllerAction(int fromActionIndex, int toActionIndex,
-	FKinematicInfos& inDatas, FVector moveInput, const float inDelta, const bool transitionToSelf, bool simulate)
+	FKinematicInfos& inDatas, FVector moveInput, const float inDelta, FStatusParameters& currentStatus, const bool transitionToSelf, bool simulate)
 {
 	if (fromActionIndex == toActionIndex)
 	{
@@ -1549,7 +1569,7 @@ bool UModularControllerComponent::TryChangeControllerAction(int fromActionIndex,
 	if (ActionInstances.IsValidIndex(fromActionIndex))
 	{
 		ActionInstances[fromActionIndex]->SetActivatedLastFrame(false);
-		ActionInstances[fromActionIndex]->OnActionEnds_Internal(inDatas, moveInput, this, inDelta);
+		ActionInstances[fromActionIndex]->OnActionEnds_Internal(inDatas, moveInput, this, currentStatus, inDelta);
 		if (!simulate)
 		{
 			if (DebugType == ControllerDebugType_StatusDebug)
@@ -1563,7 +1583,7 @@ bool UModularControllerComponent::TryChangeControllerAction(int fromActionIndex,
 	//Activate action
 	if (ActionInstances.IsValidIndex(toActionIndex))
 	{
-		ActionInstances[toActionIndex]->OnActionBegins_Internal(inDatas, moveInput, this, inDelta);
+		ActionInstances[toActionIndex]->OnActionBegins_Internal(inDatas, moveInput, this, currentStatus, inDelta);
 		ActionInstances[toActionIndex]->SetActivatedLastFrame(true);
 		if (!simulate)
 		{

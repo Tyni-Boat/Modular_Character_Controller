@@ -130,14 +130,14 @@ int UJumpActionBase::GetPriority_Implementation() { return ActionPriority; }
 FName UJumpActionBase::GetDescriptionName_Implementation() { return ActionName; }
 
 bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta)
+	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
 	return CheckJump(inDatas, moveInput, inputs, inDelta, controller);
 }
 
 
 
-FVelocity UJumpActionBase::OnActionProcessAnticipationPhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UJumpActionBase::OnActionProcessAnticipationPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
@@ -146,7 +146,7 @@ FVelocity UJumpActionBase::OnActionProcessAnticipationPhase_Implementation(FStat
 	return move;
 }
 
-FVelocity UJumpActionBase::OnActionProcessActivePhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UJumpActionBase::OnActionProcessActivePhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
@@ -211,7 +211,7 @@ FVelocity UJumpActionBase::OnActionProcessActivePhase_Implementation(FStatusPara
 	return move;
 }
 
-FVelocity UJumpActionBase::OnActionProcessRecoveryPhase_Implementation(FStatusParameters& controllerStatus,
+FVelocity UJumpActionBase::OnActionProcessRecoveryPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
@@ -240,7 +240,7 @@ void UJumpActionBase::OnAnimationEnded(UAnimMontage* Montage, bool bInterrupted)
 
 
 void UJumpActionBase::OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+	UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
 	if (!IsSimulated() && controller)
 	{
@@ -293,7 +293,7 @@ void UJumpActionBase::RestoreActionFromSnapShot_Internal()
 
 
 void UJumpActionBase::OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+	UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
 }
 

@@ -29,6 +29,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
 	float AirControlSpeed = 300;
 
+	// The Acceleration toward air control speed. Also serve as air drag for horizontal moves
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
+	float AirControlAcceleration = 5;
+
 	// In air controlled user rotation speed
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
 	float AirControlRotationSpeed = 3;
@@ -101,14 +105,17 @@ public:
 
 
 	virtual  bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs
-		, UModularControllerComponent* controller, const float inDelta, int overrideWasLastStateStatus) override;
+		, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus) override;
 
 	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 	
-	virtual FVelocity ProcessState_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
+	virtual FVelocity ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 
 	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
 	
+	virtual FString DebugString() override;
+
+
 	virtual	void OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller) override;
 
 

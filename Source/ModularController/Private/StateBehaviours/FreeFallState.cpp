@@ -10,18 +10,18 @@
 
 FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVelocity, float delta)
 {
-	if (desiredMove.Length() > 0)
-	{
-		FVector resultingVector = horizontalVelocity + desiredMove * delta;
-		if (resultingVector.Length() > AirControlSpeed)
-		{
-			const float maxAllowedAdd = AirControlSpeed - horizontalVelocity.Length();
-			resultingVector = horizontalVelocity + (maxAllowedAdd > 0 ? desiredMove.GetSafeNormal() * maxAllowedAdd : FVector(0));
-			return resultingVector;
-		}
-		return resultingVector;
-	}
-	return horizontalVelocity;
+	FVector resultingVector = UStructExtensions::AccelerateTo(horizontalVelocity, desiredMove, AirControlAcceleration, delta);// horizontalVelocity + desiredMove * delta;
+	//if (desiredMove.Length() > 0)
+	//{
+	//	//if (resultingVector.Length() > AirControlSpeed)
+	//	//{
+	//	//	const float maxAllowedAdd = AirControlSpeed - horizontalVelocity.Length();
+	//	//	resultingVector = horizontalVelocity + (maxAllowedAdd > 0 ? desiredMove.GetSafeNormal() * maxAllowedAdd : FVector(0));
+	//	//	return resultingVector;
+	//	//}
+	////return horizontalVelocity;
+	//}
+	return resultingVector;
 }
 
 
@@ -64,7 +64,7 @@ FName UFreeFallState::GetDescriptionName_Implementation()
 }
 
 bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta, int overrideWasLastStateStatus)
+	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus)
 {
 	return true;
 }
@@ -78,7 +78,7 @@ void UFreeFallState::OnEnterState_Implementation(const FKinematicInfos& inDatas,
 	_airTime = 0;
 }
 
-FVelocity UFreeFallState::ProcessState_Implementation(FStatusParameters& controllerStatus,
+FVelocity UFreeFallState::ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
 	const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller,
 	const float inDelta)
 {
@@ -89,8 +89,8 @@ FVelocity UFreeFallState::ProcessState_Implementation(FStatusParameters& control
 		const FVector resultingVector = planarInput * AirControlSpeed;
 		inputAxis = resultingVector;
 	}
-	if (controllerStatus.StateModifiers.IsValidIndex(0))
-		_airTime = controllerStatus.StateModifiers[0];
+	if (controllerStatusParam.StateModifiers1.X > _airTime)
+		_airTime = controllerStatusParam.StateModifiers1.X;
 
 	FVector HorizontalVelocity = FVector(0);
 	FVector VerticalVelocity = FVector(0);
@@ -118,8 +118,9 @@ FVelocity UFreeFallState::ProcessState_Implementation(FStatusParameters& control
 	_airTime += inDelta;
 	move.ConstantLinearVelocity = velocity;
 
-	controllerStatus.StateModifiers = { _airTime };
+	controllerStatusParam.StateModifiers1.X = _airTime;
 
+	controllerStatus = controllerStatusParam;
 	return move;
 }
 
@@ -127,6 +128,12 @@ void UFreeFallState::OnExitState_Implementation(const FKinematicInfos& inDatas, 
 	UModularControllerComponent* controller, const float inDelta)
 {
 	_airTime = 0;
+}
+
+
+FString UFreeFallState::DebugString()
+{
+	return Super::DebugString() + " : " + FString::Printf(TEXT("Air Time (%f)"), _airTime);
 }
 
 

@@ -37,15 +37,15 @@ void UBaseControllerState::RestoreStateFromSnapShot()
 
 
 
-bool UBaseControllerState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, const float inDelta
-	, int overrideWasLastStateStatus)
+bool UBaseControllerState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
+	, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus)
 {
 	return false;
 }
 
 
 
-FVelocity UBaseControllerState::ProcessState_Implementation(FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, 
+FVelocity UBaseControllerState::ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas,
 	const FVector moveInput, UModularControllerComponent* controller, const float inDelta)
 {
 	return FVelocity();
