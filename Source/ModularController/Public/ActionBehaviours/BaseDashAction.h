@@ -10,17 +10,7 @@ UCLASS(BlueprintType, Blueprintable, ClassGroup = "Controller Action Behaviours"
 class MODULARCONTROLLER_API UBaseDashAction : public UBaseControllerAction
 {
 	GENERATED_BODY()
-
-protected:
 	
-	// The Action unique name
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	FName ActionName = "DashAction";
-
-	// The action's priority
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	int ActionPriority = 7;
-
 #pragma region Check
 protected:
 
@@ -132,11 +122,7 @@ protected:
 
 #pragma region Functions
 public:
-
-	virtual int GetPriority_Implementation() override;
-
-	virtual FName GetDescriptionName_Implementation() override;
-
+	
 
 	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
 		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta) override;

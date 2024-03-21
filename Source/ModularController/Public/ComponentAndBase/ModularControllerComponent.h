@@ -29,13 +29,13 @@
 /// Declare a multicast for when a State changed
 /// </summary>
 DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerStateChangedSignature, UModularControllerComponent,
-	OnControllerStateChangedEvent, UBaseControllerState*, LastOne, UBaseControllerState*, NewOne);
+	OnControllerStateChangedEvent, UBaseControllerState*, NewState, UBaseControllerState*, OldState);
 
 /// <summary>
 /// Declare a multicast for when a action changed
 /// </summary>
 DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerActionChangedSignature, UModularControllerComponent,
-	OnControllerActionChangedEvent, UBaseControllerAction*, LastOne, UBaseControllerAction*, NewOne);
+	OnControllerActionChangedEvent, UBaseControllerAction*, NewAction, UBaseControllerAction*, OldAction);
 
 
 // Modular pawn controller, handle the logic to move the pawn based on any movement state.
@@ -401,7 +401,7 @@ public:
 
 
 	// Get the controller Gravity
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
+	UFUNCTION(BlueprintGetter, Category = "Controllers|Physic")
 	FORCEINLINE FVector GetGravity() const
 	{
 		return _gravityVector;
@@ -447,6 +447,12 @@ public:
 	{
 		return (Mass < 0 && UpdatedPrimitive != nullptr && UpdatedPrimitive->IsSimulatingPhysics()) ? UpdatedPrimitive->GetMass() : FMath::Clamp(Mass, 1, 9999999);
 	}
+	
+
+
+	// Get the controller's Current State Surface
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
+	FSurfaceInfos GetCurrentSurface() const;
 
 
 	// called When overlap occurs.
@@ -509,8 +515,8 @@ public:
 public:
 
 	// Get the current state behaviour instance
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller State")
-	FORCEINLINE UBaseControllerState* GetCurrentControllerState()
+	UFUNCTION(BlueprintGetter, Category = "Controllers|Controller State")
+	FORCEINLINE UBaseControllerState* GetCurrentControllerState() const
 	{
 		if (StatesInstances.IsValidIndex(CurrentStateIndex))
 			return StatesInstances[CurrentStateIndex];
@@ -577,7 +583,7 @@ public:
 
 	/// When the controller change a state, it call this function
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Controller State|Events")
-	void OnControllerStateChanged(UBaseControllerState* OldOne, UBaseControllerState* NewOne);
+	void OnControllerStateChanged(UBaseControllerState* newState, UBaseControllerState* oldState);
 
 protected:
 
@@ -598,7 +604,7 @@ protected:
 	/// <summary>
 	/// When the controller change a behaviour, it call this function
 	/// </summary>
-	virtual void OnControllerStateChanged_Implementation(UBaseControllerState* OldOne, UBaseControllerState* NewOne);
+	virtual void OnControllerStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState);
 
 
 #pragma endregion
@@ -631,8 +637,8 @@ public:
 
 
 	/// Get the current action behaviour instance
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action")
-	FORCEINLINE UBaseControllerAction* GetCurrentControllerAction()
+	UFUNCTION(BlueprintGetter, Category = "Controllers|Controller Action")
+	FORCEINLINE UBaseControllerAction* GetCurrentControllerAction() const 
 	{
 		if (ActionInstances.IsValidIndex(CurrentActionIndex))
 		{

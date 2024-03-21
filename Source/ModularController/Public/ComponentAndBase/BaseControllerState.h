@@ -25,31 +25,40 @@ class UModularControllerComponent;
 ///<summary>
 /// The abstract basic state behaviour for a Modular controller.
 /// </summary>
-UCLASS(BlueprintType, Blueprintable, ClassGroup = "Modular State Behaviours", abstract)
+UCLASS(BlueprintType, Blueprintable, ClassGroup = "Modular Controller States", abstract)
 class MODULARCONTROLLER_API UBaseControllerState : public UDataAsset
 {
 	GENERATED_BODY()
 
 public:
 
+	// The State's unique name
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	FName StateName = "[Set State Unique Name]";
+
+	// The State's priority.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	int StatePriority = 0;
+
+
 	// The linked animation blueprint class that will be used while this state is active.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "State|Basic Parameters")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Base|Basic State Parameters")
 	TSubclassOf<UAnimInstance> StateBlueprintClass;
 
 	// The State's Root motion Mode
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "State|Basic Parameters")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Base|Basic State  Parameters")
 	TEnumAsByte<ERootMotionType> RootMotionMode;
 
 	// The informations on the current surface. This is used to track one surface movements
-	UPROPERTY(BlueprintReadOnly, category = "State|Basic Parameters")
+	UPROPERTY(BlueprintReadOnly, category = "Base|Basic State  Parameters")
 	FSurfaceInfos SurfaceInfos;
 
 	// The state's flag, often used as binary. to relay this State's state over the network.
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "State|Basic Parameters")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Base|Basic State  Parameters")
 	int StateFlag;
 
 	// Enable or disable debug for this state
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "State|Basic Parameters")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base|Basic State  Parameters")
 	bool bDebugState;
 
 
@@ -77,7 +86,7 @@ public:
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
 	bool CheckState(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam
-		,FStatusParameters& currentStatus, const float inDelta
+		, FStatusParameters& currentStatus, const float inDelta
 		, int overrideWasLastStateStatus = -1);
 
 
@@ -93,8 +102,8 @@ public:
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	
-	
+
+
 	/// <summary>
 	/// When the controller change a State, it call this function to notify all of it's states the change
 	/// </summary>
@@ -124,7 +133,7 @@ public:
 	/// </summary>
 	UFUNCTION(BlueprintCallable, category = "State|Basic Events")
 	void SetWasTheLastFrameControllerState(bool value);
-	
+
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -141,16 +150,16 @@ public:
 	/// <summary>
 	/// The priority of this state
 	/// </summary>
-	UFUNCTION(BlueprintNativeEvent)
-	int GetPriority();
+	UFUNCTION(BlueprintGetter)
+	FORCEINLINE int GetPriority() const { return  StatePriority; }
 
 	/// <summary>
 	/// The description of the particalurity this behaviour is for, if any. it can be used to let say "OnGround" to specify that this behaviour is used for
 	/// Ground movements and reactions
 	/// </summary>
-	UFUNCTION(BlueprintNativeEvent)
-	FName GetDescriptionName();
-	
+	UFUNCTION(BlueprintGetter)
+	FORCEINLINE FName GetDescriptionName() const { return  StateName; };
+
 
 	/// <summary>
 	/// Save a snap shot of the state.
@@ -162,18 +171,6 @@ public:
 	/// </summary>
 	void RestoreStateFromSnapShot();
 
-
-	/// <summary>
-	/// The priority of this state
-	/// </summary>
-	virtual int GetPriority_Implementation();
-
-	/// <summary>
-	/// The description of the particalurity this behaviour is for, if any. it can be used to let say "OnGround" to specify that this behaviour is used for
-	/// Ground movements and reactions
-	/// </summary>
-	virtual FName GetDescriptionName_Implementation();
-	
 
 
 
@@ -197,7 +194,7 @@ public:
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
 	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
-		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta , int overrideWasLastStateStatus = -1);
+		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus = -1);
 
 
 	/// <summary>
@@ -225,11 +222,11 @@ protected:
 	bool _wasTheLastFrameBehaviour;
 
 	bool _wasTheLastFrameBehaviour_saved;
-	
+
 	bool _snapShotSaved;
-		
-	
+
+
 	virtual void SaveStateSnapShot_Internal();
-	
+
 	virtual void RestoreStateFromSnapShot_Internal();
 };

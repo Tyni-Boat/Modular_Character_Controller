@@ -88,20 +88,6 @@ void UBaseDashAction::OnAnimationEnded(UAnimMontage* Montage, bool bInterrupted)
 //*//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-int UBaseDashAction::GetPriority_Implementation()
-{
-	return ActionPriority;
-}
-
-FName UBaseDashAction::GetDescriptionName_Implementation()
-{
-	return ActionName;
-}
-
-
-//*//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
 bool UBaseDashAction::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
 	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
 {
@@ -131,14 +117,14 @@ FVelocity UBaseDashAction::OnActionProcessActivePhase_Implementation(FStatusPara
 	{
 		_propulsionLocation = inDatas.InitialTransform.GetLocation();
 
-		if (!IsSimulated())
+		if (!IsSimulated() && controller)
 		{
-			if (inDatas.bUsePhysic && inDatas.FinalSurface.GetSurfacePrimitive() != nullptr)
+			if (inDatas.bUsePhysic && controller->GetCurrentSurface().GetSurfacePrimitive() != nullptr)
 			{
 				//Push Objects
-				if (inDatas.FinalSurface.GetSurfacePrimitive()->IsSimulatingPhysics())
+				if (controller->GetCurrentSurface().GetSurfacePrimitive()->IsSimulatingPhysics())
 				{
-					inDatas.FinalSurface.GetSurfacePrimitive()->AddImpulseAtLocation(-(_dashToLocation - inDatas.InitialTransform.GetLocation()) * inDatas.GetMass(), inDatas.FinalSurface.GetHitResult().ImpactPoint, inDatas.FinalSurface.GetHitResult().BoneName);
+					controller->GetCurrentSurface().GetSurfacePrimitive()->AddImpulseAtLocation(-(_dashToLocation - inDatas.InitialTransform.GetLocation()) * inDatas.GetMass() * inDelta, controller->GetCurrentSurface().GetHitResult().ImpactPoint, controller->GetCurrentSurface().GetHitResult().BoneName);
 				}
 			}
 		}

@@ -16,22 +16,10 @@ class MODULARCONTROLLER_API UFreeFallState : public UBaseControllerState
 
 #pragma region Parameters
 protected:
-
-	// The State's unique name
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	FName StateName = "InAir";
-
-	// The State's priority
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	int StatePriority = 0;
-
+	
 	// The maximun velocity the user can move planar to the gravity force
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
 	float AirControlSpeed = 300;
-
-	// The Acceleration toward air control speed. Also serve as air drag for horizontal moves
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
-	float AirControlAcceleration = 5;
 
 	// In air controlled user rotation speed
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
@@ -91,19 +79,14 @@ public:
 
 	//Set new gravity force.
 	UFUNCTION(BlueprintCallable, Category="Gravity Control")
-	void SetGravityForce(FVector newGravity);
+	void SetGravityForce(FVector newGravity, UModularControllerComponent* controller = NULL);
 	
 
 #pragma endregion
 
 #pragma region Functions
 public:
-
-	virtual int GetPriority_Implementation() override;
-
-	virtual FName GetDescriptionName_Implementation() override;
-
-
+	
 	virtual  bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs
 		, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus) override;
 

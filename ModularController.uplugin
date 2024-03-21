@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "1.4",
+	"VersionName": "1.5",
 	"FriendlyName": "ModularController",
 	"Description": "Multi Player Ready Modular pawn controller plugin. Locomotion system, climbing system, Swimming, Parkour, Etc... Everything fits In.",
 	"Category": "Code Plugins",

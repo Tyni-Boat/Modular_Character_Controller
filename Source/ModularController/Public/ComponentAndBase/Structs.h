@@ -560,10 +560,10 @@ public:
 				pl_rotDiff.ToAxisAndAngle(axis, angle);
 				FVector dir, up, fwd;
 				up = axis;
-				fwd = (inTransform.GetLocation() - _currentSurface->GetComponentLocation()).GetSafeNormal();
+				fwd = FVector::VectorPlaneProject(inTransform.GetLocation() - _currentSurface->GetComponentLocation(), up).GetSafeNormal();
 				dir = FVector::CrossProduct(up, fwd);
 				float r = (inTransform.GetLocation() - _currentSurface->GetComponentLocation()).Length();
-				FVector rotVel = r * angle * dir;
+				FVector rotVel = r * angle * dir - fwd * angle * r * delta * 1.425;
 
 				//Finally
 				//_surfaceVelocity = (pos - controller->GetLocation());
@@ -769,6 +769,9 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "StatusParameters")
 	FVector_NetQuantize10 ActionsModifiers2;
+
+	UPROPERTY(VisibleInstanceOnly, SkipSerialization, Category="StatusParameters")
+	double ActionVelocityConservation = 100;
 };
 
 
@@ -792,6 +795,7 @@ public:
 	{
 		ConstantLinearVelocity = FVector(0);
 		InstantLinearVelocity = FVector(0);
+		ActionStartLinearVelocity = FVector(0);
 		Rotation = FQuat(0);
 	}
 
@@ -800,6 +804,9 @@ public:
 
 	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "Velocity")
 	FVector InstantLinearVelocity = FVector(0);
+
+	UPROPERTY(SkipSerialization, VisibleInstanceOnly, BlueprintReadOnly, Category = "Velocity")
+	FVector ActionStartLinearVelocity = FVector(0);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocity")
 	FQuat Rotation = FQuat(0);
@@ -816,6 +823,7 @@ public:
 		result.Rotation = FQuat(0);
 		result.ConstantLinearVelocity = FVector(0);
 		result.InstantLinearVelocity = FVector(0);
+		result.ActionStartLinearVelocity = FVector(0);
 		return result;
 	}
 
@@ -864,7 +872,6 @@ public:
 		Gravity = InGravity;
 		InitialTransform = fromLastMove.FinalTransform;
 		InitialVelocities = fromLastMove.FinalVelocities;
-		InitialSurface = fromLastMove.FinalSurface;
 		Mass = inMass;
 	}
 
@@ -872,26 +879,22 @@ public:
 	{
 		InitialTransform = fromTransform;
 		InitialVelocities = fromVelocity;
-		InitialSurface = onSurface;
 		UserMoveVector = FVector(0);
 	}
 
 
 	FORCEINLINE void FromInitialValues(const FKinematicInfos& ref, bool copyFinals = false)
 	{
-		InitialSurface = ref.InitialSurface;
 		InitialVelocities = ref.InitialVelocities;
 		InitialTransform = ref.InitialTransform;
 		if (copyFinals)
 		{
-			FinalSurface = ref.FinalSurface;
 			FinalVelocities = ref.FinalVelocities;
 			FinalTransform = ref.FinalTransform;
 
 		}
 		else
 		{
-			FinalSurface = FSurfaceInfos();
 			FinalVelocities = FVelocity();
 			FinalTransform = FTransform::Identity;
 		}
@@ -934,22 +937,7 @@ public:
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
 	FTransform InitialTransform = FTransform::Identity;
-
-
-	//Surfaces *************************************************************************************
-
-	/// <summary>
-	/// The final surface
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Surfaces")
-	FSurfaceInfos FinalSurface;
-
-	/// <summary>
-	/// The initial surface
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Surfaces")
-	FSurfaceInfos InitialSurface;
-
+	
 
 	//Physic *************************************************************************************
 

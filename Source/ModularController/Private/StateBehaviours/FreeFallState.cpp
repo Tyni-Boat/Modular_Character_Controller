@@ -10,18 +10,17 @@
 
 FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVelocity, float delta)
 {
-	FVector resultingVector = UStructExtensions::AccelerateTo(horizontalVelocity, desiredMove, AirControlAcceleration, delta);// horizontalVelocity + desiredMove * delta;
-	//if (desiredMove.Length() > 0)
-	//{
-	//	//if (resultingVector.Length() > AirControlSpeed)
-	//	//{
-	//	//	const float maxAllowedAdd = AirControlSpeed - horizontalVelocity.Length();
-	//	//	resultingVector = horizontalVelocity + (maxAllowedAdd > 0 ? desiredMove.GetSafeNormal() * maxAllowedAdd : FVector(0));
-	//	//	return resultingVector;
-	//	//}
-	////return horizontalVelocity;
-	//}
-	return resultingVector;
+	if (desiredMove.Length() > 0)
+	{
+		FVector resultingVector = horizontalVelocity + desiredMove * delta;
+		if (resultingVector.Length() > AirControlSpeed)
+		{
+			const float maxAllowedAdd = AirControlSpeed - horizontalVelocity.Length();
+			resultingVector = horizontalVelocity + (maxAllowedAdd > 0 ? desiredMove.GetSafeNormal() * maxAllowedAdd : FVector(0));
+		}
+		return resultingVector;
+	}
+	return horizontalVelocity;
 }
 
 
@@ -41,9 +40,17 @@ FVector UFreeFallState::AddGravity(FVector verticalVelocity, float delta)
 }
 
 
-void UFreeFallState::SetGravityForce(FVector newGravity)
+void UFreeFallState::SetGravityForce(FVector newGravity, UModularControllerComponent* controller)
 {
 	Gravity = newGravity;
+	_gravity = newGravity;
+	if(controller)
+	{
+		if(controller->_currentActiveGravityState == this)
+		{
+			controller->SetGravity(newGravity, this);
+		}
+	}
 }
 
 #pragma endregion
@@ -51,17 +58,6 @@ void UFreeFallState::SetGravityForce(FVector newGravity)
 
 #pragma region Functions
 
-
-int UFreeFallState::GetPriority_Implementation()
-{
-	return StatePriority;
-}
-
-
-FName UFreeFallState::GetDescriptionName_Implementation()
-{
-	return StateName;
-}
 
 bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
 	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus)

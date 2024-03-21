@@ -13,18 +13,7 @@ UCLASS(BlueprintType, Blueprintable, ClassGroup = "Modular State Behaviours", ab
 class MODULARCONTROLLER_API USimpleGroundState : public UBaseControllerState
 {
 	GENERATED_BODY()
-
-protected:
-
-
-	// The State's unique name
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	FName StateName = "OnGround";
-
-	// The State's priority.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	int StatePriority = 5;
-
+	
 
 #pragma region Check XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
@@ -60,7 +49,7 @@ public:
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-	virtual bool CheckSurface(const FTransform spacialInfos, const FVector gravityDir, UModularControllerComponent* controller, const float inDelta, bool useMaxDistance = false);
+	virtual bool CheckSurface(const FTransform spacialInfos, const FVector gravity, UModularControllerComponent* controller, const FVector momentum, const float inDelta, bool useMaxDistance = false);
 
 	/// <summary>
 	/// Called when we land on a surface
@@ -92,6 +81,9 @@ protected:
 
 	//The current surface's infos.
 	FHitResult t_currentSurfaceInfos;
+
+	//Delay the save position.
+	float t_savePosDelay;
 	
 public:
 
@@ -214,12 +206,7 @@ protected:
 
 #pragma region Functions XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 public:
-
-	virtual int GetPriority_Implementation() override;
-
-	virtual FName GetDescriptionName_Implementation() override;
-
-
+	
 	
 	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
 		, FStatusParameters currentStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus) override;

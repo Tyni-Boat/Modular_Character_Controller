@@ -8,7 +8,7 @@
 //Check if we are on the ground
 #pragma region Check XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-bool USimpleGroundState::CheckSurface(const FTransform spacialInfos, const FVector gravityDir, UModularControllerComponent* controller, const float inDelta, bool useMaxDistance)
+bool USimpleGroundState::CheckSurface(const FTransform spacialInfos, const FVector gravity, UModularControllerComponent* controller, const FVector momentum, const float inDelta, bool useMaxDistance)
 {
 	if (!controller)
 	{
@@ -18,7 +18,7 @@ bool USimpleGroundState::CheckSurface(const FTransform spacialInfos, const FVect
 	}
 
 	FHitResult surfaceInfos;
-	FVector gravityDirection = gravityDir.GetSafeNormal();
+	FVector gravityDirection = gravity.GetSafeNormal();
 	if (!gravityDirection.Normalize())
 		gravityDirection = FVector::DownVector;
 	const float hulloffset = -HullInflation;
@@ -35,6 +35,22 @@ bool USimpleGroundState::CheckSurface(const FTransform spacialInfos, const FVect
 
 	t_currentSurfaceInfos = surfaceInfos;
 	SurfaceInfos.UpdateSurfaceInfos(spacialInfos, surfaceInfos, inDelta);
+
+	//Check if surface is falling faster tha gravity
+	auto surfaceVelocity = SurfaceInfos.GetSurfaceLinearVelocity();
+	if (surfaceVelocity.Length() > 0)
+	{
+		FVector momentumOnGrav = momentum.ProjectOnToNormal(gravityDirection);
+		FVector surfaceFallingVel = surfaceVelocity.ProjectOnToNormal(gravityDirection);
+		auto velocityOnGravityDir = FVector::DotProduct(surfaceVelocity, gravityDirection);
+		auto momentumDir = FVector::DotProduct(momentumOnGrav, gravityDirection);
+		if (velocityOnGravityDir > 0)
+		{
+			if (surfaceFallingVel.Length() > gravity.Length() * inDelta && surfaceInfos.Distance > (FloatingGroundDistance * 2) + 1)
+				return false;
+		}
+	}
+
 	return haveHit && surfaceInfos.Component.IsValid() && surfaceInfos.Component->CanCharacterStepUpOn;
 }
 
@@ -116,7 +132,7 @@ FVector USimpleGroundState::MoveOnTheGround(const FKinematicInfos& inDatas, FVec
 		}
 	}
 
-	hVel = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), t_currentSurfaceInfos.ImpactNormal);
+	hVel = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), t_currentSurfaceInfos.Normal);
 
 	if (inputMove.Length() > 0.05f)
 	{
@@ -126,7 +142,7 @@ FVector USimpleGroundState::MoveOnTheGround(const FKinematicInfos& inDatas, FVec
 		if (inDatas.bUsePhysic && t_currentSurfaceInfos.IsValidBlockingHit() && t_currentSurfaceInfos.Component.IsValid() && t_currentSurfaceInfos.Component->IsSimulatingPhysics()
 			&& scaledInputs.Length() > 0)
 		{
-			t_currentSurfaceInfos.Component->AddForceAtLocation(FVector::VectorPlaneProject(-scaledInputs, t_currentSurfaceInfos.ImpactNormal) * inDatas.GetMass(), t_currentSurfaceInfos.ImpactPoint, t_currentSurfaceInfos.BoneName);
+			t_currentSurfaceInfos.Component->AddForceAtLocation(FVector::VectorPlaneProject(-scaledInputs, t_currentSurfaceInfos.Normal) * inDatas.GetMass() * inDelta, t_currentSurfaceInfos.ImpactPoint, t_currentSurfaceInfos.BoneName);
 		}
 
 		return scaledInputs;
@@ -240,18 +256,6 @@ FVector USimpleGroundState::MoveToPreventFalling(UModularControllerComponent* co
 #pragma region Functions XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 
-int USimpleGroundState::GetPriority_Implementation()
-{
-	return StatePriority;
-}
-
-FName USimpleGroundState::GetDescriptionName_Implementation()
-{
-	return StateName;
-}
-
-
-
 bool USimpleGroundState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
 	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus)
 {
@@ -269,26 +273,36 @@ bool USimpleGroundState::CheckState_Implementation(const FKinematicInfos& inData
 
 	currentStatus = controllerStatusParam;
 	const FVector_NetQuantize currentPos = inDatas.InitialTransform.GetLocation();
-	if (currentPos == _lastControlledPosition && willUseMaxDistance)
+	if (currentPos == _lastControlledPosition && willUseMaxDistance && t_savePosDelay <= 0)
 	{
 		return true;
 	}
 
+	if (t_savePosDelay > 0)
+		t_savePosDelay -= inDelta;
 	_lastControlledPosition = currentPos;
 
-	return CheckSurface(inDatas.InitialTransform, inDatas.Gravity, controller, inDelta, willUseMaxDistance);
+	return CheckSurface(inDatas.InitialTransform, inDatas.Gravity, controller, inDatas.GetInitialMomentum(), inDelta, willUseMaxDistance);
 }
 
 
 void USimpleGroundState::OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
 	UModularControllerComponent* controller, const float inDelta)
 {
+	if (inDatas.bUsePhysic && t_currentSurfaceInfos.IsValidBlockingHit() && t_currentSurfaceInfos.Component.IsValid() && t_currentSurfaceInfos.Component->IsSimulatingPhysics()
+		&& inDatas.GetInitialMomentum().Length() > 0)
+	{
+		t_currentSurfaceInfos.Component->AddForceAtLocation(inDatas.GetInitialMomentum() * inDatas.GetMass(), t_currentSurfaceInfos.ImpactPoint, t_currentSurfaceInfos.BoneName);
+	}
+
 	if (inDatas.GetInitialMomentum().Length() > 0)
 	{
 		FVector vert = inDatas.GetInitialMomentum().ProjectOnToNormal(inDatas.Gravity.GetSafeNormal());
 		const float scale = FMath::Clamp(FVector::DotProduct(vert.GetSafeNormal(), inDatas.Gravity.GetSafeNormal()), 0, 1);
 		LandingImpactRemainingForce = vert.Length() * scale;
 	}
+
+	t_savePosDelay = 1;
 }
 
 
@@ -299,7 +313,7 @@ FVelocity USimpleGroundState::ProcessState_Implementation(FStatusParameters cont
 	FVelocity result = FVelocity();
 	result.Rotation = inDatas.InitialVelocities.Rotation;
 
-	if (!controller) 
+	if (!controller)
 	{
 		controllerStatus = controllerStatusParam;
 		return result;
@@ -309,6 +323,7 @@ FVelocity USimpleGroundState::ProcessState_Implementation(FStatusParameters cont
 		LandingImpactRemainingForce = controllerStatusParam.StateModifiers1.X;
 
 	const FVector horizontalVelocity = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), inDatas.Gravity.GetSafeNormal());
+	const FVector verticalVelocity = inDatas.GetInitialMomentum().ProjectOnToNormal(inDatas.Gravity.GetSafeNormal());
 
 	//Collect inputs
 	const FVector inputMove = moveInput;
@@ -317,7 +332,7 @@ FVelocity USimpleGroundState::ProcessState_Implementation(FStatusParameters cont
 
 	if (controllerStatusParam.StateModifiers2.SquaredLength() > 0)
 		lockOnDirection = controllerStatusParam.StateModifiers2;
-	
+
 	lockedOn = lockOnDirection.SquaredLength() > 0;
 
 	//Parameters from inputs
@@ -356,8 +371,13 @@ FVelocity USimpleGroundState::ProcessState_Implementation(FStatusParameters cont
 	result.ConstantLinearVelocity *= result._rooMotionScale;
 
 	//Snapping
-	const FVector snapForce = ComputeSnappingForce(inDatas, controller);// *50 * inDelta;
-	result.InstantLinearVelocity = snapForce + SurfaceInfos.GetSurfaceLinearVelocity() + preventionForce;
+	FVector snapForce = ComputeSnappingForce(inDatas, controller);// *50 * inDelta;
+	if(controller->ActionInstances.IsValidIndex(controllerStatusParam.ActionIndex) 
+		&& controller->ActionInstances[controllerStatusParam.ActionIndex]->bShouldControllerStateCheckOverride)
+	{
+		snapForce = FVector(0);
+	}
+	result.InstantLinearVelocity = snapForce + preventionForce;
 
 	controllerStatusParam.StateModifiers1.X = LandingImpactRemainingForce;
 	if (lockedOn)
@@ -372,6 +392,8 @@ void USimpleGroundState::OnExitState_Implementation(const FKinematicInfos& inDat
 	UModularControllerComponent* controller, const float inDelta)
 {
 	LandingImpactRemainingForce = 0;
+	t_savePosDelay = 1;
+	_lastControlledPosition = FVector(0);
 }
 
 

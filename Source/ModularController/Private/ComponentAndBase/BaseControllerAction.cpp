@@ -17,18 +17,6 @@ void UBaseControllerAction::InitializeAction()
 }
 
 
-int UBaseControllerAction::GetPriority_Implementation()
-{
-	return 0;
-}
-
-FName UBaseControllerAction::GetDescriptionName_Implementation()
-{
-	return "";
-}
-
-
-
 void UBaseControllerAction::OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState)
 {
 

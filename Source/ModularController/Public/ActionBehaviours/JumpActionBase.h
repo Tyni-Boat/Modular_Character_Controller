@@ -11,17 +11,7 @@ UCLASS(BlueprintType, Blueprintable, ClassGroup = "Controller Action Behaviours"
 class MODULARCONTROLLER_API UJumpActionBase : public UBaseControllerAction
 {
 	GENERATED_BODY()
-
-protected:
 	
-	// The Action unique name
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	FName ActionName = "JumpingAction";
-
-	// The action's priority
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
-	int ActionPriority = 6;
-
 #pragma region Check
 protected:
 
@@ -138,11 +128,6 @@ public:
 
 #pragma region Functions
 public:
-
-	virtual int GetPriority_Implementation() override;
-
-	virtual FName GetDescriptionName_Implementation() override;
-
 
 	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
 		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta) override;

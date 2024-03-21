@@ -27,65 +27,78 @@ class MODULARCONTROLLER_API UBaseControllerAction : public UDataAsset
 public:
 
 	void InitializeAction();
+
+	// The State's unique name
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	FName ActionName = "[Set Action Unique Name]";
+
+	// The State's priority.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
+	int ActionPriority = 0;
+
 	
 	// The action actual phase.
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Action|Base|Timing|Phasing")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Base|Timing|Phasing")
 	TEnumAsByte<EActionPhase> CurrentPhase;
 
 	// The action anticipation phase duration
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|Timing|Phasing", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing|Phasing", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float AnticipationPhaseDuration = 0;
 
 	// The action active phase duration
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|Timing|Phasing", meta = (ClampMin = "0.1", UIMin = "0.1"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing|Phasing", meta = (ClampMin = "0.1", UIMin = "0.1"))
 	float ActivePhaseDuration = 0.15f;
 
 	// The action recovery phase duration
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|Timing|Phasing", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing|Phasing", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float RecoveryPhaseDuration = 0;
 
 	// The action can transition to self on recovery phase?
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|Timing|Phasing")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing|Phasing")
 	bool bCanTransitionToSelf;
 
 
 
 	// The action cool down delay. the duration the action cannot be done again.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|Timing")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing")
 	float CoolDownDelay = 0.25f;
 
+	// The amount of action's move force conserved when action ends. this doesn't apply when the action is interrupted by another.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Motion", meta=(ClampMin = "0.0", UIMin = "0.0", ClampMax = "1.0", UIMax = "100.0"))
+	double EndActionVelocityConservationPercentage = 1;
+
 	// The action's Root motion Mode.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|Motion")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Motion")
 	TEnumAsByte<ERootMotionType> RootMotionMode;
 
 	// The action's flag, often used as binary. to relay this actions's state over the network.
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Action|Base|Motion")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Base|Motion")
 	int ActionFlag;
 
 	// The current controller state must be frozen while this action is running?
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|State & Compatibility")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility")
 	bool bFreezeCurrentState;
 
 	// Special tag that affect how the current controller state check phase will behave.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|State & Compatibility")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility")
 	bool bShouldControllerStateCheckOverride;
 
 	// The Action only execute modes.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|State & Compatibility")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility")
 	TEnumAsByte<EActionCompatibilityMode> ActionCompatibilityMode;
 
 	// The list of compatible states names.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|State & Compatibility"
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
 		, meta = (EditCondition = "ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnCompatibleStateOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"))
 	TArray<FName> CompatibleStates;
 
 	// The list of compatible actions names
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Action|Base|State & Compatibility"
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
 		, meta = (EditCondition = "ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_WhileCompatibleActionOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"))
 	TArray<FName> CompatibleActions;
 
 	// Enable or disable debug for this action
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Action|Base|Debug")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Debug")
 	bool bDebugAction;
 
 
@@ -236,15 +249,15 @@ public:
 	/// <summary>
 	/// The priority of this state
 	/// </summary>
-	UFUNCTION(BlueprintNativeEvent)
-	int GetPriority();
+	UFUNCTION(BlueprintGetter)
+	FORCEINLINE int GetPriority() const { return ActionPriority; }
 
 	/// <summary>
 	/// The description of the particularity this Action is for, if any. it can be used to let say "Jump" to specify that this action is used for
 	/// jumping
 	/// </summary>
-	UFUNCTION(BlueprintNativeEvent)
-	FName GetDescriptionName();
+	UFUNCTION(BlueprintGetter)
+	FORCEINLINE FName GetDescriptionName() const { return  ActionName; }
 
 
 	/// <summary>
@@ -256,20 +269,7 @@ public:
 	/// Restore an action from it's previous snapShot if exist.
 	/// </summary>
 	void RestoreActionFromSnapShot();
-
-
-
-	/// <summary>
-	/// The priority of this state
-	/// </summary>
-	virtual int GetPriority_Implementation();
-
-	/// <summary>
-	/// The description of the particalurity this behaviour is for, if any. it can be used to let say "OnGround" to specify that this behaviour is used for
-	/// Ground movements and reactions
-	/// </summary>
-	virtual FName GetDescriptionName_Implementation();
-
+	
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Base Events|C++ Implementation")

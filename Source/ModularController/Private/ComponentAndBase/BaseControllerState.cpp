@@ -5,17 +5,6 @@
 
 
 
-
-int UBaseControllerState::GetPriority_Implementation()
-{
-	return 0;
-}
-
-FName UBaseControllerState::GetDescriptionName_Implementation()
-{
-	return "";
-}
-
 void UBaseControllerState::SaveStateSnapShot()
 {
 	if (_snapShotSaved)

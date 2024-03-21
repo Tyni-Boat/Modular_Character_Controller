@@ -10,6 +10,7 @@
 #include "GameFramework/Pawn.h"
 #include "Engine.h"
 #include "Engine/World.h"
+#include "Net/UnrealNetwork.h"
 
 
 #pragma region Core and Constructor XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -46,6 +47,7 @@ void UModularControllerComponent::Initialize()
 {
 	Velocity = FVector(0);
 	_ownerPawn = Cast<APawn>(GetOwner());
+	SetGravity(FVector::DownVector * FMath::Abs(GetGravityZ()));
 
 	//Init collider
 	if (UpdatedPrimitive)
@@ -193,7 +195,7 @@ FKinematicInfos UModularControllerComponent::StandAloneUpdateComponent(FVector m
 	Move(movementInfos.FinalTransform.GetLocation(), movementInfos.FinalTransform.GetRotation(), delta);
 
 	movementInfos.FinalTransform.SetComponents(UpdatedPrimitive->GetComponentRotation().Quaternion(), UpdatedPrimitive->GetComponentLocation(), UpdatedPrimitive->GetComponentScale());
-	if (DebugType)
+	if (DebugType == ControllerDebugType_MovementDebug)
 	{
 		UKismetSystemLibrary::DrawDebugArrow(this, movementInfos.InitialTransform.GetLocation(), movementInfos.InitialTransform.GetLocation() + alteredMotion.ConstantLinearVelocity * 0.1f, 50, FColor::Magenta);
 		DrawCircle(GetWorld(), movementInfos.FinalTransform.GetLocation(), alteredMotion.Rotation.GetAxisX(), alteredMotion.Rotation.GetAxisY(), FColor::Magenta, 35, 32, false, -1, 0, 2);
@@ -311,6 +313,7 @@ FStatusParameters UModularControllerComponent::EvaluateControllerStatus(FKinemat
 	statusInfos.PrimaryActionFlag = actionStatusInfos.PrimaryActionFlag;
 	statusInfos.ActionsModifiers1 = actionStatusInfos.ActionsModifiers1;
 	statusInfos.ActionsModifiers2 = actionStatusInfos.ActionsModifiers2;
+	statusInfos.ActionVelocityConservation = actionStatusInfos.ActionVelocityConservation;
 
 	return statusInfos;
 }
@@ -319,8 +322,41 @@ FStatusParameters UModularControllerComponent::EvaluateControllerStatus(FKinemat
 FVelocity UModularControllerComponent::ProcessStatus(FStatusParameters& inStatus,
 	FKinematicInfos kinematicInfos, FVector moveInput, UInputEntryPool* usedInputPool, float delta, int simulatedStateIndex, int simulatedActionIndexes)
 {
-	const FVelocity primaryMotion = ProcessControllerState(inStatus, kinematicInfos, moveInput, delta, simulatedStateIndex);
-	FVelocity alteredMotion = ProcessControllerAction(inStatus, kinematicInfos, primaryMotion, moveInput, delta, simulatedStateIndex, simulatedActionIndexes);
+	FKinematicInfos infos = kinematicInfos;
+	FVector savedActionStartVelocity = FVector(0);
+	bool saveActionVel = false;
+
+	//Handle action velocity conservation
+	{
+		if (inStatus.ActionVelocityConservation < 0)
+		{
+			//Save
+			saveActionVel = true;
+			savedActionStartVelocity = infos.InitialVelocities.ConstantLinearVelocity;
+		}
+		else if (inStatus.ActionVelocityConservation >= 0 && inStatus.ActionVelocityConservation <= 1)
+		{
+			//Load and reset
+			infos.InitialVelocities.ConstantLinearVelocity =
+				FMath::Lerp(infos.InitialVelocities.ActionStartLinearVelocity, infos.InitialVelocities.ConstantLinearVelocity, inStatus.ActionVelocityConservation);
+			saveActionVel = true;
+		}
+	}
+
+	FVelocity primaryMotion = ProcessControllerState(inStatus, infos, moveInput, delta, simulatedStateIndex);
+	//Surface movement
+	if(simulatedActionIndexes < 0 && simulatedStateIndex < 0)
+	{
+		if(GetCurrentSurface().GetSurfacePrimitive())
+		{
+			primaryMotion.InstantLinearVelocity += GetCurrentSurface().GetSurfaceLinearVelocity();
+			primaryMotion.Rotation *= GetCurrentSurface().GetSurfaceAngularVelocity();
+		}
+	}
+
+	FVelocity alteredMotion = ProcessControllerAction(inStatus, infos, primaryMotion, moveInput, delta, simulatedStateIndex, simulatedActionIndexes);
+	if (saveActionVel)
+		alteredMotion.ActionStartLinearVelocity = savedActionStartVelocity;
 	return  alteredMotion;
 }
 
@@ -438,7 +474,8 @@ void UModularControllerComponent::GetLifetimeReplicatedProps(TArray<FLifetimePro
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	//DOREPLIFETIME(UModularControllerComponent, StatesInstances);
+
+	//DOREPLIFETIME(UModularControllerComponent, LastMoveMade);
 	//DOREPLIFETIME(UModularControllerComponent, ActionInstances);
 }
 
@@ -917,16 +954,20 @@ void UModularControllerComponent::BeginOverlap(UPrimitiveComponent* OverlappedCo
 	////overlap objects
 	if (OverlappedComponent != nullptr && OtherComp != nullptr && OtherActor != nullptr)
 	{
-		if (DebugType)
+		if (DebugType == ControllerDebugType_PhysicDebug)
+		{			
 			GEngine->AddOnScreenDebugMessage((int32)GetOwner()->GetUniqueID() + 9, 1, FColor::Green, FString::Printf(TEXT("Overlaped With: %s"), *OtherActor->GetActorNameOrLabel()));
+		}
 	}
 }
 
 
 void UModularControllerComponent::BeginCollision(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-	if (OtherActor != nullptr && DebugType)
+	if (OtherActor != nullptr && DebugType == ControllerDebugType_PhysicDebug) 
+	{
 		GEngine->AddOnScreenDebugMessage((int32)GetOwner()->GetUniqueID() + 10, 1, FColor::Green, FString::Printf(TEXT("Collision With: %s"), *OtherActor->GetActorNameOrLabel()));
+	}
 
 	if (OtherComp)
 	{
@@ -942,7 +983,7 @@ void UModularControllerComponent::BeginCollision(UPrimitiveComponent* HitComp, A
 
 		if (OtherComp->IsSimulatingPhysics())
 		{
-			_collisionForces += OtherComp->GetPhysicsLinearVelocityAtPoint(Hit.ImpactPoint);
+			_collisionForces += OtherComp->GetPhysicsLinearVelocity() * OtherComp->GetMass();
 		}
 		else if (otherModularComponent != nullptr)
 		{
@@ -950,6 +991,17 @@ void UModularControllerComponent::BeginCollision(UPrimitiveComponent* HitComp, A
 		}
 	}
 }
+
+
+
+FSurfaceInfos UModularControllerComponent::GetCurrentSurface() const
+{
+	const auto state = GetCurrentControllerState();
+	if (!state)
+		return FSurfaceInfos();
+	return  state->SurfaceInfos;
+}
+
 
 #pragma endregion
 
@@ -1089,7 +1141,7 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 {
 	int maxStatePriority = -1;
 	int selectedStateIndex = -1;
-	bool disableStateWasLastFrameStateStatus = false;
+	bool alterStateCheckMode = false;
 	FStatusParameters selectedStatus = currentStatus;
 
 	//Check if a State's check have success state
@@ -1114,7 +1166,7 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 				//Find last frame status voider
 				if (ActionInstances[activeActionIndex]->bShouldControllerStateCheckOverride)
 				{
-					disableStateWasLastFrameStateStatus = true;
+					alterStateCheckMode = true;
 				}
 			}
 		}
@@ -1139,7 +1191,7 @@ int UModularControllerComponent::CheckControllerStates(FKinematicInfos& inDatas,
 					StatesInstances[i]->RestoreStateFromSnapShot();
 
 				auto copyOfStatus = currentStatus;
-				if (StatesInstances[i]->CheckState(inDatas, moveInput, inputs, this, copyOfStatus, copyOfStatus, inDelta, disableStateWasLastFrameStateStatus ? 0 : -1))
+				if (StatesInstances[i]->CheckState(inDatas, moveInput, inputs, this, copyOfStatus, copyOfStatus, inDelta, alterStateCheckMode ? 0 : -1))
 				{
 					selectedStateIndex = i;
 					selectedStatus = copyOfStatus;
@@ -1290,7 +1342,7 @@ FVelocity UModularControllerComponent::ProcessControllerState(FStatusParameters&
 }
 
 
-void UModularControllerComponent::OnControllerStateChanged_Implementation(UBaseControllerState* OldOne, UBaseControllerState* NewOne)
+void UModularControllerComponent::OnControllerStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState)
 {
 }
 
@@ -1568,6 +1620,11 @@ bool UModularControllerComponent::TryChangeControllerAction(int fromActionIndex,
 	//Disable last action
 	if (ActionInstances.IsValidIndex(fromActionIndex))
 	{
+		//Restore Velocity amount
+		if (toActionIndex < 0)
+		{
+			currentStatus.ActionVelocityConservation = ActionInstances[fromActionIndex]->EndActionVelocityConservationPercentage;
+		}
 		ActionInstances[fromActionIndex]->SetActivatedLastFrame(false);
 		ActionInstances[fromActionIndex]->OnActionEnds_Internal(inDatas, moveInput, this, currentStatus, inDelta);
 		if (!simulate)
@@ -1583,6 +1640,12 @@ bool UModularControllerComponent::TryChangeControllerAction(int fromActionIndex,
 	//Activate action
 	if (ActionInstances.IsValidIndex(toActionIndex))
 	{
+		//Save Velocity
+		if (fromActionIndex < 0)
+		{
+			currentStatus.ActionVelocityConservation = -1;
+		}
+
 		ActionInstances[toActionIndex]->OnActionBegins_Internal(inDatas, moveInput, this, currentStatus, inDelta);
 		ActionInstances[toActionIndex]->SetActivatedLastFrame(true);
 		if (!simulate)
@@ -2040,13 +2103,15 @@ void UModularControllerComponent::Move_Implementation(const FVector endLocation,
 {
 	if (!UpdatedPrimitive)
 		return;
+	float fps = (1 / deltaTime);
 	if (UpdatedPrimitive->IsSimulatingPhysics())
 	{
-		UpdatedPrimitive->SetAllPhysicsLinearVelocity(Velocity);
+		UpdatedPrimitive->SetAllPhysicsPosition(endLocation);
+		UpdatedPrimitive->SetAllPhysicsLinearVelocity((endLocation - UpdatedPrimitive->GetComponentLocation()) * fps);
+		UpdatedPrimitive->SetAllPhysicsRotation(endRotation);
 	}
 	else
 	{
-		float fps = (1 / deltaTime);
 		FVector lerpPos = FMath::Lerp(UpdatedPrimitive->GetComponentLocation(), endLocation, deltaTime * (fps * 0.5f));
 		UpdatedPrimitive->SetWorldLocationAndRotation(endLocation, endRotation, false);
 	}
@@ -2057,6 +2122,7 @@ FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDat
 {
 	auto owner = GetOwner();
 	FVelocity result = FVelocity::Null();
+	result.ActionStartLinearVelocity = movement.ActionStartLinearVelocity;
 
 	FVector priMove = movement.ConstantLinearVelocity;
 	FVector secMove = movement.InstantLinearVelocity;
@@ -2072,7 +2138,8 @@ FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDat
 	if (inDatas.bUsePhysic && _collisionForces.Length() > 0 && !noCollision)
 	{
 		priMove += (_collisionForces / inDatas.GetMass()) * (priMove.Length() > 0 ? FMath::Clamp(FVector::DotProduct(priMove.GetSafeNormal(), _collisionForces.GetSafeNormal()), 0, 1) : 1);
-		if (DebugType)
+		//priMove += _collisionForces;
+		if (DebugType == ControllerDebugType_PhysicDebug)
 		{
 			GEngine->AddOnScreenDebugMessage((int32)GetOwner()->GetUniqueID() + 10, 1, FColor::Green, FString::Printf(TEXT("Applying collision force: %s"), *_collisionForces.ToString()));
 		}
@@ -2110,7 +2177,7 @@ FVelocity UModularControllerComponent::EvaluateMove(const FKinematicInfos& inDat
 	//Secondary Movement (Adjustement movement)
 	{
 		FHitResult sweepMoveHit;
-
+		
 		if (!noCollision)
 			ComponentTraceCastSingle(sweepMoveHit, location, secMove, primaryRotation, 0.100, bUseComplexCollision);
 
@@ -2145,6 +2212,7 @@ void UModularControllerComponent::PostMoveUpdate(FKinematicInfos& inDatas, const
 	//Final velocities
 	inDatas.FinalVelocities.ConstantLinearVelocity = moveMade.ConstantLinearVelocity;
 	inDatas.FinalVelocities.InstantLinearVelocity = moveMade.InstantLinearVelocity;
+	inDatas.FinalVelocities.ActionStartLinearVelocity = moveMade.ActionStartLinearVelocity;
 	inDatas.FinalVelocities.Rotation = moveMade.Rotation;
 
 	//Position
@@ -2218,7 +2286,8 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 	FVector SlideDelta = ComputeSlideVector(Delta, Time, Normal, Hit);
 	FVector endLocation = Position + SlideDelta;
 
-	if (DebugType) {
+	if (DebugType == ControllerDebugType_PhysicDebug)
+	{
 		UKismetSystemLibrary::DrawDebugArrow(this, Position, Position + Normal.GetSafeNormal() * 30, 50, FColor::Blue);
 		UKismetSystemLibrary::DrawDebugArrow(this, Position, Position + SlideDelta, 50, FColor::Cyan);
 	}
@@ -2231,7 +2300,8 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 			FVector move = Hit.TraceEnd - Hit.TraceStart;
 			TwoWallAdjust(move, Hit, OldHitNormal);
 
-			if (DebugType) {
+			if (DebugType == ControllerDebugType_PhysicDebug)
+			{
 				UKismetSystemLibrary::DrawDebugArrow(this, Hit.Location, Hit.Location + move, 50, FColor::Purple);
 				DrawCircle(GetWorld(), Hit.Location, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Purple, 25, 32, false, -1, 0, 3);
 			}
@@ -2249,13 +2319,15 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 						depth--;
 						endLocation = SlideAlongSurfaceAt(secondaryMove.Location, Rotation, secondaryMove.TraceEnd - secondaryMove.TraceStart, 1 - secondaryMove.Time, secondaryMove.Normal, secondaryMove, depth);
 						secondaryMove.Location = endLocation;
-						if (DebugType) {
+						if (DebugType == ControllerDebugType_PhysicDebug)
+						{
 							DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Yellow, 25, 32, false, -1, 0, 3);
 						}
 					}
 					else {
 						endLocation = secondaryMove.Location;
-						if (DebugType) {
+						if (DebugType == ControllerDebugType_PhysicDebug)
+						{
 							DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Orange, 25, 32, false, -1, 0, 3);
 						}
 					}
@@ -2264,7 +2336,8 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(const FVector& Position
 				{
 					endLocation = secondaryMove.TraceEnd;
 
-					if (DebugType) {
+					if (DebugType == ControllerDebugType_PhysicDebug)
+					{
 						DrawCircle(GetWorld(), endLocation, GetRotation().GetAxisX(), GetRotation().GetAxisY(), FColor::Red, 25, 32, false, -1, 0, 3);
 					}
 				}
@@ -2475,7 +2548,10 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& force, FVector pos
 			FMTDResult depenetrationInfos;
 			for (auto& overlap : _overlaps)
 			{
-				UKismetSystemLibrary::DrawDebugPoint(this, position, 10, FColor::Blue);
+				if (DebugType == ControllerDebugType_PhysicDebug)
+				{
+					UKismetSystemLibrary::DrawDebugPoint(this, position, 10, FColor::Blue);
+				}
 				if (!overlapFound)
 					overlapFound = true;
 

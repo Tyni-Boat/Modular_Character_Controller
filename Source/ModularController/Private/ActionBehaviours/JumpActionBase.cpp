@@ -105,8 +105,8 @@ FVector UJumpActionBase::Jump(const FKinematicInfos inDatas, FVector moveInput, 
 	float pTime = vox_den / gravityAcc;
 
 	//Momentum splitting
-	FVector vertMomentum = (inDatas.FinalSurface.GetSurfaceLinearVelocity() / inDelta).ProjectOnToNormal(gravityDir);
-	FVector horiMomentum = FVector::VectorPlaneProject(inDatas.FinalSurface.GetSurfaceLinearVelocity() / inDelta, gravityDir);
+	FVector vertMomentum = (momentum.InstantLinearVelocity / inDelta).ProjectOnToNormal(gravityDir);
+	FVector horiMomentum = FVector::VectorPlaneProject(momentum.InstantLinearVelocity / inDelta, gravityDir);
 
 	if (momentum.ConstantLinearVelocity.Length() > 0)
 	{
@@ -125,9 +125,6 @@ FVector UJumpActionBase::Jump(const FKinematicInfos inDatas, FVector moveInput, 
 
 #pragma region Functions
 
-int UJumpActionBase::GetPriority_Implementation() { return ActionPriority; }
-
-FName UJumpActionBase::GetDescriptionName_Implementation() { return ActionName; }
 
 bool UJumpActionBase::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
 	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
@@ -174,6 +171,10 @@ FVelocity UJumpActionBase::OnActionProcessActivePhase_Implementation(FStatusPara
 
 	const FVector jumpLocation = IsSimulated() ? FVector(NAN) :
 		(JumpLocationInput.IsNone() ? FVector(NAN) : controller->ReadAxisInput(JumpLocationInput, true, bDebugAction, this));
+	if (!IsSimulated() && controller) 
+	{
+		_startMomentum.InstantLinearVelocity = controller->GetCurrentSurface().GetSurfaceLinearVelocity();
+	}
 	const auto jumpForce = Jump(inDatas, moveInput, _startMomentum, inDelta, jumpLocation);
 	move.ConstantLinearVelocity = jumpForce;
 
@@ -196,12 +197,12 @@ FVelocity UJumpActionBase::OnActionProcessActivePhase_Implementation(FStatusPara
 
 	if (!IsSimulated())
 	{
-		if (inDatas.bUsePhysic && inDatas.FinalSurface.GetSurfacePrimitive() != nullptr)
+		if (inDatas.bUsePhysic && controller->GetCurrentSurface().GetSurfacePrimitive() != nullptr)
 		{
 			//Push Objects
-			if (inDatas.FinalSurface.GetSurfacePrimitive()->IsSimulatingPhysics())
+			if (controller->GetCurrentSurface().GetSurfacePrimitive()->IsSimulatingPhysics())
 			{
-				inDatas.FinalSurface.GetSurfacePrimitive()->AddImpulseAtLocation(-jumpForce * inDatas.GetMass(), inDatas.FinalSurface.GetHitResult().ImpactPoint, inDatas.FinalSurface.GetHitResult().BoneName);
+				controller->GetCurrentSurface().GetSurfacePrimitive()->AddImpulseAtLocation(-jumpForce * inDatas.GetMass() * inDelta, controller->GetCurrentSurface().GetHitResult().ImpactPoint, controller->GetCurrentSurface().GetHitResult().BoneName);
 			}
 		}
 	}
