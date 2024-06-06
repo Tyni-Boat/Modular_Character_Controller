@@ -48,11 +48,8 @@ UENUM(BlueprintType)
 enum ERootMotionType
 {
 	RootMotionType_No_RootMotion,
-	RootMotionType_OverridePrimary,
-	RootMotionType_OverrideSecondary,
-	RootMotionType_OverrideAll,
-	RootMotionType_AdditivePrimary,
-	RootMotionType_AdditiveSecondary,
+	RootMotionType_Override,
+	RootMotionType_Additive,
 };
 
 

@@ -5,14 +5,9 @@
 
 
 
-bool UBaseDashAction::CheckDash(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus,
-	const float inDelta, UModularControllerComponent* controller)
+bool UBaseDashAction::CheckDash(UModularControllerComponent* controller)
 {
-	FVector currentPosition = inDatas.InitialTransform.GetLocation();
-	FQuat currentRotation = inDatas.InitialTransform.GetRotation();
-	FVector gravityDir = inDatas.Gravity.GetSafeNormal();
-
-	if (!inputs)
+	if (!controller)
 		return false;
 
 	if (!IsSimulated() && controller)
@@ -24,23 +19,7 @@ bool UBaseDashAction::CheckDash(const FKinematicInfos& inDatas, const FVector mo
 		}
 	}
 
-	if (inputs->ReadInput(DashInputCommand, bDebugAction, controller).Phase == EInputEntryPhase::InputEntryPhase_Pressed)
-	{
-		inputs->ConsumeInput(DashInputCommand, bDebugAction, controller);
-		_dashToLocation = inDatas.InitialTransform.GetLocation() + (moveInput.Length() > 0 ? moveInput : inDatas.InitialTransform.GetRotation().GetForwardVector()) * DashDistance;
-		if (!DashLocationInput.IsNone())
-		{
-			const FVector dashLocation = inputs->ConsumeInput(DashLocationInput).Axis;
-			_dashToLocation = dashLocation;
-		}
-		
-		controllerStatusParam.ActionsModifiers1 = _dashToLocation;
-
-		currentStatus = controllerStatusParam;
-		return true;
-	}
-
-	return false;
+	return true;
 }
 
 
@@ -88,109 +67,62 @@ void UBaseDashAction::OnAnimationEnded(UAnimMontage* Montage, bool bInterrupted)
 //*//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-bool UBaseDashAction::CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
+FControllerCheckResult UBaseDashAction::CheckAction_Implementation(UModularControllerComponent* controller,
+	const FControllerStatus startingConditions, const float delta, bool asLastActiveAction)
 {
-	return CheckDash(inDatas, moveInput, inputs, controllerStatusParam, currentStatus, inDelta, controller);
+	if (!controller)
+		return FControllerCheckResult(false, startingConditions);
+	const bool dashInput = controller->ReadButtonInput(DashInputCommand);
+	const bool canDash = CheckDash(controller);
+	return FControllerCheckResult(dashInput && canDash, startingConditions);
 }
 
-FVelocity UBaseDashAction::OnActionProcessAnticipationPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
-	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+FKinematicComponents UBaseDashAction::OnActionBegins_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
 {
-	FVelocity move = inDatas.InitialVelocities;
-	move.InstantLinearVelocity = fromVelocity.InstantLinearVelocity;
+	FKinematicComponents result = startingConditions;
 
-	move.Rotation = FQuat::Slerp(move.Rotation, _initialRot, FMath::Clamp(inDelta * 50, 0, 1));
-	move.ConstantLinearVelocity = UStructExtensions::AccelerateTo(move.ConstantLinearVelocity, FVector(0), 50, inDelta);
-	return move;
-}
+	result.AngularKinematic.AngularAcceleration = FVector(0);
+	result.AngularKinematic.RotationSpeed = FVector(0);
 
-FVelocity UBaseDashAction::OnActionProcessActivePhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
-	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
-{
-	FVelocity move = inDatas.InitialVelocities;
-	move.InstantLinearVelocity = fromVelocity.InstantLinearVelocity;
+	FVector closestDir = result.AngularKinematic.Orientation.Vector();
+	FVector moveDirection = moveInput.Length() > 0 ? moveInput.GetSafeNormal() : closestDir.GetSafeNormal();
+	const FVector currentLocation = result.LinearKinematic.Position;
+	const FQuat currentOrientation = result.AngularKinematic.Orientation;
 
-	if (!_dashed)
+	_propulsionVector = moveDirection * (DashDistance > 0? DashDistance : 1);
+	if (bTurnTowardDashDirection)
+		closestDir = moveDirection;
+	if (!DashLocationInput.IsNone())
 	{
-		_propulsionLocation = inDatas.InitialTransform.GetLocation();
+		_propulsionVector = controller->ReadAxisInput(DashLocationInput) - currentLocation;
+		moveDirection = _propulsionVector.GetSafeNormal();
+	}
 
-		if (!IsSimulated() && controller)
+	//Select montage
+	auto selectedMontage = FwdDashMontage;
+	if (!bTurnTowardDashDirection && bUseFourDirectionnalDash && moveDirection.Length() > 0)
+	{
+		int directionID = 0;
+		GetFourDirectionnalVector(FTransform(currentOrientation, currentLocation), moveDirection, directionID);
+		switch (directionID)
 		{
-			if (inDatas.bUsePhysic && controller->GetCurrentSurface().GetSurfacePrimitive() != nullptr)
-			{
-				//Push Objects
-				if (controller->GetCurrentSurface().GetSurfacePrimitive()->IsSimulatingPhysics())
-				{
-					controller->GetCurrentSurface().GetSurfacePrimitive()->AddImpulseAtLocation(-(_dashToLocation - inDatas.InitialTransform.GetLocation()) * inDatas.GetMass() * inDelta, controller->GetCurrentSurface().GetHitResult().ImpactPoint, controller->GetCurrentSurface().GetHitResult().BoneName);
-				}
-			}
-		}
-		_dashed = true;
-	}
-
-	//Handle rotation
-	{
-		move.Rotation = _initialRot;
-	}
-
-	//Movement
-	const FVector initialLocation = inDatas.InitialTransform.GetLocation();
-	const FVector nextLocation = FMath::Lerp(initialLocation, _dashToLocation, inDelta * (1 / ActivePhaseDuration));
-	move.ConstantLinearVelocity = (nextLocation - initialLocation) / inDelta;
-
-	if (bDebugAction)
-	{
-		UKismetSystemLibrary::DrawDebugPoint(this, _propulsionLocation, 500, FColor::Green, 5);
-		UKismetSystemLibrary::DrawDebugPoint(this, _dashToLocation, 500, FColor::Red, 5);
-		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Dash Speed: (%f); Location: (%s), Distance: (%f)"), *GetDescriptionName().ToString(), move.ConstantLinearVelocity.Length(), *_dashToLocation.ToCompactString(), (_dashToLocation - _propulsionLocation).Length()), true, true, FColor::Yellow, 10, "DashProcess");
-	}
-
-	return move;
-}
-
-FVelocity UBaseDashAction::OnActionProcessRecoveryPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
-	const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
-{
-	FVelocity move = inDatas.InitialVelocities;
-	move.InstantLinearVelocity = fromVelocity.InstantLinearVelocity;
-
-	move.ConstantLinearVelocity = UStructExtensions::AccelerateTo(move.ConstantLinearVelocity, FVector(0), 50, inDelta);
-	return move;
-}
-
-void UBaseDashAction::OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState)
-{
-	const FName stateName = newState != nullptr ? newState->GetDescriptionName() : "";
-	if (ActionCompatibilityMode == ActionCompatibilityMode_OnCompatibleStateOnly || ActionCompatibilityMode == ActionCompatibilityMode_OnBothCompatiblesStateAndAction)
-	{
-		if (!CompatibleStates.Contains(stateName))
-		{
-			_remainingActivationTimer = 0;
+		default:
+			break;
+		case 2:
+			selectedMontage = BackDashMontage;
+			break;
+		case 3:
+			selectedMontage = LeftDashMontage;
+			break;
+		case 4:
+			selectedMontage = RightDashMontage;
+			break;
 		}
 	}
-}
 
-void UBaseDashAction::OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
-{
-	Super::OnActionEnds_Implementation(inDatas, moveInput, controller, controllerStatusParam, currentStatus, inDelta);
-}
-
-void UBaseDashAction::OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta)
-{
-	FVector closestDir = inDatas.InitialTransform.GetRotation().Vector();
-	
-	if (controllerStatusParam.ActionsModifiers1.SquaredLength() > 0)
-		_dashToLocation = controllerStatusParam.ActionsModifiers1;
-
-	currentStatus = controllerStatusParam;
-
-	const FVector moveDirection = (_dashToLocation - inDatas.InitialTransform.GetLocation()).GetSafeNormal();
+	//Handle look direction
+	_lookDirection = closestDir.GetSafeNormal();
 
 	if (!IsSimulated() && controller)
 	{
@@ -198,27 +130,6 @@ void UBaseDashAction::OnActionBegins_Implementation(const FKinematicInfos& inDat
 		if (bUseMontageDuration)
 			_EndDelegate.BindUObject(this, &UBaseDashAction::OnAnimationEnded);
 
-		//Select montage
-		auto selectedMontage = FwdDashMontage;
-		if (bUseFourDirectionnalDash && moveDirection.Length() > 0)
-		{
-			int directionID = 0;
-			closestDir = GetFourDirectionnalVector(inDatas.InitialTransform, moveDirection, directionID);
-			switch (directionID)
-			{
-			default:
-				break;
-			case 2:
-				selectedMontage = BackDashMontage;
-				break;
-			case 3:
-				selectedMontage = LeftDashMontage;
-				break;
-			case 4:
-				selectedMontage = RightDashMontage;
-				break;
-			}
-		}
 
 		//Play montage
 		float montageDuration = 0;
@@ -244,33 +155,115 @@ void UBaseDashAction::OnActionBegins_Implementation(const FKinematicInfos& inDat
 		}
 	}
 
-	//Handle initial rotation
-	const FVector up = -inDatas.Gravity.GetSafeNormal();
-	FVector movefwd = FVector::VectorPlaneProject(moveDirection.GetSafeNormal(), up);
-	FVector bodyfwd = FVector::VectorPlaneProject(closestDir.GetSafeNormal(), up);
-	_initialRot = inDatas.InitialTransform.GetRotation();
-	if (movefwd.Normalize() && bodyfwd.Normalize())
+	return result;
+}
+
+FKinematicComponents UBaseDashAction::OnActionEnds_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
+{
+	return Super::OnActionEnds_Implementation(controller, startingConditions, moveInput, delta);
+}
+
+FControllerStatus UBaseDashAction::OnActionProcessAnticipationPhase_Implementation(
+	UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta)
+{
+	FControllerStatus result = startingConditions;
+	result.CustomPhysicProperties = FVector(0, 0, 0);
+
+	if(controller)
 	{
-		FQuat bodyFwdRot = UKismetMathLibrary::MakeRotationFromAxes(bodyfwd, FVector::CrossProduct(up, bodyfwd), up).Quaternion();
-		const FQuat moveFwdRot = UKismetMathLibrary::MakeRotationFromAxes(movefwd, FVector::CrossProduct(up, movefwd), up).Quaternion();
-		bodyFwdRot.EnforceShortestArcWith(moveFwdRot);
-		const FQuat diff = bodyFwdRot.Inverse() * moveFwdRot;
-		_initialRot *= diff;
+		controller->ReadRootMotion(result.Kinematics, RootMotionMode, delta);
+	}
+
+	//result.Kinematics.AngularKinematic = UStructExtensions::LookAt(result.Kinematics.AngularKinematic, _lookDirection, 50, delta);
+	//result.Kinematics.LinearKinematic.Velocity = UStructExtensions::AccelerateTo(result.Kinematics.LinearKinematic.Velocity, FVector(0), 50, delta);
+	return result;
+}
+
+FControllerStatus UBaseDashAction::OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller,
+	const FControllerStatus startingConditions, const float delta)
+{
+	FControllerStatus result = startingConditions;
+
+	if (!IsSimulated() && controller)
+	{
+		if (controller->GetCurrentSurface().GetSurfacePrimitive() != nullptr)
+		{
+			//Push Objects
+			if (controller->GetCurrentSurface().GetSurfacePrimitive()->IsSimulatingPhysics())
+			{
+				controller->GetCurrentSurface().GetSurfacePrimitive()->AddForceAtLocation(-_propulsionVector * controller->GetMass() * delta, controller->GetCurrentSurface().GetHitResult().ImpactPoint, controller->GetCurrentSurface().GetHitResult().BoneName);
+			}
+		}
+	}
+
+	//Handle rotation
+	{
+		result.Kinematics.AngularKinematic = UStructExtensions::LookAt(result.Kinematics.AngularKinematic, _lookDirection, 15, delta);
+	}
+
+	//Movement
+	result.Kinematics.LinearKinematic.AddCompositeMovement(_propulsionVector, -1, 0);
+
+	//Root motion
+	if (controller)
+	{
+		controller->ReadRootMotion(result.Kinematics, RootMotionMode, delta);
+	}
+
+	if (bDebugAction)
+	{
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Dash Speed: (%f); vector: (%s), Distance: (%f)"), *GetDescriptionName().ToString(), result.Kinematics.LinearKinematic.Velocity.Length(), *_propulsionVector.GetSafeNormal().ToCompactString(), _propulsionVector.Length()), true, true, FColor::Yellow, 10, "DashProcess");
+	}
+
+	result.CustomPhysicProperties = FVector(0, 0, 0);
+
+	return result;
+}
+
+FControllerStatus UBaseDashAction::OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller,
+	const FControllerStatus startingConditions, const float delta)
+{
+	FControllerStatus result = startingConditions;
+
+	//Handle rotation
+	{
+		result.Kinematics.AngularKinematic = UStructExtensions::LookAt(result.Kinematics.AngularKinematic, _lookDirection, 15, delta);
+	}
+
+	//Root motion
+	if (controller)
+	{
+		controller->ReadRootMotion(result.Kinematics, RootMotionMode, delta);
+	}
+
+	//result.Kinematics.LinearKinematic.Velocity = UStructExtensions::AccelerateTo(result.Kinematics.LinearKinematic.Velocity, FVector(0), 50, delta);
+	return result;
+}
+
+
+//*//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void UBaseDashAction::OnControllerStateChanged_Implementation(UModularControllerComponent* onController,
+	FName newBehaviourDescName, int newPriority)
+{
+	if (ActionCompatibilityMode == ActionCompatibilityMode_OnCompatibleStateOnly || ActionCompatibilityMode == ActionCompatibilityMode_OnBothCompatiblesStateAndAction)
+	{
+		if (!CompatibleStates.Contains(newBehaviourDescName))
+		{
+			_remainingActivationTimer = 0;
+		}
 	}
 }
 
+
+//*//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 void UBaseDashAction::SaveActionSnapShot_Internal()
 {
-	_dashToLocation_saved = _dashToLocation;
-	_propulsionLocation_saved = _propulsionLocation;
-	_dashed_saved = _dashed;
-	_initialRot_saved = _initialRot;
 }
 
 void UBaseDashAction::RestoreActionFromSnapShot_Internal()
 {
-	_dashToLocation = _dashToLocation_saved;
-	_propulsionLocation = _propulsionLocation_saved;
-	_dashed = _dashed_saved;
-	_initialRot = _initialRot_saved;
 }

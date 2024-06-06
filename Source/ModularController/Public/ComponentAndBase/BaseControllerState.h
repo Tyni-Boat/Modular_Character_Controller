@@ -45,20 +45,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Base|Basic State Parameters")
 	TSubclassOf<UAnimInstance> StateBlueprintClass;
 
-	// The State's Root motion Mode
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Base|Basic State  Parameters")
-	TEnumAsByte<ERootMotionType> RootMotionMode;
 
 	// The informations on the current surface. This is used to track one surface movements
-	UPROPERTY(BlueprintReadOnly, category = "Base|Basic State  Parameters")
+	UPROPERTY(BlueprintReadOnly, category = "Base|Basic State Parameters")
 	FSurfaceInfos SurfaceInfos;
 
 	// The state's flag, often used as binary. to relay this State's state over the network.
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Base|Basic State  Parameters")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Base|Basic State Parameters")
 	int StateFlag;
 
 	// Enable or disable debug for this state
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base|Basic State  Parameters")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Base|Basic State Parameters")
 	bool bDebugState;
 
 
@@ -70,13 +67,14 @@ public:
 	/// When we enters the state.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	void OnEnterState(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	FKinematicComponents OnEnterState(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
 
 	/// <summary>
 	/// When we exit the state.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	void OnExitState(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	FKinematicComponents OnExitState(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
+
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -85,9 +83,7 @@ public:
 	/// Check if the state is Valid
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	bool CheckState(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam
-		, FStatusParameters& currentStatus, const float inDelta
-		, int overrideWasLastStateStatus = -1);
+	FControllerCheckResult CheckState(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveState);
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -97,7 +93,7 @@ public:
 	/// Process state and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	FVelocity ProcessState(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	FControllerStatus ProcessState(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta);
 
 
 
@@ -108,31 +104,14 @@ public:
 	/// When the controller change a State, it call this function to notify all of it's states the change
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	void OnControllerStateChanged(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller);
+	void OnControllerStateChanged(UModularControllerComponent* onController, FName newBehaviourDescName, int newPriority);
 
 	/// <summary>
 	/// Get Notify actions the active action change. whether the action is active or not.
 	/// </summary>
 	/// <returns></returns>
-	UFUNCTION(BlueprintNativeEvent, Category = "Action|Base Events")
-	void OnActionChanged(UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
-
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-	/// <summary>
-	/// Is this behaviour been used by the controller the last frame?
-	/// </summary>
-	UFUNCTION(BlueprintCallable, category = "State|Basic Events")
-	bool GetWasTheLastFrameControllerState();
-
-
-	/// <summary>
-	/// Is this behaviour been used by the controller the last frame?
-	/// </summary>
-	UFUNCTION(BlueprintCallable, category = "State|Basic Events")
-	void SetWasTheLastFrameControllerState(bool value);
+	UFUNCTION(BlueprintNativeEvent, Category = "State|Base Events")
+	void OnControllerActionChanged(UModularControllerComponent* onController, UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -179,13 +158,13 @@ public:
 	/// </summary>
 
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	virtual FKinematicComponents OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
 
 	/// <summary>
 	/// When we exit the state.
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	virtual FKinematicComponents OnExitState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
 
 
 
@@ -193,15 +172,14 @@ public:
 	/// Check if the state is Valid
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
-		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus = -1);
+	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState = false);
 
 
 	/// <summary>
 	/// Process state and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual FVelocity ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta);
+	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta);
 
 
 
@@ -210,7 +188,16 @@ public:
 	/// When the controller change a behaviour, it call this function to notify nay of it's bahaviour the change
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual	void OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller);
+	virtual	void OnControllerStateChanged_Implementation(UModularControllerComponent* onController, FName newBehaviourDescName, int newPriority);
+
+
+	/// <summary>
+	/// When the controller change a behaviour, it call this function to notify nay of it's bahaviour the change
+	/// </summary>
+	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
+	virtual	void OnControllerActionChanged_Implementation(UModularControllerComponent* onController, UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
+
+
 
 
 	///Check if this is running as a part of a simulation
@@ -218,11 +205,7 @@ public:
 	FORCEINLINE bool IsSimulated() { return _snapShotSaved; }
 
 protected:
-
-	bool _wasTheLastFrameBehaviour;
-
-	bool _wasTheLastFrameBehaviour_saved;
-
+	
 	bool _snapShotSaved;
 
 

@@ -33,8 +33,7 @@ public:
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-	bool CheckDash(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, FStatusParameters controllerStatusParam,
-		FStatusParameters& currentStatus, const float inDelta, UModularControllerComponent* controller);
+	bool CheckDash(UModularControllerComponent* controller);
 
 
 	/**
@@ -50,6 +49,10 @@ public:
 
 #pragma region Dash
 protected:
+
+	// The State's Root motion Mode
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Dash Parameters")
+	TEnumAsByte<ERootMotionType> RootMotionMode;
 	
 	// The dash distance
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
@@ -61,7 +64,7 @@ protected:
 	bool bTurnTowardDashDirection = false;
 
 	// Should the dash conserve the current controller rotation?
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters", meta=(EditCondition="bTurnTowardDashDirection"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters", meta=(EditCondition="!bTurnTowardDashDirection"))
 	bool bUseFourDirectionnalDash = false;
 
 	// The forward dash animation.
@@ -91,18 +94,9 @@ protected:
 
 	//------------------------------------------------------------------------------------------
 	
-	FVector _dashToLocation;
-	FVector _dashToLocation_saved;
-
-	FVector _propulsionLocation;
-	FVector _propulsionLocation_saved;
-
-	bool _dashed;
-	bool _dashed_saved;
-
-	FQuat _initialRot;
-	FQuat _initialRot_saved;
-
+	FVector _propulsionVector;
+	FVector _lookDirection;
+	
 
 	/// <summary>
 	/// The end montage delegate.
@@ -123,26 +117,20 @@ protected:
 #pragma region Functions
 public:
 	
+	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveAction) override;
 
-	virtual bool CheckAction_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
-		, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta) override;
+	virtual FKinematicComponents OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
+
+	virtual FKinematicComponents OnActionEnds_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
+
+	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
+
+	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
+
+	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
 
 
-	virtual FVelocity OnActionProcessAnticipationPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
-
-	virtual FVelocity OnActionProcessActivePhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput
-		, UModularControllerComponent* controller, const float inDelta) override;
-
-	virtual FVelocity OnActionProcessRecoveryPhase_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVelocity fromVelocity, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
-
-
-	virtual	void OnStateChanged_Implementation(UBaseControllerState* newState, UBaseControllerState* oldState) override;
-
-	virtual void OnActionEnds_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller,
-		FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta) override;
-
-	virtual void OnActionBegins_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller,
-		FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta) override;
+	virtual void OnControllerStateChanged_Implementation(UModularControllerComponent* onController, FName newBehaviourDescName, int newPriority) override;
 
 	virtual void SaveActionSnapShot_Internal() override;
 

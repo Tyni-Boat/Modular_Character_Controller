@@ -201,61 +201,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
 	TEnumAsByte<EInputEntryType> Type = EInputEntryType::InputEntryType_Simple;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-	FVector Axis;
+	FVector Axis = FVector(0);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-	float InputBuffer = 0.2f;
+	float InputBuffer = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
 	TEnumAsByte<EInputEntryPhase> Phase = EInputEntryPhase::InputEntryPhase_None;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
+	float HeldDuration = 0;
 
-	float _bufferChrono = 0;
-	float _activeDuration = 0;
 
-	///// <summary>
-	///// Check if this input is Still valid, updating it's values
-	///// </summary>
-	FORCEINLINE bool IsObsolete(float d)
+	FORCEINLINE void Reset()
 	{
-		bool result = Phase == EInputEntryPhase::InputEntryPhase_Released;
-		_activeDuration += d;
-		switch (Nature)
-		{
-		case EInputEntryNature::InputEntryNature_Axis: {
-			Axis = FVector(0);
-			result = false;
-		}break;
-		case EInputEntryNature::InputEntryNature_Value: {
-			result = false;
-		}break;
-		default:
-		{
-			switch (Type)
-			{
-			case EInputEntryType::InputEntryType_Buffered: {
-				if (Phase == EInputEntryPhase::InputEntryPhase_Released)
-				{
-					_bufferChrono += d;
-					if (_bufferChrono <= InputBuffer)
-					{
-						result = false;
-					}
-				}
-				else
-				{
-					_bufferChrono = 0;
-				}
-			}break;
-			}
-		}break;
-		}
-		return result;
-	}
-
-	FORCEINLINE bool IsActiveButton() const
-	{
-		if (Nature != EInputEntryNature::InputEntryNature_Button)
-			return false;
-		return Phase == InputEntryPhase_Pressed || Phase == InputEntryPhase_Held;
+		Axis = FVector(0);
+		HeldDuration = 0;
+		InputBuffer = 0;
+		Phase = EInputEntryPhase::InputEntryPhase_None;
 	}
 };
 
@@ -264,23 +225,11 @@ public:
 * Represent a pack of input entry, tracking inputs. Used locally only. not intended to be used remotely
 */
 UCLASS(BlueprintType)
-class MODULARCONTROLLER_API UInputEntryPool: public UObject
+class MODULARCONTROLLER_API UInputEntryPool : public UObject
 {
 	GENERATED_BODY()
 
 public:
-	//FORCEINLINE UInputEntryPool() {}
-
-	//FORCEINLINE UInputEntryPool(const UInputEntryPool& ref)
-	//{
-	//	_inputPool.Empty();
-	//	_inputPool_last.Empty();
-
-	//	for (auto entry : ref._inputPool)
-	//		_inputPool.Add(entry.Key, entry.Value);
-	//	for (auto entry : ref._inputPool_last)
-	//		_inputPool_last.Add(entry.Key, entry.Value);
-	//}
 
 	//The input pool
 	TMap<FName, FInputEntry> _inputPool;
@@ -293,51 +242,38 @@ public:
 	/// <summary>
 	/// Add input to the input pool. return true when added not replaced
 	/// </summary>
-	FORCEINLINE bool AddOrReplace(FName key, FInputEntry entry)
+	FORCEINLINE bool AddOrReplace(FName key, FInputEntry entry, const bool hold = false)
 	{
 		if (key.IsNone())
 			return false;
 
-		//entry.Axis = entry.Axis.GetClampedToMaxSize(1);
-		entry.Axis = entry.Axis;
-
 		if (_inputPool.Contains(key))
 		{
-			entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
+			entry.Phase = hold ? EInputEntryPhase::InputEntryPhase_Held : EInputEntryPhase::InputEntryPhase_Pressed;
 			_inputPool[key] = entry;
 		}
 		else
 		{
-			entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
+			entry.Phase = hold ? EInputEntryPhase::InputEntryPhase_Held : EInputEntryPhase::InputEntryPhase_Pressed;
 			_inputPool.Add(key, entry);
 		}
+
 		return true;
 	}
 
 	/// <summary>
 	/// Get input from the inputs pool
 	/// </summary>
-	FORCEINLINE FInputEntry ReadInput(FName key, bool debug = false, UObject* worldContext = NULL) const
+	FORCEINLINE FInputEntry ReadInput(const FName key) const
 	{
 		FInputEntry entry = FInputEntry();
-		bool validInput = false;
 		if (_inputPool_last.Contains(key))
 		{
 			entry.Nature = _inputPool_last[key].Nature;
 			entry.Type = _inputPool_last[key].Type;
 			entry.Phase = _inputPool_last[key].Phase;
 			entry.Axis = _inputPool_last[key].Axis;
-			entry._bufferChrono = _inputPool_last[key]._bufferChrono;
-			entry._activeDuration = _inputPool_last[key]._activeDuration;
-			if (entry.Type == EInputEntryType::InputEntryType_Buffered && entry.Phase == EInputEntryPhase::InputEntryPhase_Released && entry._bufferChrono > 0)
-			{
-				entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
-			}
-			if (entry._activeDuration > 0.2 && entry.Phase == EInputEntryPhase::InputEntryPhase_Pressed)
-			{
-				entry.Phase = EInputEntryPhase::InputEntryPhase_Held;
-			}
-			validInput = true;
+			entry.HeldDuration = _inputPool_last[key].HeldDuration;
 		}
 		else if (_inputPool.Contains(key))
 		{
@@ -345,13 +281,7 @@ public:
 			entry.Type = _inputPool[key].Type;
 			entry.Phase = _inputPool[key].Phase;
 			entry.Axis = _inputPool[key].Axis;
-			entry._bufferChrono = _inputPool[key]._bufferChrono;
-			entry._activeDuration = _inputPool[key]._activeDuration;
-			if (entry.Type == EInputEntryType::InputEntryType_Buffered && entry.Phase == EInputEntryPhase::InputEntryPhase_Released)
-			{
-				entry.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
-			}
-			validInput = true;
+			entry.HeldDuration = _inputPool[key].HeldDuration;
 		}
 		else
 		{
@@ -361,57 +291,23 @@ public:
 			entry.Axis = FVector(0);
 		}
 
-
-		if (debug && worldContext && validInput)
-		{
-			float bufferChrono = entry._bufferChrono;
-			float activeDuration = entry._activeDuration;
-			FColor debugColor;
-			switch (entry.Nature)
-			{
-			default:
-				debugColor = FColor::Silver;
-				break;
-			case InputEntryNature_Axis:
-				debugColor = FColor::Blue;
-				break;
-			case InputEntryNature_Value:
-				debugColor = FColor::Cyan;
-				break;
-			}
-			UKismetSystemLibrary::PrintString(worldContext, FString::Printf(TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %d, Held: %d"), *key.ToString(), *UEnum::GetValueAsName<EInputEntryNature>(entry.Nature).ToString(), *UEnum::GetValueAsName<EInputEntryPhase>(entry.Phase).ToString(), static_cast<int>(bufferChrono * 1000)
-				, static_cast<int>(activeDuration * 1000)), true, true, debugColor, 0, key);
-		}
-
 		return entry;
 	}
-
-	/// <summary>
-	/// Read an input and consume it.
-	/// </summary>
-	/// <param name="key"></param>
-	/// <returns></returns>
-	FORCEINLINE FInputEntry ConsumeInput(FName key, bool debug = false, UObject* worldContext = NULL)
-	{
-		FInputEntry entry = FInputEntry();
-		entry = ReadInput(key, debug, worldContext);
-		if (_inputPool_last.Contains(key))
-			_inputPool_last.Remove(key);
-		if (_inputPool.Contains(key))
-			_inputPool.Remove(key);
-		return entry;
-	}
-
+	
 	/// <summary>
 	/// Update the inputs pool
 	/// </summary>
-	FORCEINLINE void UpdateInputs(float delta)
+	FORCEINLINE void UpdateInputs(float delta, const bool debug = false, UObject* worldContext = NULL)
 	{
 		//Update Existing
 		for (auto& entry : _inputPool_last)
 		{
-			if (_inputPool_last[entry.Key]._bufferChrono > 0)
-				_inputPool_last[entry.Key]._bufferChrono -= delta;
+			if (_inputPool_last[entry.Key].InputBuffer > 0)
+			{
+				auto inp = _inputPool_last[entry.Key];
+				inp.InputBuffer -= delta;
+				_inputPool_last[entry.Key] = inp;
+			}
 		}
 
 		//New comers
@@ -420,17 +316,16 @@ public:
 			if (!_inputPool_last.Contains(entry.Key))
 			{
 				auto input = entry.Value;
-				input.Phase = EInputEntryPhase::InputEntryPhase_Pressed;
-				input._activeDuration = 0;
-				input._bufferChrono = input.InputBuffer;
+				input.HeldDuration = 0;
 				_inputPool_last.Add(entry.Key, input);
 			}
 			else
 			{
-				_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Pressed;
-				_inputPool_last[entry.Key]._activeDuration += delta;
+				auto input = entry.Value;
+				_inputPool_last[entry.Key].Phase = input.Phase;
+				_inputPool_last[entry.Key].HeldDuration = input.Phase == InputEntryPhase_Held ? delta + _inputPool_last[entry.Key].HeldDuration : 0;
 				_inputPool_last[entry.Key].Axis = entry.Value.Axis;
-				_inputPool_last[entry.Key]._bufferChrono = _inputPool_last[entry.Key].InputBuffer;
+				_inputPool_last[entry.Key].InputBuffer = input.InputBuffer;
 			}
 		}
 
@@ -439,54 +334,55 @@ public:
 		{
 			if (!_inputPool.Contains(entry.Key))
 			{
-				_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Released;
-				_inputPool_last[entry.Key]._activeDuration = 0;
+				if (entry.Value.Phase == InputEntryPhase_Released)
+				{
+					_inputPool_last[entry.Key].Reset();
+				}
+				else if (entry.Value.Phase != InputEntryPhase_None)
+				{
+					if (_inputPool_last[entry.Key].Type == InputEntryType_Buffered)
+					{
+						if (entry.Value.InputBuffer <= 0)
+							_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Released;
+						else
+							_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Pressed;
+						_inputPool_last[entry.Key].HeldDuration = 0;
+					}
+					else
+					{
+						_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Released;
+						_inputPool_last[entry.Key].HeldDuration = 0;
+					}
+				}
+			}
+
+			if (debug && worldContext)
+			{
+				const float bufferChrono = _inputPool_last[entry.Key].InputBuffer;
+				const float activeDuration = _inputPool_last[entry.Key].HeldDuration;
+				FColor debugColor;
+				switch (_inputPool_last[entry.Key].Nature)
+				{
+				default:
+					debugColor = FColor::White;
+					break;
+				case InputEntryNature_Axis:
+					debugColor = FColor::Cyan;
+					break;
+				case InputEntryNature_Value:
+					debugColor = FColor::Blue;
+					break;
+				}
+				if (_inputPool_last[entry.Key].Phase == EInputEntryPhase::InputEntryPhase_None)
+				{
+					debugColor = FColor::Black;
+				}
+				UKismetSystemLibrary::PrintString(worldContext, FString::Printf(TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %f, Held: %f"), *entry.Key.ToString(), *UEnum::GetValueAsName<EInputEntryNature>(_inputPool_last[entry.Key].Nature).ToString(), *UEnum::GetValueAsName<EInputEntryPhase>(_inputPool_last[entry.Key].Phase).ToString(), bufferChrono
+					, activeDuration), true, true, debugColor, 0, entry.Key);
 			}
 		}
 
 		_inputPool.Empty();
-	}
-
-	FORCEINLINE void PredictInputs(UInputEntryPool from, float time, float delta)
-	{
-		for (auto input : from._inputPool_last)
-		{
-			if (!_inputPool_last.Contains(input.Key))
-				continue;
-			switch (input.Value.Nature)
-			{
-			case EInputEntryNature::InputEntryNature_Axis:
-				_inputPool_last[input.Key].Axis += (_inputPool_last[input.Key].Axis - input.Value.Axis) * (time / delta);
-				_inputPool_last[input.Key].Axis = _inputPool_last[input.Key].Axis.GetClampedToMaxSize(1);
-				break;
-			case EInputEntryNature::InputEntryNature_Value:
-				_inputPool_last[input.Key].Axis.X += (_inputPool_last[input.Key].Axis.X - input.Value.Axis.X) * (time / delta);
-				_inputPool_last[input.Key].Axis = _inputPool_last[input.Key].Axis.GetClampedToMaxSize(1);
-				break;
-			case EInputEntryNature::InputEntryNature_Button:
-			{
-				if (_inputPool_last[input.Key].Type == EInputEntryType::InputEntryType_Buffered)
-				{
-					_inputPool_last[input.Key]._bufferChrono += time;
-					if (_inputPool_last[input.Key]._bufferChrono >= _inputPool_last[input.Key].InputBuffer)
-					{
-						if (_inputPool_last[input.Key].Phase == InputEntryPhase_Pressed)
-							_inputPool_last[input.Key].Phase = InputEntryPhase_Released;
-						if (_inputPool_last[input.Key].Phase == InputEntryPhase_Held)
-							_inputPool_last[input.Key]._activeDuration += time;
-					}
-				}
-				else
-				{
-					if (_inputPool_last[input.Key].Phase == InputEntryPhase_Pressed)
-						_inputPool_last[input.Key].Phase = InputEntryPhase_Released;
-					if (_inputPool_last[input.Key].Phase == InputEntryPhase_Held)
-						_inputPool_last[input.Key]._activeDuration += time;
-				}
-			}
-			break;
-			}
-		}
 	}
 };
 
@@ -518,12 +414,17 @@ public:
 	 */
 	FORCEINLINE void UpdateSurfaceInfos(FTransform inTransform, const FHitResult selectedSurface, const float delta)
 	{
+		if (updateLock)
+			return;
+
+		updateLock = true;
 		_surfaceHitResult = selectedSurface;
 		_surfaceNormal = selectedSurface.Normal;
 
 		//We're on the same surface
-		if (_currentSurface.Get() != nullptr && selectedSurface.GetComponent() != nullptr && _currentSurface.Get() == selectedSurface.GetComponent())
+		if (_currentSurface.Get() != nullptr && selectedSurface.GetComponent() != nullptr && _currentSurface.Get() == selectedSurface.GetComponent() && !_currentSurface_Location.ContainsNaN())
 		{
+			isSurfaceSwitch = false;
 			FTransform surfaceTransform = _currentSurface->GetComponentTransform();
 			FVector look = surfaceTransform.TransformVector(_surfaceLocalLookDir);
 			FVector pos = surfaceTransform.TransformPosition(_surfaceLocalHitPoint);
@@ -532,23 +433,7 @@ public:
 			{
 				//Linear Part
 				FVector bodyVelocity = FVector(0);
-				UActorComponent* movementComponent = nullptr;
-				if (selectedSurface.GetActor())
-				{
-					movementComponent = selectedSurface.GetActor()->GetComponentByClass(UMovementComponent::StaticClass());
-				}
-				if (selectedSurface.GetComponent()->IsSimulatingPhysics())
-				{
-					bodyVelocity = selectedSurface.GetComponent()->GetPhysicsLinearVelocity(selectedSurface.BoneName) * delta;
-				}
-				else if (movementComponent)
-				{
-					bodyVelocity = Cast<UMovementComponent>(movementComponent)->Velocity * delta;
-				}
-				else
-				{
-					bodyVelocity = selectedSurface.GetComponent()->GetComponentLocation() - _currentSurface_Location;
-				}
+				bodyVelocity = (selectedSurface.GetComponent()->GetComponentLocation() - _currentSurface_Location) / delta;
 
 				//Angular part
 				FQuat currentPl_quat = selectedSurface.GetComponent()->GetComponentRotation().Quaternion();
@@ -558,17 +443,19 @@ public:
 				float angle;
 				FVector axis;
 				pl_rotDiff.ToAxisAndAngle(axis, angle);
+				angle /= delta;
 				FVector dir, up, fwd;
 				up = axis;
 				fwd = FVector::VectorPlaneProject(inTransform.GetLocation() - _currentSurface->GetComponentLocation(), up).GetSafeNormal();
 				dir = FVector::CrossProduct(up, fwd);
-				float r = (inTransform.GetLocation() - _currentSurface->GetComponentLocation()).Length();
-				FVector rotVel = r * angle * dir - fwd * angle * r * delta * 1.425;
+				dir.Normalize();
+				double r = FVector::VectorPlaneProject(inTransform.GetLocation() - _currentSurface->GetComponentLocation(), up).Length() * 0.01;
+				FVector rotVel = r * angle * dir;
 
 				//Finally
-				//_surfaceVelocity = (pos - controller->GetLocation());
-				_surfaceLinearCompositeVelocity = bodyVelocity;
-				_surfaceAngularCompositeVelocity = rotVel;
+				_surfaceLinearCompositeVelocity = bodyVelocity;// *1.2331;
+				_surfaceAngularCompositeVelocity = rotVel;// *1.2331;
+				_surfaceAngularCentripetalVelocity = -fwd * ((angle * angle) / r) * 0.0215;
 			}
 
 			//Orientation
@@ -579,16 +466,20 @@ public:
 				//Get Angular speed
 				currentQuat.EnforceShortestArcWith(targetQuat);
 				auto quatDiff = targetQuat * currentQuat.Inverse();
+				FVector axis;
+				float angle;
+				quatDiff.ToAxisAndAngle(axis, angle);
+				quatDiff = FQuat(axis, angle);
 				_surfaceAngularVelocity = quatDiff;
 			}
 		}
 		//we changed surfaces
 		if (_currentSurface != selectedSurface.GetComponent())
 		{
-			_surfaceLinearCompositeVelocity = FVector(0);
-			_surfaceAngularCompositeVelocity = FVector(0);
-			_surfaceAngularVelocity = FQuat::Identity;
+			Reset();
+			isSurfaceSwitch = true;
 		}
+		_lastSurface = _currentSurface;
 		_currentSurface = selectedSurface.GetComponent();
 		if (_currentSurface != nullptr)
 		{
@@ -601,6 +492,16 @@ public:
 	}
 
 	/// <summary>
+	/// Release the update lock
+	/// </summary>
+	FORCEINLINE void ReleaseLock()
+	{
+		if (!updateLock)
+			return;
+		updateLock = false;
+	}
+
+	/// <summary>
 	/// Reset the surface infos
 	/// </summary>
 	FORCEINLINE void Reset()
@@ -608,30 +509,66 @@ public:
 		_currentSurface = nullptr;
 		_surfaceLinearCompositeVelocity = FVector(0);
 		_surfaceAngularCompositeVelocity = FVector(0);
+		_surfaceAngularCentripetalVelocity = FVector(0);
 		_surfaceAngularVelocity = FQuat::Identity;
 		_surfaceLocalHitPoint = FVector(0);
-		_currentSurface_Location = FVector(INFINITY);
+		_currentSurface_Location = FVector(NAN);
 		_currentSurface_Rotation = FQuat::Identity;
 		_surfaceLocalLookDir = FVector(0);
+		ReleaseLock();
+	}
+
+	/// <summary>
+	/// Consume the last evaluated linear velocity
+	/// </summary>
+	FORCEINLINE FVector ConsumeSurfaceLinearVelocity(bool linear = true, bool angular = true, bool centripetal = false)
+	{
+		FVector velocity = FVector(0);
+		if (linear)
+		{
+			velocity += _surfaceLinearCompositeVelocity;
+			_surfaceLinearCompositeVelocity = FVector(0);
+		}
+		if (angular)
+		{
+			velocity += _surfaceAngularCompositeVelocity * 100;
+			_surfaceAngularCompositeVelocity = FVector(0);
+		}
+		if (centripetal)
+		{
+			velocity += _surfaceAngularCentripetalVelocity * 100;
+			_surfaceAngularCentripetalVelocity = FVector(0);
+		}
+		return velocity;
 	}
 
 	/// <summary>
 	/// Get the last evaluated linear velocity
 	/// </summary>
-	FORCEINLINE FVector GetSurfaceLinearVelocity(bool linear = true, bool angular = true) const
+	FORCEINLINE FVector GetSurfaceLinearVelocity(bool linear = true, bool angular = true, bool centripetal = false) const
 	{
 		FVector velocity = FVector(0);
 		if (linear)
 			velocity += _surfaceLinearCompositeVelocity;
 		if (angular)
-			velocity += _surfaceAngularCompositeVelocity;
+			velocity += _surfaceAngularCompositeVelocity * 100;
+		if (centripetal)
+			velocity += _surfaceAngularCentripetalVelocity * 100;
 		return velocity;
 	}
 
 	/// <summary>
 	/// Get the last evaluated angular velocity
 	/// </summary>
-	FORCEINLINE FQuat GetSurfaceAngularVelocity() const { return  _surfaceAngularVelocity; }
+	FORCEINLINE FQuat GetSurfaceAngularVelocity(bool consume = false)
+	{
+		FQuat value = _surfaceAngularVelocity;
+		if (consume)
+		{
+			_surfaceAngularVelocity = FQuat::Identity;
+		}
+		return value;
+	}
 
 	/// <summary>
 	/// Get the last evaluated surface normal
@@ -644,9 +581,29 @@ public:
 	FORCEINLINE UPrimitiveComponent* GetSurfacePrimitive() const { return  _currentSurface.Get(); }
 
 	/// <summary>
+	/// Get last surface primitive
+	/// </summary>
+	FORCEINLINE UPrimitiveComponent* GetLastSurfacePrimitive() const { return  _lastSurface.Get(); }
+
+	/// <summary>
 	/// Get surface hit result data
 	/// </summary>
 	FORCEINLINE FHitResult GetHitResult() const { return  _surfaceHitResult; }
+
+	/// <summary>
+	/// Get if the surface was changed
+	/// </summary>
+	FORCEINLINE bool HadChangedSurface() const { return  isSurfaceSwitch; }
+
+	/// <summary>
+	/// Get if the surface we just landed on this surface
+	/// </summary>
+	FORCEINLINE bool HadLandedOnSurface() const { return  _currentSurface && !_lastSurface; }
+
+	/// <summary>
+	/// Get if the surface we just took off this surface
+	/// </summary>
+	FORCEINLINE bool HadTookOffSurface() const { return  !_currentSurface && _lastSurface; }
 
 public:
 
@@ -661,6 +618,10 @@ protected:
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
 	TSoftObjectPtr<UPrimitiveComponent> _currentSurface;
 
+	//the last surface
+	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
+	TSoftObjectPtr<UPrimitiveComponent> _lastSurface;
+
 	//the surface linear velocity
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
 	FVector _surfaceLinearCompositeVelocity = FVector(0);
@@ -668,6 +629,10 @@ protected:
 	//the surface angular velocity
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
 	FVector _surfaceAngularCompositeVelocity = FVector(0);
+
+	//the surface angular centripedal velocity
+	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
+	FVector _surfaceAngularCentripetalVelocity = FVector(0);
 
 	//the surface normal
 	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
@@ -688,6 +653,12 @@ protected:
 
 	//The absolute rotation of the platform during last frame
 	FQuat _currentSurface_Rotation;
+
+	//prevent the surface from being updated twice during a frame.
+	bool updateLock;
+
+	//Enabled if the surface had been switched during this frame.
+	bool isSurfaceSwitch;
 };
 
 
@@ -714,13 +685,13 @@ public:
 	/// </summary>
 	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
 	//TSoftObjectPtr<UAnimMontage> Montage;
-	UAnimMontage* Montage;
+	UAnimMontage* Montage = nullptr;
 
 	/// <summary>
 	/// The Animation Montages section to play
 	/// </summary>
 	UPROPERTY(EditAnywhere, Category = "Action|Types|Montage")
-	FName MontageSection;
+	FName MontageSection = "";
 };
 
 
@@ -736,7 +707,7 @@ public:
 
 	FORCEINLINE FStatusParameters() {}
 
-	FORCEINLINE bool HasChanged(FStatusParameters otherStatus)
+	FORCEINLINE bool HasChanged(FStatusParameters otherStatus) const
 	{
 		const bool stateChange = StateIndex != otherStatus.StateIndex;
 		const bool stateFlagChange = PrimaryStateFlag != otherStatus.PrimaryStateFlag;
@@ -769,9 +740,6 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "StatusParameters")
 	FVector_NetQuantize10 ActionsModifiers2;
-
-	UPROPERTY(VisibleInstanceOnly, SkipSerialization, Category="StatusParameters")
-	double ActionVelocityConservation = 100;
 };
 
 
@@ -782,245 +750,373 @@ public:
 #pragma region MovementInfosAndReplication
 
 
-//*
-//* InitialVelocities informations
-//*
+//Represent a single kinematic linear condition
 USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FVelocity
+struct FLinearKinematicCondition
 {
 	GENERATED_BODY()
 
 public:
-	FORCEINLINE FVelocity()
+
+	//The linear acceleration (Cm/s2)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	FVector Acceleration = FVector(0);
+
+	//The linear velocity (Cm/s)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	FVector Velocity = FVector(0);
+
+	//The position (Cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	FVector Position = FVector(0);
+
+	//The current velocity of the referential space (usually the surface the controller is on).Is conserved. this is not mean to be used directly.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "KinematicProperty", SkipSerialization)
+	FVector refVelocity = FVector(0);
+
+	//The current Acceleration caused by the referential space (usually the surface the controller is on).Is not conserved. this is not mean to be used directly.
+	UPROPERTY(SkipSerialization)
+	FVector refAcceleration = FVector(0);
+
+	//Vector used to adjust position without conserving the movement. (Cm/s)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty", SkipSerialization)
+	FVector SnapDisplacement = FVector(0);
+
+	//The array of composite movements. this is not mean to be used directly.
+	UPROPERTY(SkipSerialization)
+	TArray<FVector4d> CompositeMovements;
+
+	//The time elapsed (s)
+	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	double Time = 0;
+
+
+
+	//Set the referential movement (usually the surface the controller is on)
+	FORCEINLINE void SetReferentialMovement(const FVector movement, const float delta, const float acceleration = -1)
 	{
-		ConstantLinearVelocity = FVector(0);
-		InstantLinearVelocity = FVector(0);
-		ActionStartLinearVelocity = FVector(0);
-		Rotation = FQuat(0);
-	}
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocity")
-	FVector ConstantLinearVelocity = FVector(0);
-
-	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "Velocity")
-	FVector InstantLinearVelocity = FVector(0);
-
-	UPROPERTY(SkipSerialization, VisibleInstanceOnly, BlueprintReadOnly, Category = "Velocity")
-	FVector ActionStartLinearVelocity = FVector(0);
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocity")
-	FQuat Rotation = FQuat(0);
-
-	//to scale the root motion or actiate/desactivate it
-	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "Velocity")
-	float _rooMotionScale = 1;
-
-
-
-	static FVelocity Null()
-	{
-		FVelocity result = FVelocity();
-		result.Rotation = FQuat(0);
-		result.ConstantLinearVelocity = FVector(0);
-		result.InstantLinearVelocity = FVector(0);
-		result.ActionStartLinearVelocity = FVector(0);
-		return result;
-	}
-
-	static FVector AngularVelocityFromRotation(FQuat rotation)
-	{
-		FVector axis;
-		float angle;
-		rotation.ToAxisAndAngle(axis, angle);
-		float thisAngle = angle;
-		float maxAngle = FMath::DegreesToRadians(360);
-		auto res = FMath::Floor(thisAngle / maxAngle);
-		res = res * maxAngle;
-		angle = thisAngle - res;
-		return axis * angle;
-	}
-
-	static FQuat RotationDeltaFromAngularVelocity(FVector angularVelocity)
-	{
-		FVector axis = angularVelocity.GetSafeNormal();
-		float thisAngle = angularVelocity.Length();
-		float maxAngle = FMath::DegreesToRadians(360);
-		auto res = FMath::Floor(thisAngle / maxAngle);
-		res = res * maxAngle;
-		float angle = thisAngle - res;
-		return FQuat(axis, angle);
-	}
-};
-
-
-
-//* Move Simulation infos
-//*/
-USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FKinematicInfos
-{
-	GENERATED_BODY()
-
-public:
-	FORCEINLINE FKinematicInfos()
-	{
-	}
-
-	FORCEINLINE FKinematicInfos(const FVector moveVector, const  FVector InGravity, const  FKinematicInfos fromLastMove, const float inMass = 0)
-	{
-		UserMoveVector = moveVector;
-		Gravity = InGravity;
-		InitialTransform = fromLastMove.FinalTransform;
-		InitialVelocities = fromLastMove.FinalVelocities;
-		Mass = inMass;
-	}
-
-	FORCEINLINE FKinematicInfos(const FTransform fromTransform, const  FVelocity fromVelocity, const  FSurfaceInfos onSurface)
-	{
-		InitialTransform = fromTransform;
-		InitialVelocities = fromVelocity;
-		UserMoveVector = FVector(0);
-	}
-
-
-	FORCEINLINE void FromInitialValues(const FKinematicInfos& ref, bool copyFinals = false)
-	{
-		InitialVelocities = ref.InitialVelocities;
-		InitialTransform = ref.InitialTransform;
-		if (copyFinals)
+		const double acc = acceleration >= 0 ? acceleration : 1 / delta;
+		if (acc <= 0)
 		{
-			FinalVelocities = ref.FinalVelocities;
-			FinalTransform = ref.FinalTransform;
+			refAcceleration = FVector(0);
+			refVelocity = FVector(0);
+			return;
+		}
+		const double t = FMath::Clamp(acc * (1 / (3 * delta)), 0, 1 / delta);
+		const FVector v = movement;
+		const FVector v0 = refVelocity;
+		FVector a = FVector(0);
+		a.X = (v.X - v0.X) * t;
+		a.Y = (v.Y - v0.Y) * t;
+		a.Z = (v.Z - v0.Z) * t;
+		refAcceleration = a;
+		refVelocity = a * delta + v0;
+	}
 
+	//Add a composite movement. useful to match a certain speed;
+	FORCEINLINE void AddCompositeMovement(const FVector movement, const float acceleration = -1, int index = -1)
+	{
+		if (index < 0)
+		{
+			bool replaced = false;
+			for (int i = 0; i < CompositeMovements.Num(); i++)
+			{
+				if (CompositeMovements[i].W == 0)
+				{
+					CompositeMovements[i] = FVector4d(movement.X, movement.Y, movement.Z, acceleration);
+					replaced = true;
+				}
+			}
+			if (!replaced)
+			{
+				CompositeMovements.Add(FVector4d(movement.X, movement.Y, movement.Z, acceleration));
+			}
+		}
+		else if (CompositeMovements.IsValidIndex(index))
+		{
+			CompositeMovements[index] = FVector4d(movement.X, movement.Y, movement.Z, acceleration);
 		}
 		else
 		{
-			FinalVelocities = FVelocity();
-			FinalTransform = FTransform::Identity;
+			for (int i = CompositeMovements.Num(); i <= index; i++)
+			{
+				if (i == index)
+					CompositeMovements.Add(FVector4d(movement.X, movement.Y, movement.Z, acceleration));
+				else
+					CompositeMovements.Add(FVector4d(0, 0, 0, 0));
+			}
 		}
 	}
 
-
-	//User Intent *************************************************************************************
-
-	/// <summary>
-	/// The movement vector used.
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "User")
-	FVector UserMoveVector;
-
-	//Velocities *************************************************************************************
-
-	/// <summary>
-	/// The velocities component, containing both velocities and accelerations at the initial position
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-	FVelocity InitialVelocities;
-
-	/// <summary>
-	/// The velocities component, containing both velocities and accelerations at the final state
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Velocities")
-	FVelocity FinalVelocities;
-
-
-	//Positionning *************************************************************************************
-
-	/// <summary>
-	/// The final position, rotation, scale after movement
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	FTransform FinalTransform = FTransform::Identity;
-
-	/// <summary>
-	/// The initial position, rotation, scale before movement
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Positionning")
-	FTransform InitialTransform = FTransform::Identity;
-	
-
-	//Physic *************************************************************************************
-
-	//Do we use physic interractions?
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Physics")
-	bool bUsePhysic;
-
-	//Others *************************************************************************************
-
-
-	/// <summary>
-	/// The actor's Mass
-	/// </summary>
-	double Mass;
-
-	/// <summary>
-	/// The Gravity
-	/// </summary>
-	FVector_NetQuantize Gravity = -FVector_NetQuantize::UpVector;
-
-
-
-	/// <summary>
-	/// Get the actor's Mass
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE float GetMass() const { return  Mass; }
-
-	/// <summary>
-	/// Get initial ascension scale; positive value if the momentum goes against the gravity
-	/// </summary>
-	FORCEINLINE float GetInitialAscensionScale() const
+	//Remove a composite movement at index.
+	FORCEINLINE bool RemoveCompositeMovement(int index)
 	{
-		const float dotProduct = FVector::DotProduct(GetInitialMomentum(), -Gravity.GetSafeNormal());
-		return dotProduct;
-	}
-
-	/// <summary>
-	/// Get the initial momentum.
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE FVector GetInitialMomentum() const { return InitialVelocities.ConstantLinearVelocity; }// + InitialVelocities.InstantLinearVelocity; }
-
-	/// <summary>
-	/// Get the final momentum.
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE FVector GetFinalMomentum() const { return InitialVelocities.ConstantLinearVelocity; }// + InitialVelocities.InstantLinearVelocity;}
-
-	/// <summary>
-	/// Predict velocities at time T [v = v0 + at]. Assuming initial and final velocities are corrects for the delta time
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE FVelocity PredictVelocity(float time) const
-	{
-		FVelocity result = FVelocity::Null();
-		result.ConstantLinearVelocity = InitialVelocities.ConstantLinearVelocity + (FinalVelocities.ConstantLinearVelocity - InitialVelocities.ConstantLinearVelocity) * time;
-		return result;
-	}
-
-	/// <summary>
-	/// Predict Transform at Time. Assuming initial and final velocities are corrects for the delta time
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE FTransform PredictTransform(float time) const
-	{
-		FTransform result = InitialTransform;
-
-		//Predict location (x = x0 + v0t + 1/2at2)
+		if (CompositeMovements.IsValidIndex(index))
 		{
-			FVector acceleration = (FinalVelocities.ConstantLinearVelocity - InitialVelocities.ConstantLinearVelocity);
-			FVector location = FinalTransform.GetLocation() + FinalVelocities.ConstantLinearVelocity * time + (0.5f * acceleration * FMath::Pow(time, 2));
-			result.SetLocation(location);
+			CompositeMovements.RemoveAt(index);
+			return true;
 		}
-
-		//Predict Rotation (2adR = w2 + wo2)
-		{
-			FQuat rotation = FinalTransform.GetRotation();
-			result.SetRotation(rotation);
-		}
-
-		return result;
+		else
+			return false;
 	}
+
+
+	//Compute an acceleration from this condition leading to the desired velocity
+	FORCEINLINE FVector GetAccelerationFromVelocity(FVector desiredVelocity, double deltaTime, bool onlyContribution = false)
+	{
+		FVector velocityDiff = desiredVelocity - Velocity;
+		if (onlyContribution && desiredVelocity.Length() < Velocity.Length())
+			velocityDiff = desiredVelocity * deltaTime;
+		return velocityDiff / deltaTime;
+	}
+
+	//Evaluate future movement conditions base on the delta time.
+	FORCEINLINE FLinearKinematicCondition GetFinalCondition(double deltaTime)
+	{
+		ComputeCompositeMovement(deltaTime);
+		FLinearKinematicCondition finalCondition = FLinearKinematicCondition();
+		//X part
+		double x = 0.5 * Acceleration.X * (deltaTime * deltaTime) + Velocity.X * deltaTime + Position.X;
+		double velx = Acceleration.X * deltaTime + Velocity.X;
+		//Y part
+		double y = 0.5 * Acceleration.Y * (deltaTime * deltaTime) + Velocity.Y * deltaTime + Position.Y;
+		double vely = Acceleration.Y * deltaTime + Velocity.Y;
+		//Z part
+		double z = 0.5 * Acceleration.Z * (deltaTime * deltaTime) + Velocity.Z * deltaTime + Position.Z;
+		double velz = Acceleration.Z * deltaTime + Velocity.Z;
+
+		finalCondition.Position = FVector(x, y, z);
+		finalCondition.Velocity = FVector(velx, vely, velz);
+		finalCondition.Acceleration = Acceleration;
+		finalCondition.SnapDisplacement = SnapDisplacement;
+		finalCondition.Time = Time + deltaTime;
+		finalCondition.refAcceleration = refAcceleration;
+		finalCondition.refVelocity = refVelocity;
+		return finalCondition;
+	}
+
+	//Evaluate future movement conditions base both the delta time and a targeted position.
+	FORCEINLINE FLinearKinematicCondition GetFinalFromPosition(FVector targetPosition, double deltaTime, bool affectAcceleration = false)
+	{
+		ComputeCompositeMovement(deltaTime);
+		FLinearKinematicCondition fixedCondition = FLinearKinematicCondition();
+		fixedCondition.Position = targetPosition;
+		fixedCondition.Acceleration = Acceleration;
+		fixedCondition.SnapDisplacement = SnapDisplacement;
+		fixedCondition.Time = Time + deltaTime;
+		fixedCondition.refAcceleration = refAcceleration;
+		fixedCondition.refVelocity = refVelocity;
+
+		//Velocity
+		{
+			//X part
+			double velX = ((2 * (targetPosition.X - Position.X)) / deltaTime) - Velocity.X;
+			//Y part
+			double velY = ((2 * (targetPosition.Y - Position.Y)) / deltaTime) - Velocity.Y;
+			//Z part
+			double velZ = ((2 * (targetPosition.Z - Position.Z)) / deltaTime) - Velocity.Z;
+
+			fixedCondition.Velocity = FVector(velX, velY, velZ);
+		}
+
+		//Acceleration
+		if (affectAcceleration)
+		{
+			//X part
+			double accX = (fixedCondition.Velocity.X - Velocity.X) / deltaTime;
+			//Y part
+			double accY = (fixedCondition.Velocity.Y - Velocity.Y) / deltaTime;
+			//Z part
+			double accZ = (fixedCondition.Velocity.Z - Velocity.Z) / deltaTime;
+
+			fixedCondition.Acceleration = FVector(accX, accY, accZ);
+		}
+
+		return fixedCondition;
+	}
+
+protected:
+
+	//Compute composite movement to take them in to account when moving.
+	FORCEINLINE void ComputeCompositeMovement(const float delta)
+	{
+		//Referential
+		const FVector relativeVelocity = Velocity - refVelocity;
+		Acceleration += refAcceleration;
+
+		if (CompositeMovements.IsEmpty())
+			return;
+
+		for (int i = CompositeMovements.Num() - 1; i >= 0; i--)
+		{
+			const auto moveParam = CompositeMovements[i];
+			const FVector movement = FVector(moveParam.X, moveParam.Y, moveParam.Z);
+			const double acceleration = moveParam.W >= 0 ? moveParam.W : 1 / delta;
+			if (acceleration <= 0)
+				continue;
+			const double t = FMath::Clamp(acceleration * (1 / (3 * delta)), 0, 1 / delta);
+			const FVector v = movement;
+			const FVector v0 = relativeVelocity;
+			FVector a = FVector(0);
+			a.X = (v.X - v0.X) * t;
+			a.Y = (v.Y - v0.Y) * t;
+			a.Z = (v.Z - v0.Z) * t;
+			Acceleration += a;
+		}
+	}
+};
+
+//Represent a single kinematic angular condition
+USTRUCT(BlueprintType)
+struct FAngularKinematicCondition
+{
+	GENERATED_BODY()
+
+public:
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	FVector AngularAcceleration = FVector(0);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	FVector RotationSpeed = FVector(0);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	FQuat Orientation = FQuat(0);
+
+	UPROPERTY(SkipSerialization, EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
+	double Time = 0;
+
+
+	//Get angular speed as Quaternion
+	FORCEINLINE FQuat GetAngularSpeedQuat(float time = 1) const
+	{
+		const FVector axis = RotationSpeed.GetSafeNormal();
+		const float angle = FMath::DegreesToRadians(FMath::Clamp(RotationSpeed.Length() * time, 0, 360));
+		const float halfTetha = angle * 0.5;
+		const float sine = FMath::Sin(halfTetha);
+		const float cosine = FMath::Cos(halfTetha);
+		FQuat q = FQuat(axis.X * sine, axis.Y * sine, axis.Z * sine, cosine);
+		return q;
+	}
+
+	//Evaluate future movement conditions base on the delta time.
+	FORCEINLINE FAngularKinematicCondition GetFinalCondition(double deltaTime) const
+	{
+		FAngularKinematicCondition finalCondition = FAngularKinematicCondition();
+
+		//X part
+		double velx = AngularAcceleration.X * deltaTime + RotationSpeed.X;
+		//Y part
+		double vely = AngularAcceleration.Y * deltaTime + RotationSpeed.Y;
+		//Z part
+		double velz = AngularAcceleration.Z * deltaTime + RotationSpeed.Z;
+
+		finalCondition.RotationSpeed = FVector(velx, vely, velz);
+		const FQuat angularSpeed = finalCondition.GetAngularSpeedQuat(deltaTime);
+		finalCondition.Orientation = Orientation * angularSpeed;
+		finalCondition.AngularAcceleration = AngularAcceleration;
+		finalCondition.Time = Time + deltaTime;
+
+
+		return finalCondition;
+	}
+
+};
+
+
+//Represent the kinematic conditions of an object
+USTRUCT(BlueprintType)
+struct FKinematicComponents
+{
+	GENERATED_BODY()
+
+public:
+
+	FORCEINLINE FKinematicComponents()
+	{
+	}
+
+	FORCEINLINE FKinematicComponents(FLinearKinematicCondition linearCond, FAngularKinematicCondition angularCond)
+	{
+		LinearKinematic = linearCond;
+		AngularKinematic = angularCond;
+	}
+
+	FORCEINLINE FKinematicComponents FromComponent(FKinematicComponents fromComponent, double withDelta)
+	{
+		LinearKinematic = fromComponent.LinearKinematic.GetFinalCondition(withDelta);
+		AngularKinematic = fromComponent.AngularKinematic.GetFinalCondition(withDelta);
+		return FKinematicComponents(LinearKinematic, AngularKinematic);
+	}
+
+	FORCEINLINE FKinematicComponents FromComponent(FKinematicComponents fromComponent, FVector linearAcceleration, double withDelta)
+	{
+		fromComponent.LinearKinematic.Acceleration = linearAcceleration;
+		LinearKinematic = fromComponent.LinearKinematic.GetFinalCondition(withDelta);
+		AngularKinematic = fromComponent.AngularKinematic.GetFinalCondition(withDelta);
+		return FKinematicComponents(LinearKinematic, AngularKinematic);
+	}
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
+	FLinearKinematicCondition LinearKinematic = FLinearKinematicCondition();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
+	FAngularKinematicCondition AngularKinematic = FAngularKinematicCondition();
+
+
+	//Get the rotation from angular kinematic.
+	FORCEINLINE FQuat GetRotation() const { return AngularKinematic.Orientation; }
+};
+
+
+// The result of a processed state or action
+USTRUCT(BlueprintType)
+struct FControllerStatus
+{
+	GENERATED_BODY()
+
+public:
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
+	FKinematicComponents Kinematics = FKinematicComponents();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
+	FStatusParameters ControllerStatus = FStatusParameters();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
+	FVector MoveInput = FVector(0);
+
+	//X= surface friction, Y=Drag, Z= Bounciness
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
+	FVector CustomPhysicProperties = FVector(-1);
+
+	//The current surface the controller is on.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult", SkipSerialization)
+	FSurfaceInfos ControllerSurface = FSurfaceInfos();
+};
+
+
+// The result of a check on state or action
+USTRUCT(BlueprintType)
+struct FControllerCheckResult
+{
+	GENERATED_BODY()
+
+public:
+
+	FORCEINLINE FControllerCheckResult() {}
+
+	FORCEINLINE FControllerCheckResult(bool condition, FControllerStatus process)
+	{
+		CheckedCondition = condition;
+		ProcessResult = process;
+	}
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CheckResult")
+	bool CheckedCondition = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CheckResult")
+	FControllerStatus ProcessResult = FControllerStatus();
 };
 
 
@@ -1059,208 +1155,6 @@ public:
 
 
 
-
-/// <summary>
-/// The Data the client send to the server in order to be checked. also kept in the history for correction
-/// </summary>
-USTRUCT(BlueprintType)
-struct FClientNetMoveCommand
-{
-	GENERATED_BODY()
-
-public:
-
-	FORCEINLINE FClientNetMoveCommand() {}
-
-	FORCEINLINE FClientNetMoveCommand(double timeStamp, float deltaTime, FVector userMove, FKinematicInfos kinematicInfos, FStatusParameters controllerStatus = FStatusParameters())
-	{
-		TimeStamp = timeStamp;
-		DeltaTime = deltaTime;
-		userMoveInput = userMove;
-		FromLocation = kinematicInfos.InitialTransform.GetLocation();
-		ToLocation = kinematicInfos.FinalTransform.GetLocation();
-		FromRotation = kinematicInfos.InitialTransform.Rotator();
-		ToRotation = kinematicInfos.FinalTransform.Rotator();
-		ToVelocity = kinematicInfos.FinalVelocities.ConstantLinearVelocity;
-		WithVelocity = kinematicInfos.InitialVelocities.ConstantLinearVelocity;
-		ControllerStatus = controllerStatus;
-	}
-
-	/// <summary>
-	/// Get the offset of position, displacement made during this command.
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE FVector GetLocationOffset() const { return ToLocation - FromLocation; }
-
-	/// <summary>
-	/// Get the rotation offset of this command.
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE FQuat GetRotationOffset() const
-	{
-		auto finalRot = ToRotation.Quaternion();
-		finalRot.EnforceShortestArcWith(FromRotation.Quaternion());
-		auto rotOffset = FromRotation.Quaternion().Inverse() * finalRot;
-		return rotOffset;
-	}
-
-	/// <summary>
-	/// Get the difference of speed during the move
-	/// </summary>
-	/// <returns></returns>
-	FORCEINLINE FVector GetAccelerationVector() const { return ToVelocity - WithVelocity; }
-
-
-	/// <summary>
-	/// Check if this command is dirty and have to be send over.
-	/// </summary>
-	/// <param name="otherCmd"></param>
-	/// <returns></returns>
-	FORCEINLINE bool HasChanged(FClientNetMoveCommand otherCmd, double minLocationOffset = 10, double minAngularOffset = 10, double velocityOffset = 10, FVector* debugValues = NULL)
-	{
-		double locationOffset = (ToLocation - otherCmd.ToLocation).Length();
-		double angularOffset = FMath::RadiansToDegrees(ToRotation.Quaternion().AngularDistance(otherCmd.ToRotation.Quaternion()));
-		double speedOffset = (WithVelocity - otherCmd.WithVelocity).Length();
-		if (debugValues)
-		{
-			(*debugValues) = FVector(locationOffset, angularOffset, speedOffset);
-		}
-		return locationOffset > minLocationOffset || angularOffset >= minAngularOffset || speedOffset >= velocityOffset || ControllerStatus.HasChanged(otherCmd.ControllerStatus);
-	}
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	double TimeStamp;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	float DeltaTime;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	bool CorrectionAckowledgement;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FVector_NetQuantize10 userMoveInput;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FVector_NetQuantize10 FromLocation;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FVector_NetQuantize10 ToLocation;
-
-	UPROPERTY(SkipSerialization, VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FVector_NetQuantize10 ToVelocity;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FVector_NetQuantize10 WithVelocity;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FRotator FromRotation;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FRotator ToRotation;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCommand")
-	FStatusParameters ControllerStatus;
-
-};
-
-
-
-/// <summary>
-/// The Data send from server to client to correct him.
-/// </summary>
-USTRUCT(BlueprintType)
-struct FServerNetCorrectionData
-{
-	GENERATED_BODY()
-
-	FORCEINLINE FServerNetCorrectionData() {}
-
-	FORCEINLINE FServerNetCorrectionData(double timeStamp, FKinematicInfos kinematicInfos, FHitResult* collision = nullptr)
-	{
-		TimeStamp = timeStamp;
-		if (collision && collision->IsValidBlockingHit())
-		{
-			CollisionOccured = true;
-			CollisionNormal = collision->Normal;
-		}
-		ToLocation = kinematicInfos.FinalTransform.GetLocation();
-		WithVelocity = kinematicInfos.FinalVelocities.ConstantLinearVelocity;
-		ToRotation = kinematicInfos.FinalTransform.GetRotation().Rotator();
-	}
-
-	/// <summary>
-	/// Apply the correction where it should.
-	/// </summary>
-	/// <param name="moveHistory"></param>
-	/// <returns></returns>
-	FORCEINLINE bool ApplyCorrectionRecursive(TArray<FClientNetMoveCommand>& moveHistory, FClientNetMoveCommand& correctionResult)
-	{
-		if (TimeStamp == 0)
-			return false;
-		if (moveHistory.Num() <= 0)
-			return false;
-		const int index = moveHistory.IndexOfByPredicate([this](FClientNetMoveCommand histCmd)->bool {return histCmd.TimeStamp == TimeStamp; });
-		if (!moveHistory.IsValidIndex(index))
-			return false;
-		for (int i = index - 1; i >= 0; i--)
-			moveHistory.RemoveAt(i);
-		moveHistory[0].ToLocation = ToLocation;
-		moveHistory[0].ToRotation = ToRotation;
-		moveHistory[0].WithVelocity = WithVelocity;
-		moveHistory[0].ToVelocity = WithVelocity;
-
-
-		for (int i = 1; i < moveHistory.Num(); i++)
-		{
-			FVector locOffset = moveHistory[i].GetLocationOffset();
-			if (CollisionOccured)
-			{
-				const bool tryingGoThroughTheWall = FVector::DotProduct(locOffset, CollisionNormal) < 0;
-				if (tryingGoThroughTheWall)
-					locOffset = FVector::VectorPlaneProject(locOffset, CollisionNormal);
-			}
-			moveHistory[i].FromLocation = moveHistory[i - 1].ToLocation;
-			moveHistory[i].ToLocation = moveHistory[i].FromLocation + locOffset;
-
-			FQuat rotOffset = moveHistory[i].GetRotationOffset();
-			moveHistory[i].FromRotation = moveHistory[i - 1].ToRotation;
-			moveHistory[i].ToRotation = (moveHistory[i].FromRotation.Quaternion() * rotOffset).Rotator();
-
-			FVector acceleration = moveHistory[i].GetAccelerationVector();
-			moveHistory[i].WithVelocity = moveHistory[i - 1].ToVelocity;
-			moveHistory[i].ToVelocity = moveHistory[i].WithVelocity + acceleration;
-		}
-
-		auto lastItem = moveHistory[moveHistory.Num() - 1];
-		correctionResult = lastItem;
-		return true;
-	}
-
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
-	double TimeStamp;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
-	bool CollisionOccured;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
-	FVector_NetQuantize10 CollisionNormal;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
-	FVector_NetQuantize10 ToLocation;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
-	FVector_NetQuantize10 WithVelocity;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
-	FRotator ToRotation;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "NetMoveCorrection")
-	FStatusParameters ControllerStatus;
-};
-
-
-
 #pragma endregion
 
 
@@ -1274,14 +1168,6 @@ class UStructExtensions : public UObject
 	GENERATED_BODY()
 
 public:
-
-	UFUNCTION(BlueprintCallable, Category = "FInputEntry")
-	static bool IsObsolete(FInputEntry input, FInputEntry& output, float d)
-	{
-		bool ret = input.IsObsolete(d);
-		output = input;
-		return ret;
-	}
 
 	UFUNCTION(BlueprintCallable, Category = "FInputEntry")
 	static FVector GetAxisRelativeDirection(FVector2D input, FTransform transformRelative, FVector planeNormal)
@@ -1299,23 +1185,7 @@ public:
 		direction = compositeFwd + compositeRhs;
 		return  direction;
 	}
-	
 
-	UFUNCTION(BlueprintCallable, Category = "UInputEntryPool")
-	static FInputEntry ReadInput(const UInputEntryPool* MyStructRef, FName key)
-	{
-		if (!MyStructRef)
-			return {};
-		return MyStructRef->ReadInput(key);
-	}
-
-	UFUNCTION(BlueprintCallable, Category = "UInputEntryPool")
-	static FInputEntry ConsumeInput(UInputEntryPool* MyStructRef, FName key)
-	{
-		if (!MyStructRef)
-			return {};
-		return MyStructRef->ConsumeInput(key);
-	}
 
 	UFUNCTION(BlueprintCallable, Category = "FSurfaceInfos")
 	static FVector GetSurfaceLinearVelocity(const FSurfaceInfos MyStructRef, bool linear = true, bool angular = true)
@@ -1324,7 +1194,7 @@ public:
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "FSurfaceInfos")
-	static FQuat GetSurfaceAngularVelocity(const FSurfaceInfos MyStructRef)
+	static FQuat GetSurfaceAngularVelocity(FSurfaceInfos MyStructRef)
 	{
 		return MyStructRef.GetSurfaceAngularVelocity();
 	}
@@ -1335,53 +1205,36 @@ public:
 		return MyStructRef.GetHitResult();
 	}
 
-	UFUNCTION(BlueprintCallable, Category = "FVelocity")
-	static FVector AngularVelocityFromRotation(const FVelocity MyStructRef, FQuat rot)
+
+	UFUNCTION(BlueprintCallable, Category = "KinematicOperations")
+	static FVector GetVelocityMatchingAcceleration(FVector desiredVelocity, FVector currentVelocity, bool reduceIfMore = false)
 	{
-		return FVelocity::AngularVelocityFromRotation(rot);
+		FVector diff = desiredVelocity - currentVelocity;
+		if (currentVelocity.Length() <= 0)
+			return diff;
+		float scale = desiredVelocity.ProjectOnToNormal(currentVelocity.GetSafeNormal()).Length() / currentVelocity.Length();
+		if (!reduceIfMore && scale > 0 && FVector::DotProduct(desiredVelocity, currentVelocity) > 0)
+			return FVector(0);
+		return diff;
 	}
 
-	UFUNCTION(BlueprintCallable, Category = "FVelocity")
-	static FQuat RotationDeltaFromAngularVelocity(const FVelocity MyStructRef, FVector angularRot)
-	{
-		return FVelocity::RotationDeltaFromAngularVelocity(angularRot);
-	}
 
-
-	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-	static float GetMass(const FKinematicInfos MyStructRef)
+	//Get surface friction (X), surface bounciness (Y)
+	UFUNCTION(BlueprintCallable, Category = "Surface|Physic")
+	static FVector GetSurfacePhysicProperties(const FHitResult MyStructRef)
 	{
-		return MyStructRef.GetMass();
-	}
+		if (!MyStructRef.GetActor())
+			return MyStructRef.GetComponent() ? FVector(1, 0, 0) : FVector(0);
+		if (!MyStructRef.PhysMaterial.IsValid())
+			return FVector(1, 0, 0);
 
-	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-	static float GetInitialAscensionScale(const FKinematicInfos& MyStructRef)
-	{
-		return MyStructRef.GetInitialAscensionScale();
-	}
-
-	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-	static FVector GetInitialMomentum(const FKinematicInfos MyStructRef)
-	{
-		return MyStructRef.GetInitialMomentum();
-	}
-
-	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-	static FVector GetFinalMomentum(const FKinematicInfos MyStructRef)
-	{
-		return MyStructRef.GetFinalMomentum();
-	}
-
-	UFUNCTION(BlueprintCallable, Category = "FKinematicInfos")
-	static FVector GetGravity(const FKinematicInfos MyStructRef)
-	{
-		return MyStructRef.Gravity;
+		return FVector(MyStructRef.PhysMaterial->Friction, MyStructRef.PhysMaterial->Restitution, 0);
 	}
 
 	UFUNCTION(BlueprintCallable, Category = "Surface|Debug")
 	static void DrawDebugCircleOnSurface(const FHitResult MyStructRef, bool useImpact = false, float radius = 40, FColor color = FColor::White, float duration = 0, float thickness = 1, bool showAxis = false)
 	{
-		if (!MyStructRef.GetActor())
+		if (!MyStructRef.GetComponent())
 			return;
 		FVector up = useImpact ? MyStructRef.ImpactNormal : MyStructRef.Normal;
 		if (!up.Normalize())
@@ -1392,11 +1245,11 @@ public:
 		FVector hitPoint = MyStructRef.ImpactPoint + up * 0.01;
 		if (showAxis)
 		{
-			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + up * radius, (radius * 0.25), FColor::Blue, duration, thickness);
-			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + forward * (radius * 0.5), (radius * 0.25), FColor::Red, duration, thickness);
-			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetActor(), hitPoint, hitPoint + right * (radius * 0.5), (radius * 0.25), FColor::Green, duration, thickness);
+			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetComponent(), hitPoint, hitPoint + up * radius, (radius * 0.25), FColor::Blue, duration, thickness);
+			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetComponent(), hitPoint, hitPoint + forward * (radius * 0.5), (radius * 0.25), FColor::Red, duration, thickness);
+			UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetComponent(), hitPoint, hitPoint + right * (radius * 0.5), (radius * 0.25), FColor::Green, duration, thickness);
 		}
-		UKismetSystemLibrary::DrawDebugCircle(MyStructRef.GetActor(), hitPoint, radius, 32,
+		UKismetSystemLibrary::DrawDebugCircle(MyStructRef.GetComponent(), hitPoint, radius, 32,
 			color, duration, thickness, right, forward);
 	}
 
@@ -1440,30 +1293,101 @@ public:
 		return rotation;
 	}
 
+
+	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
+	static double GetFrictionAcceleration(const FVector normal, const FVector force, const double mass, const double frictionConst)
+	{
+		FVector n = normal;
+		if (n.Normalize() && mass > 0)
+		{
+			FVector f = force.ProjectOnToNormal(n) * frictionConst;
+			if ((n | f) < 0)
+			{
+				f *= -1;
+			}
+			f /= mass;
+			return f.Length();
+		}
+
+		return 0;
+	}
+
+
 	/// <summary>
-	/// Linear interpolate a vector toward another with constant acceleration.
+	/// Get the linear acceleration vector to match the target speed with an acceleration and deceleration.
 	/// </summary>
-	/// <param name="fromVelocity"></param>
-	/// <param name="toVelocity"></param>
-	/// <param name="withAcceleration"></param>
-	/// <param name="deltaTime"></param>
+	/// <param name="initialKinematic">The initial kinematic conditions</param>
+	/// <param name="targetSpeed">The targeted speed</param>
+	/// <param name="withAcceleration">The acceleration scalar in case target speed is greater than current speed</param>
+	/// <param name="withDeceleration">The deceleration scalar in case target speed is less than current speed</param>
+	/// <param name="deltaTime">the time delta</param>
 	/// <returns></returns>
 	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
-	static FVector AccelerateTo(const FVector fromVelocity, const FVector toVelocity, const float withAcceleration, const float deltaTime)
+	static FVector GetLinearAccelerationTo(const FLinearKinematicCondition initialKinematic, const FVector targetSpeed, const float withAcceleration, const float withDeceleration, const float deltaTime)
 	{
-		if (withAcceleration > 0)
+		float trueAcceleration = withAcceleration;
+		const FVector velocity = initialKinematic.Velocity;
+		if (velocity.SquaredLength() > targetSpeed.SquaredLength())
+			trueAcceleration = withDeceleration;
+
+		const double t = FMath::Clamp(trueAcceleration * (1 / (3 * deltaTime)), 0, 1 / deltaTime);
+		const FVector v = targetSpeed;
+		const FVector v0 = velocity;
+		FVector a = FVector(0);
+		a.X = (v.X - v0.X) * t;
+		a.Y = (v.Y - v0.Y) * t;
+		a.Z = (v.Z - v0.Z) * t;
+
+		return a;
+	}
+
+
+	//Turn toward a direction.
+	UFUNCTION(BlueprintCallable, Category = "Transform Tools")
+	static FAngularKinematicCondition LookAt(const FAngularKinematicCondition startCondition, const FVector direction, const float withSpeed, const float deltaTime)
+	{
+		FAngularKinematicCondition finalAngular = startCondition;
+		FVector lookDir = direction;
+
+		if (lookDir.Normalize())
 		{
-			float trueAcceleration = withAcceleration;
-			if (toVelocity.SquaredLength() > fromVelocity.SquaredLength())
-				trueAcceleration = 1 / ((toVelocity.Length() * 0.01f) / withAcceleration);
-			else if (toVelocity.SquaredLength() <= fromVelocity.SquaredLength())
-				trueAcceleration = 1 / ((fromVelocity.Length() * 0.01f) / withAcceleration);
-			else
-				trueAcceleration = 0;
-			const FVector endVel = FMath::Lerp(fromVelocity, toVelocity, FMath::Clamp(deltaTime * trueAcceleration, 0, 1));
-			return  endVel;
+			FQuat orientTarget = lookDir.ToOrientationQuat();
+			orientTarget.EnforceShortestArcWith(startCondition.Orientation);
+			FQuat diff = startCondition.Orientation.Inverse() * orientTarget;
+			float rotSpeed;
+			FVector rotAxis;
+			diff.ToAxisAndAngle(rotAxis, rotSpeed);
+			const float limitedSpeed = FMath::Clamp(withSpeed, 0, 1 / deltaTime);
+			finalAngular.RotationSpeed = rotAxis * FMath::RadiansToDegrees(rotSpeed) * limitedSpeed;
 		}
-		return toVelocity;
+		else if (startCondition.RotationSpeed.SquaredLength() > 0)
+		{
+			finalAngular.AngularAcceleration = -startCondition.RotationSpeed / (deltaTime * 4);
+		}
+
+		return finalAngular;
+	}
+
+
+	//Compute the final velocities of two colliding objects A and B, and return true if the operation succeeded.
+	static bool ComputeCollisionVelocities(const FVector initialVelA, const FVector initialVelB, const FVector colNornal, const double massA, const double massB, const double bounceCoef
+		, FVector& finalA, FVector& finalB)
+	{
+		FVector n = colNornal;
+		if (!n.Normalize())
+			return false;
+		finalA = FVector::VectorPlaneProject(initialVelA, n);
+		finalB = FVector::VectorPlaneProject(initialVelB, n);
+		const FVector Va1 = initialVelA.ProjectOnToNormal(n);
+		const FVector Vb1 = initialVelB.ProjectOnToNormal(n);
+		const double cfa = bounceCoef * massA;
+		const double cfb = bounceCoef * massB;
+		const double massSum = massA + massB;
+		const FVector Va2 = ((massA - cfb) / massSum) * Va1 + ((massB + cfb) / massSum) * Vb1;
+		const FVector Vb2 = ((massB - cfa) / massSum) * Vb1 + ((massA + cfa) / massSum) * Va1;
+		finalA += Va2;
+		finalB += Vb2;
+		return true;
 	}
 
 };

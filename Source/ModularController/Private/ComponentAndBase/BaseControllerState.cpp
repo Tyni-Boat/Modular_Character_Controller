@@ -10,7 +10,6 @@ void UBaseControllerState::SaveStateSnapShot()
 	if (_snapShotSaved)
 		return;
 	SaveStateSnapShot_Internal();
-	_wasTheLastFrameBehaviour_saved = _wasTheLastFrameBehaviour;
 	_snapShotSaved = true;
 }
 
@@ -18,40 +17,47 @@ void UBaseControllerState::RestoreStateFromSnapShot()
 {
 	if(!_snapShotSaved)
 		return;
-	_wasTheLastFrameBehaviour = _wasTheLastFrameBehaviour_saved;
 	RestoreStateFromSnapShot_Internal();
 	_snapShotSaved = false;
 }
 
 
 
-
-bool UBaseControllerState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs, UModularControllerComponent* controller
-	, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus)
+FKinematicComponents UBaseControllerState::OnEnterState_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
 {
-	return false;
+	return startingConditions;
+}
+
+FKinematicComponents UBaseControllerState::OnExitState_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
+{
+	return startingConditions;
+}
+
+FControllerCheckResult UBaseControllerState::CheckState_Implementation(UModularControllerComponent* controller,
+	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState)
+{
+	return FControllerCheckResult(false, startingConditions);
+}
+
+FControllerStatus UBaseControllerState::ProcessState_Implementation(UModularControllerComponent* controller,
+	const FControllerStatus startingConditions, const float delta)
+{
+	return startingConditions;
+}
+
+void UBaseControllerState::OnControllerStateChanged_Implementation(UModularControllerComponent* onController,
+	FName newBehaviourDescName, int newPriority)
+{
+}
+
+void UBaseControllerState::OnControllerActionChanged_Implementation(UModularControllerComponent* onController,
+	UBaseControllerAction* newAction, UBaseControllerAction* lastAction)
+{
 }
 
 
-
-FVelocity UBaseControllerState::ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas,
-	const FVector moveInput, UModularControllerComponent* controller, const float inDelta)
-{
-	return FVelocity();
-}
-
-void UBaseControllerState::OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta)
-{
-}
-
-
-void UBaseControllerState::OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta)
-{
-}
-
-void UBaseControllerState::OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller)
-{
-}
 
 void UBaseControllerState::SaveStateSnapShot_Internal()
 {
@@ -68,18 +74,4 @@ FString UBaseControllerState::DebugString()
 }
 
 
-void UBaseControllerState::OnActionChanged_Implementation(UBaseControllerAction* newAction,
-	UBaseControllerAction* lastAction)
-{
-}
-
-bool UBaseControllerState::GetWasTheLastFrameControllerState()
-{
-	return _wasTheLastFrameBehaviour;
-}
-
-void UBaseControllerState::SetWasTheLastFrameControllerState(bool value)
-{
-	_wasTheLastFrameBehaviour = value;
-}
 

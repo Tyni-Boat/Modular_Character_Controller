@@ -28,10 +28,7 @@ protected:
 	// The Gravity force
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Gravity")
 	FVector Gravity = FVector(0, 0, -981);
-
-	// The maximum fall speed, in cm/s
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Gravity")
-	float TerminalVelocity = 5364;
+	
 
 #pragma endregion
 
@@ -40,18 +37,8 @@ private:
 	//The time spend in the air
 	float _airTime;
 
-	//the gravity vector
-	FVector _gravity;
-
 #pragma endregion
-
-#pragma region SnapShot
-private:
-	float _airTime_saved;
-	FVector _gravity_saved;
-
-#pragma endregion
-
+	
 #pragma region Air Velocity and Checks
 public:
 
@@ -68,7 +55,7 @@ public:
 	/// </summary>
 	/// <param name="delta"></param>
 	/// <returns></returns>
-	virtual FVector AddGravity(FVector verticalVelocity, float delta);
+	virtual FVector AddGravity(FVector currentAcceleration);
 	
 
 	/// <summary>
@@ -86,25 +73,16 @@ public:
 
 #pragma region Functions
 public:
-	
-	virtual  bool CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UInputEntryPool* inputs
-		, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus) override;
 
-	virtual void OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
-	
-	virtual FVelocity ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus, const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
+	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) override;
 
-	virtual void OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller, const float inDelta) override;
-	
+	virtual FKinematicComponents OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
+
+	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
+
+
 	virtual FString DebugString() override;
-
-
-	virtual	void OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller) override;
-
-
-	virtual void SaveStateSnapShot_Internal() override;
-	virtual void RestoreStateFromSnapShot_Internal() override;
-
+	
 #pragma endregion
 
 };

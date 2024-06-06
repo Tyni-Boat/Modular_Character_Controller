@@ -24,26 +24,15 @@ FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVeloci
 }
 
 
-FVector UFreeFallState::AddGravity(FVector verticalVelocity, float delta)
+FVector UFreeFallState::AddGravity(FVector currentAcceleration)
 {
-	FVector gravity = FVector(0);
-	if (const bool isCurrentlyFalling = FVector::DotProduct(verticalVelocity, _gravity) >= 0)
-	{
-		const float terminalDiff = TerminalVelocity - verticalVelocity.Length();
-		gravity = verticalVelocity + _gravity * delta * FMath::Sign(terminalDiff);
-	}
-	else
-	{
-		gravity = _gravity * delta + verticalVelocity;
-	}
-	return gravity;
+	return currentAcceleration + Gravity;
 }
 
 
 void UFreeFallState::SetGravityForce(FVector newGravity, UModularControllerComponent* controller)
 {
 	Gravity = newGravity;
-	_gravity = newGravity;
 	if(controller)
 	{
 		if(controller->_currentActiveGravityState == this)
@@ -53,102 +42,76 @@ void UFreeFallState::SetGravityForce(FVector newGravity, UModularControllerCompo
 	}
 }
 
+
+
 #pragma endregion
 
 
 #pragma region Functions
 
 
-bool UFreeFallState::CheckState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UInputEntryPool* inputs, UModularControllerComponent* controller, FStatusParameters controllerStatusParam, FStatusParameters& currentStatus, const float inDelta, int overrideWasLastStateStatus)
+FControllerCheckResult UFreeFallState::CheckState_Implementation(UModularControllerComponent* controller,
+	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState)
 {
-	return true;
+	return FControllerCheckResult(true, startingConditions);
 }
 
-void UFreeFallState::OnEnterState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
+FKinematicComponents UFreeFallState::OnEnterState_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
 {
-	_gravity = Gravity;
 	if (controller)
-		controller->SetGravity(_gravity, this);
+		controller->SetGravity(Gravity, this);
 	_airTime = 0;
+	return Super::OnEnterState_Implementation(controller, startingConditions, moveInput, delta);
 }
 
-FVelocity UFreeFallState::ProcessState_Implementation(FStatusParameters controllerStatusParam, FStatusParameters& controllerStatus,
-	const FKinematicInfos& inDatas, const FVector moveInput, UModularControllerComponent* controller,
-	const float inDelta)
+FControllerStatus UFreeFallState::ProcessState_Implementation(UModularControllerComponent* controller,
+	const FControllerStatus startingConditions, const float delta)
 {
-	auto inputAxis = moveInput;
+	FControllerStatus processResult = startingConditions;
+
+	//Input handling
+	auto inputAxis = processResult.MoveInput;
 	if (inputAxis.Normalize())
 	{
 		const FVector planarInput = FVector::VectorPlaneProject(inputAxis, Gravity.GetSafeNormal());
 		const FVector resultingVector = planarInput * AirControlSpeed;
 		inputAxis = resultingVector;
 	}
-	if (controllerStatusParam.StateModifiers1.X > _airTime)
-		_airTime = controllerStatusParam.StateModifiers1.X;
 
-	FVector HorizontalVelocity = FVector(0);
-	FVector VerticalVelocity = FVector(0);
-	FVelocity move = FVelocity();
-	move.Rotation = inDatas.InitialTransform.GetRotation();
+	//Status loading
+	//if (startingConditions.ControllerStatus.StateModifiers1.X > _airTime)
+	//	_airTime = startingConditions.ControllerStatus.StateModifiers1.X;
 
-	if (inDatas.GetInitialMomentum().Length() > 0)
-	{
-		HorizontalVelocity = FVector::VectorPlaneProject(inDatas.GetInitialMomentum(), inDatas.Gravity.GetSafeNormal());
-		VerticalVelocity = inDatas.GetInitialMomentum().ProjectOnToNormal(inDatas.Gravity.GetSafeNormal());
-	}
+	//Components separation
+	const FVector HorizontalVelocity = FVector::VectorPlaneProject(startingConditions.Kinematics.LinearKinematic.Velocity, Gravity.GetSafeNormal());
+	const FVector verticalVelocity = startingConditions.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(Gravity.GetSafeNormal());
 
-	FVector velocity = FVector(0);
-	if (GetWasTheLastFrameControllerState())
-	{
-		velocity = AirControl(inputAxis, HorizontalVelocity, inDelta);
-	}
-	if (inputAxis.SquaredLength() > 0)
-	{
-		const auto lookDir = inputAxis.GetSafeNormal();
-		move.Rotation = UStructExtensions::GetProgressiveRotation(inDatas.InitialTransform.GetRotation(), -inDatas.Gravity.GetSafeNormal(), lookDir, AirControlRotationSpeed, inDelta);
-	}
+	//Gravity acceleration and air time
+	processResult.Kinematics.LinearKinematic.Acceleration = AddGravity(processResult.Kinematics.LinearKinematic.Acceleration);
+	_airTime += delta;
 
-	velocity += AddGravity(VerticalVelocity, inDelta);
-	_airTime += inDelta;
-	move.ConstantLinearVelocity = velocity;
+	//Air control
+	processResult.Kinematics.LinearKinematic.Velocity = AirControl(inputAxis, HorizontalVelocity, delta) + verticalVelocity;
 
-	controllerStatusParam.StateModifiers1.X = _airTime;
+	//Rotation
+	processResult.Kinematics.AngularKinematic = UStructExtensions::LookAt(startingConditions.Kinematics.AngularKinematic, inputAxis, AirControlRotationSpeed, delta);
 
-	controllerStatus = controllerStatusParam;
-	return move;
+	//Save state
+	processResult.ControllerStatus.StateModifiers1.X = _airTime;
+
+	return processResult;
+	
 }
 
-void UFreeFallState::OnExitState_Implementation(const FKinematicInfos& inDatas, const FVector moveInput,
-	UModularControllerComponent* controller, const float inDelta)
-{
-	_airTime = 0;
-}
+
+
 
 
 FString UFreeFallState::DebugString()
 {
 	return Super::DebugString() + " : " + FString::Printf(TEXT("Air Time (%f)"), _airTime);
 }
-
-
-void UFreeFallState::OnControllerStateChanged_Implementation(FName newBehaviourDescName, int newPriority, UModularControllerComponent* controller)
-{
-}
-
-void UFreeFallState::SaveStateSnapShot_Internal()
-{
-	_airTime_saved = _airTime;
-	_gravity_saved = _gravity;
-}
-
-void UFreeFallState::RestoreStateFromSnapShot_Internal()
-{
-	_airTime = _airTime_saved;
-	_gravity = _gravity_saved;
-}
-
 
 #pragma endregion
 
