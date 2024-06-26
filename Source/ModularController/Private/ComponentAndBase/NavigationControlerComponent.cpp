@@ -3,6 +3,7 @@
 
 #include "ComponentAndBase/NavigationControlerComponent.h"
 
+#include <string>
 #include <Kismet/KismetSystemLibrary.h>
 #include "NavigationPath.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -17,7 +18,7 @@
 #include "Net/UnrealNetwork.h"
 #include "NavLinkCustomInterface.h"
 #include "Engine/ActorChannel.h"
-
+#include "NavFilters/NavigationQueryFilter.h"
 
 
 #pragma region Network path type XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -106,7 +107,7 @@ void UNavigationControlerComponent::TickComponent(float DeltaTime, ELevelTick Ti
 		{
 			const FVector location = GetCurrentNavLocation();
 			const FVector actorUp = t_ownerPawn->GetActorUpVector();
-			UKismetSystemLibrary::DrawDebugCylinder(GetWorld(), location, location + actorUp * AgentHeight, AgentRadius, 6, FColor::White);
+			UKismetSystemLibrary::DrawDebugCylinder(GetWorld(), location, location + actorUp * AgentHeight, AgentRadius, 12, FColor::White);
 		}
 	}
 
@@ -130,6 +131,7 @@ bool UNavigationControlerComponent::ReplicateSubobjects(UActorChannel* Channel, 
 }
 
 
+
 #pragma endregion
 
 #pragma region Network XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -143,123 +145,107 @@ void UNavigationControlerComponent::GetLifetimeReplicatedProps(TArray<FLifetimeP
 }
 
 
-void UNavigationControlerComponent::ServerFindPathToLocation_Implementation(FVector location,
-	TSubclassOf<UNavigationQueryFilter> filter)
+void UNavigationControlerComponent::ServerFindPath_Implementation(AActor* target, FVector location, float reachDistance, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter)
 {
-	FString debugString;
-	//
-	if (UAIBlueprintHelperLibrary::IsValidAILocation(GetOwner()->GetActorLocation()))
+	if (!t_ownerPawn)
 	{
-		if (UAIBlueprintHelperLibrary::IsValidAILocation(location)) {
-			if (const auto pathRequest = UNavigationSystemV1::FindPathToLocationSynchronously(GetWorld(), t_ownerPawn->GetActorLocation(), location, t_ownerPawn, filter))
-			{
-				if (pathRequest->GetPath())
-				{
-					_moveRequest = FAIMoveRequest(location);
-					_moveRequest.SetAllowPartialPath(true);
-					_moveRequest.SetAcceptanceRadius(AgentRadius);
-					_moveRequest.SetNavigationFilter(filter);
-					_moveRequest.SetProjectGoalLocation(true);
-					_moveRequest.SetCanStrafe(true);
-					_moveRequest.SetReachTestIncludesAgentRadius(true);
-					_moveRequest.SetUsePathfinding(true);
-					_moveRequest.SetRequireNavigableEndLocation(false);
-					_currentMoveRequestID = RequestMove(_moveRequest, pathRequest->GetPath());
-					debugString = FString::Printf(TEXT("Starting path follow with %d path points"), pathRequest->GetPath()->GetPathPoints().Num());
-				}
-				else
-				{
-					MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-					debugString = FString::Printf(TEXT("Invalid Nav Shared Pointer Path"));
-				}
-			}
-			else
-			{
-				MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-				debugString = FString::Printf(TEXT("Invalid Navigation Path"));
-			}
-		}
-		else
+		if (IsDebug)
 		{
-			MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-			debugString = FString::Printf(TEXT("Invalid AI location"));
+			FName compName = FName(this->GetReadableName());
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Imposible to search for a path: NULL ACTOR")), true, true, FColor::Red, 2, compName);
+		}
+		MulticastOnPathFinnished(EPathFollowingResult::Invalid);
+		return;
+	}
+
+	FNavLocation navStartPt;
+	FVector initialLocation = t_ownerPawn->GetActorLocation();
+	FVector moveLocation = target ? target->GetActorLocation() : location;
+	const auto navSys = UNavigationSystemV1::GetCurrent(GetWorld());
+	const auto navData = navSys->GetDefaultNavDataInstance();
+	bool validStartLocation = false;
+
+	//Find the start navigation point
+	if (navData->ProjectPoint(initialLocation, navStartPt, FVector(1, 1, 1000)))
+	{
+		initialLocation = navStartPt.Location;
+		validStartLocation = true;
+	}
+
+	//Check Start
+	if (!validStartLocation)
+	{
+		if (IsDebug)
+		{
+			FName compName = FName(this->GetReadableName());
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Unable to start searching for a path: INVALID START LOCATION")), true, true, FColor::Red, 2, compName);
+		}
+		MulticastOnPathFinnished(EPathFollowingResult::Invalid);
+		return;
+	}
+
+	FNavLocation navEndPt;
+	bool validEndLocation = false;
+
+	//Find the closest point on navigation
+	for (float i = 0; i < maxOffNavDistance; i += maxOffNavDistance * 0.1)
+	{
+		if (navData->ProjectPoint(moveLocation, navEndPt, FVector::OneVector * i))
+		{
+			moveLocation = navEndPt.Location;
+			validEndLocation = true;
+			break;
 		}
 	}
-	else
+
+	//Check destination
+	if (!validEndLocation)
 	{
+		if (IsDebug)
+		{
+			FName compName = FName(this->GetReadableName());
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Unable to start searching for a path: INVALID END LOCATION")), true, true, FColor::Red, 2, compName);
+		}
 		MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-		debugString = FString::Printf(TEXT("Invalid Current location"));
+		return;
 	}
-	//
-	if (IsDebug)
-	{
-		GEngine->AddOnScreenDebugMessage(static_cast<int>(this->GetUniqueID() + 1), 3, FColor::Blue, FString::Printf(TEXT("Request Path To: %s. Result: %s"), *location.ToCompactString(), *debugString));
-	}
+
+	//Search path
+	AgentRadius = reachDistance;
+	FNavAgentProperties agentProps = FNavAgentProperties(AgentRadius, AgentHeight);
+	FPathFindingQuery pathFindingQuery;
+	pathFindingQuery.SetAllowPartialPaths(true);
+	pathFindingQuery.SetNavAgentProperties(agentProps);
+	pathFindingQuery.SetPathInstanceToUpdate(Path);
+	pathFindingQuery.SetRequireNavigableEndLocation(false);
+	pathFindingQuery.EndLocation = moveLocation;
+	pathFindingQuery.StartLocation = initialLocation;
+	pathFindingQuery.Owner = t_ownerPawn;
+	auto navFilter = UNavigationQueryFilter::StaticClass();
+	if (filter) navFilter = filter;
+	pathFindingQuery.QueryFilter = UNavigationQueryFilter::GetQueryFilter<UNavigationQueryFilter>(*navData, navFilter);
+	pathFindingQuery.NavData = navData;
+	FNavPathQueryDelegate PathQueryDelegate;
+	PathQueryDelegate.BindUObject(this, &UNavigationControlerComponent::OnAsyncPathEvaluated);
+
+	auto asyncReqID = navSys->FindPathAsync(agentProps, pathFindingQuery, PathQueryDelegate, EPathFindingMode::Regular);
+	_asyncPathRequestNumbers.Add(asyncReqID);
+	if (target)
+		_asyncPathFollowTargets.Add(asyncReqID, target);
 }
 
 
-void UNavigationControlerComponent::ServerFindPathToActor_Implementation(AActor* target,
-	TSubclassOf<UNavigationQueryFilter> filter)
+void UNavigationControlerComponent::ServerCancelPath_Implementation()
 {
-	FString actorName;
-	FString debugString;
-	//
-	if (UAIBlueprintHelperLibrary::IsValidAILocation(GetOwner()->GetActorLocation()))
+	if (t_ownerPawn)
 	{
-		if (target)
+		AbortMove(*t_ownerPawn, FPathFollowingResultFlags::MovementStop);
+		for (int i = _asyncPathRequestNumbers.Num() - 1; i >= 0; i--)
 		{
-			actorName = target->GetActorNameOrLabel();
-			if (UAIBlueprintHelperLibrary::IsValidAILocation(target->GetActorLocation()))
-			{
-				if (const auto pathRequest = UNavigationSystemV1::FindPathToActorSynchronously(GetWorld(), t_ownerPawn->GetActorLocation(), target, AgentRadius * 0.5f, t_ownerPawn, filter))
-				{
-					if (pathRequest->GetPath())
-					{
-						_moveRequest = FAIMoveRequest(target);
-						_moveRequest.SetAllowPartialPath(true);
-						_moveRequest.SetAcceptanceRadius(AgentRadius);
-						_moveRequest.SetNavigationFilter(filter);
-						_moveRequest.SetProjectGoalLocation(true);
-						_moveRequest.SetCanStrafe(true);
-						_moveRequest.SetReachTestIncludesAgentRadius(true);
-						_moveRequest.SetUsePathfinding(true);
-						_moveRequest.SetRequireNavigableEndLocation(false);
-						_currentMoveRequestID = RequestMove(_moveRequest, pathRequest->GetPath());
-						debugString = FString::Printf(TEXT("Starting path follow with %d path points"), pathRequest->GetPath()->GetPathPoints().Num());
-					}
-					else
-					{
-						MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-						debugString = FString::Printf(TEXT("Invalid Nav Shared Pointer Path"));
-					}
-				}
-				else
-				{
-					MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-					debugString = FString::Printf(TEXT("Invalid Navigation Path"));
-				}
-
-			}
-			else
-			{
-				MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-				debugString = FString::Printf(TEXT("Invalid AI location"));
-			}
+			if (_asyncPathFollowTargets.Contains(_asyncPathRequestNumbers[i]))
+				_asyncPathFollowTargets.Remove(_asyncPathRequestNumbers[i]);
+			_asyncPathRequestNumbers.RemoveAt(i);
 		}
-		else
-		{
-			MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-			debugString = FString::Printf(TEXT("Invalid Target Actor"));
-		}
-	}
-	else
-	{
-		MulticastOnPathFinnished(EPathFollowingResult::Invalid);
-		debugString = FString::Printf(TEXT("Invalid Current location"));
-	}
-	if (IsDebug)
-	{
-		GEngine->AddOnScreenDebugMessage(static_cast<int>(this->GetUniqueID() + 1), 3, FColor::Blue, FString::Printf(TEXT("Request to Follow: %s. Result: %s"), *actorName, *debugString));
 	}
 }
 
@@ -280,6 +266,7 @@ void UNavigationControlerComponent::MulticastUpdatePath_Implementation()
 	_clientNextPathIndex = 1;
 }
 
+
 void UNavigationControlerComponent::MulticastOnPathFinnished_Implementation(uint32 result)
 {
 	EPathFollowingResult::Type code = static_cast<EPathFollowingResult::Type>(result);
@@ -299,21 +286,21 @@ void UNavigationControlerComponent::MulticastOnPathFinnished_Implementation(uint
 #pragma region Path Requests and Follow XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 
-bool UNavigationControlerComponent::AIRequestPathTo(FVector location, TSubclassOf<UNavigationQueryFilter> filter)
+bool UNavigationControlerComponent::AIRequestPathTo(FVector location, float reachDistance, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter)
 {
 	if (!t_ownerPawn)
 		return false;
-	ServerFindPathToLocation(location, filter);
+	ServerFindPath(nullptr, location, reachDistance, maxOffNavDistance, filter);
 	return true;
 }
 
-bool UNavigationControlerComponent::AIRequestPathToActor(AActor* target, TSubclassOf<UNavigationQueryFilter> filter)
+bool UNavigationControlerComponent::AIRequestPathToActor(AActor* target, float reachDistance, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter)
 {
 	if (!t_ownerPawn)
 		return false;
 	if (!target)
 		return false;
-	ServerFindPathToActor(target, filter);
+	ServerFindPath(target, target->GetActorLocation(), reachDistance, maxOffNavDistance, filter);
 	return true;
 }
 
@@ -346,7 +333,8 @@ void UNavigationControlerComponent::OnPathUpdated()
 
 	if (IsDebug)
 	{
-		GEngine->AddOnScreenDebugMessage(static_cast<int>(this->GetUniqueID() + 1), 2, FColor::Blue, FString::Printf(TEXT("Path Updated")));
+		FName compName = FName(this->GetReadableName());
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Updating Current Path ID(%d)"), _currentMoveRequestID.GetID()), true, true, FColor::Yellow, 2, compName);
 	}
 }
 
@@ -356,7 +344,8 @@ void UNavigationControlerComponent::OnPathFinished(const FPathFollowingResult& R
 	MulticastOnPathFinnished(Result.Code);
 	if (IsDebug)
 	{
-		GEngine->AddOnScreenDebugMessage(static_cast<int>(this->GetUniqueID() + 2), 3, FColor::Orange, FString::Printf(TEXT("Path Finnished with result: %s. Is success? %d"), *UEnum::GetValueAsName(Result.Code).ToString(), Result.IsSuccess()));
+		FName compName = FName(this->GetReadableName());
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Path Finnished with result: %s"), *UEnum::GetValueAsName(Result.Code).ToString()), true, true, Result.IsSuccess() ? FColor::Green : FColor::Cyan, 2, compName);
 	}
 }
 
@@ -379,6 +368,41 @@ bool UNavigationControlerComponent::AgentCapsuleContainsPoint(const FVector poin
 }
 
 
+void UNavigationControlerComponent::OnAsyncPathEvaluated(uint32 aPathId, ENavigationQueryResult::Type aResultType, FNavPathSharedPtr aNavPointer)
+{
+	if (IsDebug)
+	{
+		FName compName = FName(this->GetReadableName());
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Async Path Evaluation ID (%d) ended with result (%s)"), aPathId, *UEnum::GetValueAsString(aResultType)), true, true, FColor::Orange, 2, compName);
+	}
+
+	if (aResultType != ENavigationQueryResult::Success || !_asyncPathRequestNumbers.Contains(aPathId))
+	{
+		MulticastOnPathFinnished(EPathFollowingResult::Invalid);
+		return;
+	}
+
+	_moveRequest = FAIMoveRequest(aNavPointer->GetGoalLocation());
+	_moveRequest.SetAllowPartialPath(aNavPointer->IsPartial());
+	_moveRequest.SetAcceptanceRadius(AgentRadius);
+	//_moveRequest.SetNavigationFilter(aNavPointer->GetFilter());
+	_moveRequest.SetProjectGoalLocation(true);
+	_moveRequest.SetCanStrafe(true);
+	_moveRequest.SetReachTestIncludesAgentRadius(true);
+	_moveRequest.SetUsePathfinding(true);
+	_moveRequest.SetRequireNavigableEndLocation(false);
+
+	_asyncPathRequestNumbers.Remove(aPathId);
+	if (_asyncPathFollowTargets.Contains(aPathId) && _asyncPathFollowTargets[aPathId])
+	{
+		_moveRequest.SetGoalActor(_asyncPathFollowTargets[aPathId]);
+		aNavPointer->SetGoalActorObservation(*_asyncPathFollowTargets[aPathId], AgentRadius * 0.5);
+		_asyncPathFollowTargets.Remove(aPathId);
+	}
+
+	_currentMoveRequestID = RequestMove(_moveRequest, aNavPointer);
+}
+
 void UNavigationControlerComponent::UpdatePath(float delta)
 {
 	if (!t_ownerPawn)
@@ -386,27 +410,29 @@ void UNavigationControlerComponent::UpdatePath(float delta)
 
 	if (GetNetRole() == ROLE_Authority)
 	{
-		if (IsDebug && t_ownerPawn->IsLocallyControlled() && HasValidPath() && Path->GetPathPoints().Num() > 0)
+		if (IsDebug && HasValidPath() && GetPath()->GetPathPoints().Num() > 0)
 		{
-			for (int i = 1; i < Path->GetPathPoints().Num(); i++)
+			for (int i = 1; i < GetPath()->GetPathPoints().Num(); i++)
 			{
-				FColor debugColor = i == (GetCurrentPathIndex() + 1) ? FColor::Orange : (FNavMeshNodeFlags(Path->GetPathPoints()[i - 1].Flags).IsNavLink() ? FColor::Magenta : FColor::White);
+				FColor debugColor = i == (GetCurrentPathIndex() + 2) ? FColor::Orange : (FNavMeshNodeFlags(GetPath()->GetPathPoints()[i - 1].Flags).IsNavLink() ? FColor::Magenta : FColor::Silver);
 				FVector offset = FVector::UpVector * 10;
-				UKismetSystemLibrary::DrawDebugArrow(GetWorld(), Path->GetPathPoints()[i - 1].Location + offset
-					, Path->GetPathPoints()[i].Location + offset, 100, debugColor, 0, 3);
+				UKismetSystemLibrary::DrawDebugPoint(GetWorld(), GetPath()->GetPathPoints()[i - 1].Location + offset, 30, debugColor);
+				UKismetSystemLibrary::DrawDebugArrow(GetWorld(), GetPath()->GetPathPoints()[i - 1].Location + offset
+					, GetPath()->GetPathPoints()[i].Location + offset, 100, debugColor, 0, 5);
 			}
 		}
 	}
 	else
 	{
-		if (IsDebug && IsFollowingAPath && t_ownerPawn->IsLocallyControlled())
+		if (IsDebug && IsFollowingAPath)
 		{
 			for (int i = 1; i < CustomPathPoints.Num(); i++)
 			{
-				FColor debugColor = i == _clientNextPathIndex ? FColor::Red : (CustomPathPoints[i - 1]->GetNavLinkInterface() ? FColor::Magenta : FColor::Yellow);
+				FColor debugColor = i == (_clientNextPathIndex + 1) ? FColor::Red : (CustomPathPoints[i - 1]->GetNavLinkInterface() ? FColor::Magenta : FColor::Yellow);
 				FVector offset = FVector::UpVector * 10;
+				UKismetSystemLibrary::DrawDebugPoint(GetWorld(), CustomPathPoints[i - 1]->Location + offset, 30, debugColor);
 				UKismetSystemLibrary::DrawDebugArrow(GetWorld(), CustomPathPoints[i - 1]->Location + offset
-					, CustomPathPoints[i]->Location + offset, 100, debugColor, 0, 3);
+					, CustomPathPoints[i]->Location + offset, 100, debugColor, 0, 5);
 			}
 		}
 	}
@@ -526,30 +552,27 @@ void UPathFollowEvent::Activate()
 		return;
 	}
 
-	_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
+	_controller->ServerCancelPath();
 
 	if (_targetMode)
 	{
-		if (!_controller->AIRequestPathToActor(_target))
+		if (!_controller->AIRequestPathToActor(_target, _reachDistance, _offNavDistance, _navFilter))
 		{
-			//_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
-			_controller->GetWorld()->GetTimerManager().SetTimer(TimerHandle_OnInstantFinish, this, &UPathFollowEvent::_OnPathFailed, 0.1f, false);
-			//_OnPathFailed();
+			_OnPathFailed();
 			return;
 		}
 	}
 	else
 	{
-		if (!_controller->AIRequestPathTo(_destination))
+		if (!_controller->AIRequestPathTo(_destination, _reachDistance, _offNavDistance, _navFilter))
 		{
-			//_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
-			_controller->GetWorld()->GetTimerManager().SetTimer(TimerHandle_OnInstantFinish, this, &UPathFollowEvent::_OnPathFailed, 0.1f, false);
-			//_OnPathFailed();
+			_OnPathFailed();
 			return;
 		}
 	}
 
-	_controller->OnPathReachedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathReached);
+	_controller->OnPathReachedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathReachedPartial);
+	_controller->OnPathFailedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathFailed);
 	_controller->OnPathUpdatedEvent.AddDynamic(this, &UPathFollowEvent::_OnPathUpdated);
 }
 
@@ -560,29 +583,35 @@ void UPathFollowEvent::CleanUp()
 	{
 		return;
 	}
-	_controller->OnPathReachedEvent.RemoveDynamic(this, &UPathFollowEvent::_OnPathReached);
+	_controller->OnPathReachedEvent.RemoveDynamic(this, &UPathFollowEvent::_OnPathReachedPartial);
 	_controller->OnPathFailedEvent.RemoveDynamic(this, &UPathFollowEvent::_OnPathFailed);
 	_controller->OnPathUpdatedEvent.RemoveDynamic(this, &UPathFollowEvent::_OnPathUpdated);
 }
 
 
-UPathFollowEvent* UPathFollowEvent::ModularAIMoveTo(const UObject* WorldContextObject, UNavigationControlerComponent* controller, FVector location, TSubclassOf<UNavigationQueryFilter> filter)
+UPathFollowEvent* UPathFollowEvent::ModularAIMoveTo(const UObject* WorldContextObject, UNavigationControlerComponent* controller, FVector location, float reachDistance, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter)
 {
 	UPathFollowEvent* Node = NewObject<UPathFollowEvent>();
 	Node->_controller = controller;
 	Node->_destination = location;
+	Node->_reachDistance = reachDistance;
+	Node->_offNavDistance = maxOffNavDistance;
 	Node->_targetMode = false;
+	Node->_navFilter = filter;
 	Node->RegisterWithGameInstance(WorldContextObject);
 	return Node;
 }
 
 UPathFollowEvent* UPathFollowEvent::ModularAIFollow(const UObject* WorldContextObject,
-	UNavigationControlerComponent* controller, AActor* target, TSubclassOf<UNavigationQueryFilter> filter)
+	UNavigationControlerComponent* controller, AActor* target, float reachDistance, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter)
 {
 	UPathFollowEvent* Node = NewObject<UPathFollowEvent>();
 	Node->_controller = controller;
+	Node->_reachDistance = reachDistance;
+	Node->_offNavDistance = maxOffNavDistance;
 	Node->_target = target;
 	Node->_targetMode = true;
+	Node->_navFilter = filter;
 	Node->RegisterWithGameInstance(WorldContextObject);
 	return Node;
 }
@@ -592,6 +621,29 @@ void UPathFollowEvent::_OnPathReached()
 	OnPathReached.Broadcast();
 	CleanUp();
 	SetReadyToDestroy();
+}
+
+void UPathFollowEvent::_OnPathReachedPartial()
+{
+	FVector targetLocation = _target ? _target->GetActorLocation() : _destination;
+	if (!_controller)
+	{
+		_OnPathFailed();
+		return;
+	}
+
+	const auto boundingBox = _controller->GetOwner()->GetComponentsBoundingBox();
+	//FVector ptOnBound = boundingBox.GetClosestPointTo(targetLocation);
+	if (boundingBox.ComputeSquaredDistanceToPoint(targetLocation) > (_reachDistance * _reachDistance * 2))
+	{
+		if (_target)
+		{
+			OnPathPartialReached.Broadcast();
+			return;
+		}
+	}
+
+	_OnPathReached();
 }
 
 void UPathFollowEvent::_OnPathFailed()

@@ -2,13 +2,15 @@
 
 
 #include "StateBehaviours/FreeFallState.h"
+
+#include "FunctionLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
 
 
 #pragma region Air Velocity and Checks
 
 
-FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVelocity, float delta)
+FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVelocity, float delta) const
 {
 	if (desiredMove.Length() > 0)
 	{
@@ -24,22 +26,9 @@ FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVeloci
 }
 
 
-FVector UFreeFallState::AddGravity(FVector currentAcceleration)
+FVector UFreeFallState::AddGravity(FVector currentAcceleration) const
 {
 	return currentAcceleration + Gravity;
-}
-
-
-void UFreeFallState::SetGravityForce(FVector newGravity, UModularControllerComponent* controller)
-{
-	Gravity = newGravity;
-	if(controller)
-	{
-		if(controller->_currentActiveGravityState == this)
-		{
-			controller->SetGravity(newGravity, this);
-		}
-	}
 }
 
 
@@ -51,22 +40,23 @@ void UFreeFallState::SetGravityForce(FVector newGravity, UModularControllerCompo
 
 
 FControllerCheckResult UFreeFallState::CheckState_Implementation(UModularControllerComponent* controller,
-	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState)
+	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
 {
-	return FControllerCheckResult(true, startingConditions);
+	auto result = startingConditions;
+	result.ControllerSurface.Reset();
+	return FControllerCheckResult(true, result);
 }
 
-FKinematicComponents UFreeFallState::OnEnterState_Implementation(UModularControllerComponent* controller,
-	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
+void UFreeFallState::OnEnterState_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
 {
 	if (controller)
-		controller->SetGravity(Gravity, this);
-	_airTime = 0;
-	return Super::OnEnterState_Implementation(controller, startingConditions, moveInput, delta);
+		controller->SetGravity(Gravity);
 }
 
+
 FControllerStatus UFreeFallState::ProcessState_Implementation(UModularControllerComponent* controller,
-	const FControllerStatus startingConditions, const float delta)
+	const FControllerStatus startingConditions, const float delta) const
 {
 	FControllerStatus processResult = startingConditions;
 
@@ -78,27 +68,19 @@ FControllerStatus UFreeFallState::ProcessState_Implementation(UModularController
 		const FVector resultingVector = planarInput * AirControlSpeed;
 		inputAxis = resultingVector;
 	}
-
-	//Status loading
-	//if (startingConditions.ControllerStatus.StateModifiers1.X > _airTime)
-	//	_airTime = startingConditions.ControllerStatus.StateModifiers1.X;
-
+	
 	//Components separation
 	const FVector HorizontalVelocity = FVector::VectorPlaneProject(startingConditions.Kinematics.LinearKinematic.Velocity, Gravity.GetSafeNormal());
 	const FVector verticalVelocity = startingConditions.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(Gravity.GetSafeNormal());
 
 	//Gravity acceleration and air time
 	processResult.Kinematics.LinearKinematic.Acceleration = AddGravity(processResult.Kinematics.LinearKinematic.Acceleration);
-	_airTime += delta;
 
 	//Air control
 	processResult.Kinematics.LinearKinematic.Velocity = AirControl(inputAxis, HorizontalVelocity, delta) + verticalVelocity;
 
 	//Rotation
-	processResult.Kinematics.AngularKinematic = UStructExtensions::LookAt(startingConditions.Kinematics.AngularKinematic, inputAxis, AirControlRotationSpeed, delta);
-
-	//Save state
-	processResult.ControllerStatus.StateModifiers1.X = _airTime;
+	processResult.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(startingConditions.Kinematics.AngularKinematic, inputAxis, AirControlRotationSpeed, delta);
 
 	return processResult;
 	
@@ -106,11 +88,9 @@ FControllerStatus UFreeFallState::ProcessState_Implementation(UModularController
 
 
 
-
-
-FString UFreeFallState::DebugString()
+FString UFreeFallState::DebugString() const
 {
-	return Super::DebugString() + " : " + FString::Printf(TEXT("Air Time (%f)"), _airTime);
+	return Super::DebugString() + " : " + FString::Printf(TEXT("Gravity Acceleration (%s)"), *Gravity.ToCompactString());
 }
 
 #pragma endregion

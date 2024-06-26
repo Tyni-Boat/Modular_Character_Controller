@@ -31,57 +31,32 @@ protected:
 	
 
 #pragma endregion
-
-#pragma region LiveAttributes
-private:
-	//The time spend in the air
-	float _airTime;
-
-#pragma endregion
-	
+		
 #pragma region Air Velocity and Checks
 public:
 
-
-	/// <summary>
-	/// To control the controller in the air
-	/// </summary>
-	/// <param name="delta"></param>
-	/// <returns></returns>
-	virtual FVector AirControl(FVector desiredMove, FVector horizontalVelocity, float delta);
-
-	/// <summary>
-	/// Apply Gravity force
-	/// </summary>
-	/// <param name="delta"></param>
-	/// <returns></returns>
-	virtual FVector AddGravity(FVector currentAcceleration);
 	
+	// To control the controller in the air
+	virtual FVector AirControl(FVector desiredMove, FVector horizontalVelocity, float delta) const;
 
-	/// <summary>
-	/// Get the time spend in the air.
-	/// </summary>
-	UFUNCTION(BlueprintCallable, Category = "Properties")
-	FORCEINLINE float GetAirTime() { return _airTime; }
 
-	//Set new gravity force.
-	UFUNCTION(BlueprintCallable, Category="Gravity Control")
-	void SetGravityForce(FVector newGravity, UModularControllerComponent* controller = NULL);
-	
+	// Apply Gravity force
+	virtual FVector AddGravity(FVector currentAcceleration) const;
+			
 
 #pragma endregion
 
 #pragma region Functions
 public:
 
-	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) override;
+	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const override;
 
-	virtual FKinematicComponents OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
+	virtual void OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
 
-	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
+	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) const override;
 
 
-	virtual FString DebugString() override;
+	virtual FString DebugString() const override;
 	
 #pragma endregion
 

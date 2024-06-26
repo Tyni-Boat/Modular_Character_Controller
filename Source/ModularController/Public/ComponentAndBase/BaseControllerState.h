@@ -2,7 +2,7 @@
 
 #pragma once
 #include "Enums.h"
-#include "Structs.h"
+#include "CommonTypes.h"
 #ifndef MODULAR_CONTROLLER_COMPONENT
 #define MODULAR_CONTROLLER_COMPONENT
 #include "ModularControllerComponent.h"
@@ -26,7 +26,7 @@ class UModularControllerComponent;
 /// The abstract basic state behaviour for a Modular controller.
 /// </summary>
 UCLASS(BlueprintType, Blueprintable, ClassGroup = "Modular Controller States", abstract)
-class MODULARCONTROLLER_API UBaseControllerState : public UDataAsset
+class MODULARCONTROLLER_API UBaseControllerState : public UObject
 {
 	GENERATED_BODY()
 
@@ -46,10 +46,6 @@ public:
 	TSubclassOf<UAnimInstance> StateBlueprintClass;
 
 
-	// The informations on the current surface. This is used to track one surface movements
-	UPROPERTY(BlueprintReadOnly, category = "Base|Basic State Parameters")
-	FSurfaceInfos SurfaceInfos;
-
 	// The state's flag, often used as binary. to relay this State's state over the network.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Base|Basic State Parameters")
 	int StateFlag;
@@ -67,13 +63,13 @@ public:
 	/// When we enters the state.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	FKinematicComponents OnEnterState(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
+	void OnEnterState(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
 
 	/// <summary>
 	/// When we exit the state.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	FKinematicComponents OnExitState(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
+	void OnExitState(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -83,7 +79,7 @@ public:
 	/// Check if the state is Valid
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	FControllerCheckResult CheckState(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveState);
+	FControllerCheckResult CheckState(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveState) const;
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -93,26 +89,9 @@ public:
 	/// Process state and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	FControllerStatus ProcessState(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta);
+	FControllerStatus ProcessState(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) const;
 
-
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-	/// <summary>
-	/// When the controller change a State, it call this function to notify all of it's states the change
-	/// </summary>
-	UFUNCTION(BlueprintNativeEvent, category = "State|Basic Events")
-	void OnControllerStateChanged(UModularControllerComponent* onController, FName newBehaviourDescName, int newPriority);
-
-	/// <summary>
-	/// Get Notify actions the active action change. whether the action is active or not.
-	/// </summary>
-	/// <returns></returns>
-	UFUNCTION(BlueprintNativeEvent, Category = "State|Base Events")
-	void OnControllerActionChanged(UModularControllerComponent* onController, UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
-
+	
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -121,7 +100,7 @@ public:
 	/// Debug
 	/// </summary>
 	UFUNCTION(BlueprintCallable, category = "State|Basic Debug")
-	virtual FString DebugString();
+	virtual FString DebugString() const;
 
 
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -139,18 +118,7 @@ public:
 	UFUNCTION(BlueprintGetter)
 	FORCEINLINE FName GetDescriptionName() const { return  StateName; };
 
-
-	/// <summary>
-	/// Save a snap shot of the state.
-	/// </summary>
-	void SaveStateSnapShot();
-
-	/// <summary>
-	/// Restore a state from it's previous snapShot if exist.
-	/// </summary>
-	void RestoreStateFromSnapShot();
-
-
+	
 
 
 	/// <summary>
@@ -158,13 +126,13 @@ public:
 	/// </summary>
 
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual FKinematicComponents OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
+	virtual void OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
 
 	/// <summary>
 	/// When we exit the state.
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual FKinematicComponents OnExitState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta);
+	virtual void OnExitState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
 
 
 
@@ -172,44 +140,13 @@ public:
 	/// Check if the state is Valid
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState = false);
+	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState = false) const;
 
 
 	/// <summary>
 	/// Process state and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta);
-
-
-
-
-	/// <summary>
-	/// When the controller change a behaviour, it call this function to notify nay of it's bahaviour the change
-	/// </summary>
-	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual	void OnControllerStateChanged_Implementation(UModularControllerComponent* onController, FName newBehaviourDescName, int newPriority);
-
-
-	/// <summary>
-	/// When the controller change a behaviour, it call this function to notify nay of it's bahaviour the change
-	/// </summary>
-	UFUNCTION(BlueprintCallable, Category = "State|Base Events|C++ Implementation")
-	virtual	void OnControllerActionChanged_Implementation(UModularControllerComponent* onController, UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
-
-
-
-
-	///Check if this is running as a part of a simulation
-	UFUNCTION(BlueprintCallable, Category = "State|Others")
-	FORCEINLINE bool IsSimulated() { return _snapShotSaved; }
-
-protected:
-	
-	bool _snapShotSaved;
-
-
-	virtual void SaveStateSnapShot_Internal();
-
-	virtual void RestoreStateFromSnapShot_Internal();
+	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) const;
+		
 };

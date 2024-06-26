@@ -10,7 +10,7 @@ UCLASS(BlueprintType, Blueprintable, ClassGroup = "Controller Action Behaviours"
 class MODULARCONTROLLER_API UBaseDashAction : public UBaseControllerAction
 {
 	GENERATED_BODY()
-	
+
 #pragma region Check
 protected:
 
@@ -33,7 +33,7 @@ public:
 	/// </summary>
 	/// <param name="controller"></param>
 	/// <returns></returns>
-	bool CheckDash(UModularControllerComponent* controller);
+	bool CheckDash(UModularControllerComponent* controller) const;
 
 
 	/**
@@ -43,7 +43,7 @@ public:
 	 * @param directionIndex the index of the direction: 0-noDir, 1-fwd, 2-back, 3-left, 4-right
 	 * @return the closest direction to the desired dir.
 	 */
-	FVector GetFourDirectionnalVector(FTransform bodyTransform, FVector desiredDir, int& directionIndex);
+	FVector GetFourDirectionnalVector(FTransform bodyTransform, FVector desiredDir, int& directionIndex) const;
 
 #pragma endregion
 
@@ -53,18 +53,18 @@ protected:
 	// The State's Root motion Mode
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Dash Parameters")
 	TEnumAsByte<ERootMotionType> RootMotionMode;
-	
+
 	// The dash distance
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
 	float DashDistance = 1000;
-	
+
 
 	// Rotation speed we turn toward the Dash direction
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
 	bool bTurnTowardDashDirection = false;
 
 	// Should the dash conserve the current controller rotation?
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters", meta=(EditCondition="!bTurnTowardDashDirection"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters", meta = (EditCondition = "!bTurnTowardDashDirection"))
 	bool bUseFourDirectionnalDash = false;
 
 	// The forward dash animation.
@@ -74,11 +74,11 @@ protected:
 	// The backward dash animation.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters|Animation")
 	FActionMotionMontage BackDashMontage;
-	
+
 	// The left side dash animation.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters|Animation")
 	FActionMotionMontage LeftDashMontage;
-	
+
 	// The right side dash animation.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters|Animation")
 	FActionMotionMontage RightDashMontage;
@@ -91,50 +91,23 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
 	bool bUseMontageDuration;
 
-
-	//------------------------------------------------------------------------------------------
-	
-	FVector _propulsionVector;
-	FVector _lookDirection;
-	
-
-	/// <summary>
-	/// The end montage delegate.
-	/// </summary>
-	FOnMontageEnded _EndDelegate;
-
-
-	/// <summary>
-	/// Called at the end of the montage.
-	/// </summary>
-	/// <param name="Montage"></param>
-	/// <param name="bInterrupted"></param>
-	void OnAnimationEnded(UAnimMontage* Montage, bool bInterrupted);
-
-
 #pragma endregion
 
 #pragma region Functions
 public:
+
+	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveAction) const override;
+
+	virtual FVector OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
+
+	virtual void OnActionEnds_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
+
+	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const override;
+
+	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const override;
+
+	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const override;
 	
-	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveAction) override;
-
-	virtual FKinematicComponents OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
-
-	virtual FKinematicComponents OnActionEnds_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
-
-	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
-
-	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
-
-	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
-
-
-	virtual void OnControllerStateChanged_Implementation(UModularControllerComponent* onController, FName newBehaviourDescName, int newPriority) override;
-
-	virtual void SaveActionSnapShot_Internal() override;
-
-	virtual void RestoreActionFromSnapShot_Internal() override;
 
 #pragma endregion
 };

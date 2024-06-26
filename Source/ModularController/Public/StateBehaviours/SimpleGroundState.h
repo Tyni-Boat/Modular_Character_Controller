@@ -45,28 +45,23 @@ protected:
 public:
 
 	//Check for a valid surface
-	virtual bool CheckSurface(const FTransform spacialInfos, const FVector gravity, UModularControllerComponent* controller, const float inDelta, bool useMaxDistance = false);
+	virtual bool CheckSurface(const FTransform spacialInfos, const FVector gravity, UModularControllerComponent* controller, FSurfaceInfos& SurfaceInfos, const float inDelta, bool useMaxDistance = false) const;
 	
 #pragma endregion
 
 #pragma region Surface and Snapping XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-protected:
-	
-	//Delay the save position.
-	float t_savePosDelay;
-	
+		
 public:
 
 	//Get the vector to snap the controller on the ground.
-	FVector GetSnappedVector(const FVector onShapeLowestPoint) const;
+	FVector GetSnappedVector(const FVector onShapeLowestPoint, const FSurfaceInfos SurfaceInfos) const;
 
 	/// <summary>
 	/// Get the surface sliding vector when the controller exceed the Max surface Angle. the max size of this vector is 1. the first 5 degrees take the vector from 0 to 1.
 	/// </summary>
 	/// <returns></returns>
 	UFUNCTION(BlueprintCallable, Category="Surface")
-	FVector GetSlidingVector() const;
+	FVector GetSlidingVector(const FSurfaceInfos SurfaceInfos) const;
 
 #pragma endregion
 
@@ -82,21 +77,11 @@ protected:
 public:
 
 	//Get the move acceleration vector.
-	virtual FVector GetMoveVector(UModularControllerComponent* controller, const FVector inputVector, const float moveScale, const double deltaTime);
+	virtual FVector GetMoveVector(const FVector inputVector, const float moveScale,const FSurfaceInfos SurfaceInfos, const UModularControllerComponent* controller = NULL) const;
 	
 
 #pragma endregion
-
-#pragma region SnapShot
-private:
-
-	float _landingImpactRemainingForce_saved;
-
-	FVector_NetQuantize _lastControlledPosition;
-	FVector_NetQuantize _lastControlledPosition_saved;
-
-#pragma endregion
-
+	
 
 #pragma region Slope And Sliding XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
@@ -133,19 +118,16 @@ protected:
 #pragma region Functions XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 public:
 
-	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) override;
+	virtual FControllerCheckResult CheckState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const override;
 
-	virtual FKinematicComponents OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
+	virtual void OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
 
-	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) override;
+	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) const override;
 
-	virtual FKinematicComponents OnExitState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) override;
+	virtual void OnExitState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
 	
 
-	virtual FString DebugString() override;
-
-	virtual void SaveStateSnapShot_Internal() override;
-	virtual void RestoreStateFromSnapShot_Internal() override;
+	virtual FString DebugString() const override;
 	
 
 #pragma endregion

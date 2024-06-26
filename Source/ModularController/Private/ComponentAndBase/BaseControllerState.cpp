@@ -5,70 +5,33 @@
 
 
 
-void UBaseControllerState::SaveStateSnapShot()
+void UBaseControllerState::OnEnterState_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
 {
-	if (_snapShotSaved)
-		return;
-	SaveStateSnapShot_Internal();
-	_snapShotSaved = true;
 }
 
-void UBaseControllerState::RestoreStateFromSnapShot()
+void UBaseControllerState::OnExitState_Implementation(UModularControllerComponent* controller,
+	const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
 {
-	if(!_snapShotSaved)
-		return;
-	RestoreStateFromSnapShot_Internal();
-	_snapShotSaved = false;
-}
-
-
-
-FKinematicComponents UBaseControllerState::OnEnterState_Implementation(UModularControllerComponent* controller,
-	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
-{
-	return startingConditions;
-}
-
-FKinematicComponents UBaseControllerState::OnExitState_Implementation(UModularControllerComponent* controller,
-	const FKinematicComponents startingConditions, const FVector moveInput, const float delta)
-{
-	return startingConditions;
 }
 
 FControllerCheckResult UBaseControllerState::CheckState_Implementation(UModularControllerComponent* controller,
-	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState)
+	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
 {
-	return FControllerCheckResult(false, startingConditions);
+	auto result = startingConditions;
+	result.ControllerSurface.Reset();
+	return FControllerCheckResult(false, result);
 }
 
 FControllerStatus UBaseControllerState::ProcessState_Implementation(UModularControllerComponent* controller,
-	const FControllerStatus startingConditions, const float delta)
+	const FControllerStatus startingConditions, const float delta) const
 {
 	return startingConditions;
 }
 
-void UBaseControllerState::OnControllerStateChanged_Implementation(UModularControllerComponent* onController,
-	FName newBehaviourDescName, int newPriority)
-{
-}
-
-void UBaseControllerState::OnControllerActionChanged_Implementation(UModularControllerComponent* onController,
-	UBaseControllerAction* newAction, UBaseControllerAction* lastAction)
-{
-}
 
 
-
-void UBaseControllerState::SaveStateSnapShot_Internal()
-{
-}
-
-void UBaseControllerState::RestoreStateFromSnapShot_Internal()
-{
-}
-
-
-FString UBaseControllerState::DebugString()
+FString UBaseControllerState::DebugString() const
 {
 	return GetDescriptionName().ToString();
 }

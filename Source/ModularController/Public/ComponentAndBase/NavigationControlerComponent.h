@@ -12,6 +12,7 @@
 
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPathReached);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPartialPathReached);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPathUpdated);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPathFailed);
 
@@ -125,33 +126,20 @@ public:
 	virtual bool ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags) override;
 
 
-	/// <summary>
-	/// Find path to location on server
-	/// </summary>
-	/// <param name="location"></param>
-	/// <param name="filter"></param>
+	// Find Path to an actor, a location or the closest navigable location within a max distance.
 	UFUNCTION(Server, Reliable)
-	void ServerFindPathToLocation(FVector location, TSubclassOf<UNavigationQueryFilter> filter);
+	void ServerFindPath(AActor* target, FVector location, float reachDistance, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter);
+	
 
-	void ServerFindPathToLocation_Implementation(FVector location, TSubclassOf<UNavigationQueryFilter> filter);
-
-	/// <summary>
-	/// Find path to actor on server
-	/// </summary>
-	/// <param name="target"></param>
-	/// <param name="filter"></param>
-	UFUNCTION(Server, Reliable)
-	void ServerFindPathToActor(AActor* target, TSubclassOf<UNavigationQueryFilter> filter);
-
-	void ServerFindPathToActor_Implementation(AActor* target, TSubclassOf<UNavigationQueryFilter> filter);
+	// Cancel any path finding
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Navigation")
+	void ServerCancelPath();
 
 	/// <summary>
 	/// Update path on clients
 	/// </summary>
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastUpdatePath();
-
-	void MulticastUpdatePath_Implementation();
 
 
 	/// <summary>
@@ -160,8 +148,6 @@ public:
 	/// <param name="EPathFollowingResult"></param>
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnPathFinnished(uint32 EPathFollowingResult);
-
-	void MulticastOnPathFinnished_Implementation(uint32 EPathFollowingResult);
 
 
 
@@ -206,6 +192,13 @@ protected:
 	//The last distance. used to recalculate path.
 	float t_lastDistance = -1;
 
+	//The async path request list.
+	TArray<uint32> _asyncPathRequestNumbers;
+
+	//The corresponding actor to follow by request
+	UPROPERTY()
+	TMap<uint32, AActor*> _asyncPathFollowTargets;
+
 
 public:
 
@@ -215,7 +208,7 @@ public:
 	/// <param name="location"></param>
 	/// <param name="filter"></param>
 	/// <returns></returns>
-	bool AIRequestPathTo(FVector location, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	bool AIRequestPathTo(FVector location, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
 	/// <summary>
 	/// Request an AI path to an actor.
@@ -223,7 +216,7 @@ public:
 	/// <param name="target"></param>
 	/// <param name="filter"></param>
 	/// <returns></returns>
-	bool AIRequestPathToActor(AActor* target, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	bool AIRequestPathToActor(AActor* target, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
 	virtual void OnPathUpdated() override;
 
@@ -237,6 +230,9 @@ public:
 	bool AgentCapsuleContainsPoint(const FVector point);
 
 protected:
+
+	//Called when an async path calculation ends.
+	void OnAsyncPathEvaluated(uint32 aPathId, ENavigationQueryResult::Type aResultType, FNavPathSharedPtr aNavPointer);
 
 	/**
 	 * @brief Update Path logic
@@ -270,6 +266,9 @@ public:
 	FOnPathReached OnPathReached;
 
 	UPROPERTY(BlueprintAssignable)
+	FOnPartialPathReached OnPathPartialReached;
+
+	UPROPERTY(BlueprintAssignable)
 	FOnPathFailed OnPathFailed;
 
 	UPROPERTY(BlueprintAssignable)
@@ -281,10 +280,10 @@ public:
 
 
 	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category = "AI|Modular AI Movement")
-	static UPathFollowEvent* ModularAIMoveTo(const UObject* WorldContextObject, UNavigationControlerComponent* controller, FVector location, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	static UPathFollowEvent* ModularAIMoveTo(const UObject* WorldContextObject, UNavigationControlerComponent* controller, FVector location, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
 	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category = "AI|Modular AI Movement")
-	static UPathFollowEvent* ModularAIFollow(const UObject* WorldContextObject, UNavigationControlerComponent* controller, AActor* target, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	static UPathFollowEvent* ModularAIFollow(const UObject* WorldContextObject, UNavigationControlerComponent* controller, AActor* target, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
 
 private:
@@ -292,17 +291,23 @@ private:
 	UFUNCTION()
 	void _OnPathReached();
 	UFUNCTION()
+	void _OnPathReachedPartial();
+	UFUNCTION()
 	void _OnPathFailed();
 	UFUNCTION()
 	void _OnPathUpdated();
 
 	void CleanUp();
+	
 
 	const UObject* WorldContextObject;
 
 	UPROPERTY()
 	UNavigationControlerComponent* _controller;
 	FVector _destination;
+	float _reachDistance;
+	float _offNavDistance;
+	TSubclassOf<UNavigationQueryFilter> _navFilter = nullptr;
 
 	UPROPERTY()
 	AActor* _target;

@@ -10,10 +10,10 @@
 * The type of an Input
 */
 UENUM(BlueprintType)
-enum EInputEntryType
+enum class EInputEntryType: uint8
 {
-	InputEntryType_Simple,
-	InputEntryType_Buffered,
+	Simple,
+	Buffered,
 };
 
 /*
