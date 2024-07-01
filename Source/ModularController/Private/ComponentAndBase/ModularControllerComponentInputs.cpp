@@ -22,7 +22,7 @@ void UModularControllerComponent::MovementInput(FVector movement)
 
 void UModularControllerComponent::ListenInput(const FName key, const FInputEntry entry, const bool hold) const
 {
-	if (_inputPool.IsValid())
+	if (_inputPool)
 		_inputPool->AddOrReplace(key, entry, hold);
 }
 
@@ -58,7 +58,6 @@ void UModularControllerComponent::ListenAxisInput(const FName key, const FVector
 }
 
 
-
 FVector UModularControllerComponent::ConsumeMovementInput()
 {
 	if (_userMoveDirectionHistory.Num() < 2)
@@ -75,14 +74,14 @@ FVector UModularControllerComponent::ConsumeMovementInput()
 	}
 	if (DebugType == ControllerDebugType_InputDebug)
 	{
-		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Consumed Move Input: %s"), *move.ToCompactString()), true, true, FColor::Silver, 0, "MoveInput_");
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Consumed Move Input: %s"), *move.ToCompactString()), true, false, FColor::Silver, 0, "MoveInput_");
 	}
 	return move;
 }
 
 FInputEntry UModularControllerComponent::ReadInput(const FName key, bool consume)
 {
-	if (!_inputPool.IsValid())
+	if (!_inputPool)
 		return {};
 	return _inputPool->ReadInput(key, consume);
 }
@@ -106,4 +105,3 @@ FVector UModularControllerComponent::ReadAxisInput(const FName key)
 }
 
 #pragma endregion
-

@@ -146,27 +146,27 @@ void UModularControllerComponent::AuthorityComputeComponent(float delta, bool as
 {
 	//_timeNetLatency = 0;
 	const FVector moveInp = ConsumeMovementInput();
-	const FControllerStatus initialState = ConsumeLastKinematicMove(moveInp);
+	const FControllerStatus initialState = ConsumeLastKinematicMove(moveInp, delta);
 	auto status = StandAloneEvaluateStatus(initialState, delta);
 	ComputedControllerStatus = status;
 
-	////multi-casting
-	//if(asServer)
-	//{
-	//	MultiCastTime(_timeElapsed);
-	//	FNetKinematic netKinematic;
-	//	netKinematic.ExtractFromStatus(status);
-	//	MultiCastKinematics(netKinematic);
-	//	FNetStatusParam netStatusParams;
-	//	netStatusParams.ExtractFromStatus(status);
-	//	MultiCastStatusParams(netStatusParams);
+	//multi-casting
+	if(asServer)
+	{
+		MultiCastTime(_timeElapsed);
+		FNetKinematic netKinematic;
+		netKinematic.ExtractFromStatus(status);
+		MultiCastKinematics(netKinematic);
+		FNetStatusParam netStatusParams;
+		netStatusParams.ExtractFromStatus(status);
+		MultiCastStatusParams(netStatusParams);
 
-	//	if (DebugType == ControllerDebugType_NetworkDebug)
-	//	{
-	//		int dataSize = sizeof(netKinematic) + sizeof(netStatusParams) + sizeof(_timeElapsed);
-	//		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[UP] - Listen Server { Send Command at TimeStamp: %f. sizeof = %d bytes}"), _timeElapsed, dataSize), true, true, FColor::White, 1, "ListenServerSendCommand");
-	//	}
-	//}
+		if (DebugType == ControllerDebugType_NetworkDebug)
+		{
+			int dataSize = sizeof(netKinematic) + sizeof(netStatusParams) + sizeof(_timeElapsed);
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[UP] - Listen Server { Send Command at TimeStamp: %f. sizeof = %d bytes}"), _timeElapsed, dataSize), true, true, FColor::White, 1, "ListenServerSendCommand");
+		}
+	}
 }
 
 
@@ -189,12 +189,12 @@ void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 	if (_clientRequestReceptionQueue.Dequeue(receivedState))
 	{
 		moveInput = receivedState.Value.MoveInput;
-		initialState = ConsumeLastKinematicMove(moveInput);
+		initialState = ConsumeLastKinematicMove(moveInput, delta);
 		lastUpdatedControllerStatus = receivedState.Value;
 	}
 	else
 	{
-		initialState = ConsumeLastKinematicMove(moveInput);
+		initialState = ConsumeLastKinematicMove(moveInput, delta);
 	}
 	initialState.Kinematics = UFunctionLibrary::LerpKinematic(initialState.Kinematics, lastUpdatedControllerStatus.Kinematics, delta * (UToolsLibrary::GetFPS(delta) * 0.5));
 	initialState.StatusParams = lastUpdatedControllerStatus.StatusParams;
@@ -259,7 +259,7 @@ void UModularControllerComponent::ServerRequestActions_Implementation(UModularCo
 void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 {
 	const FVector moveInp = ConsumeMovementInput();
-	const FControllerStatus initialState = ConsumeLastKinematicMove(moveInp);
+	const FControllerStatus initialState = ConsumeLastKinematicMove(moveInp, delta);
 	auto status = StandAloneEvaluateStatus(initialState, delta);
 	status = StandAloneApplyStatus(status, delta);
 
@@ -286,7 +286,7 @@ void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 
 void UModularControllerComponent::SimulatedProxyComputeComponent(float delta)
 {
-	FControllerStatus initialState = ConsumeLastKinematicMove(lastUpdatedControllerStatus.MoveInput);
+	FControllerStatus initialState = ConsumeLastKinematicMove(lastUpdatedControllerStatus.MoveInput, delta);
 	initialState.Kinematics = UFunctionLibrary::LerpKinematic(initialState.Kinematics, lastUpdatedControllerStatus.Kinematics, delta * (UToolsLibrary::GetFPS(delta) * 0.5));
 	initialState.StatusParams = lastUpdatedControllerStatus.StatusParams;
 	StandAloneApplyStatus(initialState, delta);

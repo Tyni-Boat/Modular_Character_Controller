@@ -1,6 +1,8 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright ï¿½ 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
+
+#include <functional>
 
 #include "CoreMinimal.h"
 #include "Animation/AnimMontage.h"
@@ -49,13 +51,11 @@ class MODULARCONTROLLER_API UInputEntryPool : public UObject
 	GENERATED_BODY()
 
 public:
-
 	//The input pool
 	TMap<FName, FInputEntry> _inputPool;
 
 	//The input pool of the last frame
 	TMap<FName, FInputEntry> _inputPool_last;
-
 
 
 	// Add input to the input pool. return true when added not replaced
@@ -72,195 +72,99 @@ public:
 #pragma endregion
 
 
-
 #pragma region Surface and Zones
 
-
-// State Behavior ability to track surface velocity. Intended to be used in local
+// An extension of HitResult containing the Hit response
 USTRUCT(BlueprintType)
-struct MODULARCONTROLLER_API FSurfaceInfos
+struct MODULARCONTROLLER_API FHitResultExpanded
 {
 	GENERATED_BODY()
 
 public:
+	FHitResultExpanded();
 
-	FSurfaceInfos();
+	FHitResultExpanded(FHitResult hit, ECollisionResponse queryType = ECR_MAX);
 
-	//Update surface from a hit result and the transform that hit the surface.
-	void UpdateSurfaceInfos(FTransform inTransform, const FHitResult selectedSurface, const float delta);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
+	FHitResult HitResult;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
+	FVector CustomTraceVector;
 
-	// Release the update lock
-	void ReleaseLock();
-
-	// Reset the surface infos
-	void Reset();
-
-	// Consume the last evaluated linear velocity
-	FVector ConsumeSurfaceLinearVelocity(bool linear = true, bool angular = true, bool centripetal = false);
-
-	// Get the last evaluated linear velocity (cm/s)
-	FVector GetSurfaceLinearVelocity(bool linear = true, bool angular = true, bool centripetal = false) const;
-
-	// Get the last evaluated angular velocity
-	FQuat GetSurfaceAngularVelocity(bool consume = false);
-
-	// Get the last evaluated surface normal
-	FVector GetSurfaceNormal() const;
-
-	// Get surface primitive
-	UPrimitiveComponent* GetSurfacePrimitive() const;
-
-	// Get last surface primitive
-	UPrimitiveComponent* GetLastSurfacePrimitive() const;
-
-	// Get surface hit result data
-	FHitResult GetHitResult() const;
-
-	// Get if the surface was changed
-	bool HadChangedSurface() const;
-
-	// Get if the surface we just landed on this surface
-	bool HadLandedOnSurface() const;
-
-	// Get if the surface we just took off this surface
-	bool HadTookOffSurface() const;
-
-public:
-
-	//the surface hit raycast
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FHitResult _surfaceHitResult;
-
-protected:
-	//------------------------------------------------------------------------------------------
-
-	//the current surface
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	TWeakObjectPtr<UPrimitiveComponent> _currentSurface;
-
-	//the last surface
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	TWeakObjectPtr<UPrimitiveComponent> _lastSurface;
-
-	//the surface linear velocity
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FVector _surfaceLinearCompositeVelocity = FVector(0);
-
-	//the surface angular velocity
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FVector _surfaceAngularCompositeVelocity = FVector(0);
-
-	//the surface angular centripedal velocity
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FVector _surfaceAngularCentripetalVelocity = FVector(0);
-
-	//the surface normal
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FVector _surfaceNormal = FVector(0);
-
-	//the surface angular velocity
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FQuat _surfaceAngularVelocity = FQuat(0);
-
-	//the surface velocity
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FVector _surfaceLocalHitPoint = FVector(0);
-
-	//the surface velocity
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FVector _surfaceLocalLookDir = FVector(0);
-
-	//the absolute location of the platform during last frame
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FVector _currentSurface_Location = FVector(INFINITY);
-
-	//The absolute rotation of the platform during last frame
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	FQuat _currentSurface_Rotation = FQuat::Identity;
-
-	//prevent the surface from being updated twice during a frame.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	bool updateLock = false;
-
-	//Enabled if the surface had been switched during this frame.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface|Surface Infos")
-	bool isSurfaceSwitch = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
+	TEnumAsByte<ECollisionResponse> QueryResponse = ECollisionResponse::ECR_MAX;
 };
 
 
-// Used to track a surface movements
+// Represent a surface and it's movements
 USTRUCT(BlueprintType)
-struct FSurfaceTrackData
+struct MODULARCONTROLLER_API FSurface
 {
 	GENERATED_BODY()
 
 public:
+	FSurface();
 
-	FSurfaceTrackData();
+	FSurface(FHitResultExpanded hit, bool canStepOn = true);
+
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Tracking")
 	TWeakObjectPtr<UPrimitiveComponent> TrackedComponent = NULL;
 
-
-	// Update the tacking of the component.
-	bool UpdateTracking(float deltaTime);
-
-	// Get the velocity at a point on the surface.
-	FVector GetVelocityAt(const FVector point) const;
-
-
-	//Linear Velocity
-public:
-
-	//The linear velocity in Cm/s
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface Tracking")
-	FVector LinearVelocity = FVector(0);
-
-private:
-
-	FVector _lastPosition = FVector(0);
-
-	//Angular Velocity
-public:
-
-	// The angular velocity (axis * angle) in Rad/s
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface Tracking")
-	FVector AngularVelocity = FVector(0);
-
-private:
-
-	FQuat _lastRotation = FQuat::Identity;
-
-};
-
-
-// The informations about a surface.
-USTRUCT(BlueprintType)
-struct FSurface
-{
-	GENERATED_BODY()
-
-public:
-
-	FSurface();
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
-	TWeakObjectPtr<UPrimitiveComponent> SurfaceComponent = NULL;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Tracking")
+	FName TrackedComponentBoneName = NAME_None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	FVector SurfacePoint = FVector(0);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
-	FVector_NetQuantizeNormal SurfaceNormal = FVector(0);
+	FVector SurfaceNormal = FVector(0);
 
-	// Get surface friction (X), surface bounciness (Y)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
-	FVector SurfacePhysicProperties = FVector(1, 0, 0);
+	FVector SurfaceImpactNormal = FVector(0);
+
+	// Get surface friction (X), surface bounciness (Y), Hit collision Response type (Z) as ECollisionResponse and Can Character StepOn (W) as boolean
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	FVector4f SurfacePhysicProperties = FVector4f(1, 0, 0, 1);
+
+
+	// Update the tacking of the component.
+	bool UpdateTracking(float deltaTime);
+
+	// Update information about the hit
+	void UpdateHit(FHitResultExpanded hit, bool canStepOn = true);
+
+	// Apply a force on the surface at a point on it and return the velocity of the surface at the point before force application. use reaction to apply force only if it's opposed to the surface normal
+	FVector ApplyForceAtOnSurface(const FVector point, const FVector force, bool reactionForce = false) const;
+
+	// Get the velocity planed on the surface normal. reaction planar return the same velocity if the dot product with normal > 0.
+	FVector GetVelocityAlongNormal(const FVector velocity, const bool useImpactNormal = false, const bool reactionPlanarOnly = false) const;
+
+	// Get the velocity at a point on the surface. in cm/sec
+	FVector GetVelocityAt(const FVector point, const float deltaTime = 0) const;
+
+
+	//Linear Velocity
+public:
+	//The linear velocity in Cm/s
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface Tracking")
+	FVector LinearVelocity = FVector(0);
+
+private:
+	FVector _lastPosition = FVector(NAN);
+
+	//Angular Velocity
+public:
+	// The angular velocity (axis * angle) in Deg/s
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Surface Tracking")
+	FVector AngularVelocity = FVector(0);
+
+private:
+	FQuat _lastRotation = FQuat(NAN,NAN,NAN,NAN);
 };
 
 
 #pragma endregion
-
 
 
 #pragma region States and Actions
@@ -272,7 +176,6 @@ struct MODULARCONTROLLER_API FActionInfos
 	GENERATED_BODY()
 
 public:
-
 	FActionInfos();
 
 	// The action cooldown timer
@@ -306,11 +209,10 @@ public:
 
 	void SkipTimeToPhase(EActionPhase phase);
 
-	void Update(float deltaTime);
+	void Update(float deltaTime, bool allowCooldownDecrease = true);
 
 	void Reset(float coolDown = 0);
 };
-
 
 
 // Represent an action montage parameter
@@ -344,7 +246,6 @@ struct MODULARCONTROLLER_API FStatusParameters
 	GENERATED_BODY()
 
 public:
-
 	FStatusParameters();
 
 	bool HasChanged(FStatusParameters otherStatus) const;
@@ -366,21 +267,19 @@ public:
 	int PrimaryActionFlag = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
-	FVector_NetQuantize10 StateModifiers1;
+	FVector_NetQuantize10 StateModifiers;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
-	FVector_NetQuantize10 StateModifiers2;
+	FVector_NetQuantize10 ActionsModifiers;
 
+	// Additional variables from whatever state or action that's been checked, actives or not. useful for let say know the distance from the ground while airborne. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
-	FVector_NetQuantize10 ActionsModifiers1;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
-	FVector_NetQuantize10 ActionsModifiers2;
+	TMap<FName, float> StatusAdditionalCheckVariables;
+	
 };
 
 
 #pragma endregion
-
 
 
 #pragma region MovementInfosAndReplication
@@ -393,7 +292,6 @@ struct MODULARCONTROLLER_API FLinearKinematicCondition
 	GENERATED_BODY()
 
 public:
-
 	FLinearKinematicCondition();
 
 	//The linear acceleration (Cm/s2)
@@ -413,7 +311,7 @@ public:
 	FVector refVelocity = FVector(0);
 
 	//The current Acceleration caused by the referential space (usually the surface the controller is on).Is not conserved. this is not mean to be used directly.
-	UPROPERTY(SkipSerialization)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "KinematicProperty", SkipSerialization)
 	FVector refAcceleration = FVector(0);
 
 	//Vector used to adjust position without conserving the movement. (Cm/s)
@@ -431,18 +329,6 @@ public:
 
 public:
 
-	//Set the referential movement (usually the surface the controller is on)
-	void SetReferentialMovement(const FVector movement, const float delta, const float acceleration = -1);
-
-	//Add a composite movement. useful to match a certain speed;
-	void AddCompositeMovement(const FVector movement, const float acceleration = -1, int index = -1);
-
-	//Remove a composite movement at index.
-	bool RemoveCompositeMovement(int index);
-
-	//Compute an acceleration from this condition leading to the desired velocity
-	FVector GetAccelerationFromVelocity(FVector desiredVelocity, double deltaTime, bool onlyContribution = false) const;
-
 	//Evaluate future movement conditions base on the delta time.
 	FLinearKinematicCondition GetFinalCondition(double deltaTime);
 
@@ -450,7 +336,6 @@ public:
 	FLinearKinematicCondition GetFinalFromPosition(FVector targetPosition, double deltaTime, bool affectAcceleration = false);
 
 protected:
-
 	//Compute composite movement to take them in to account when moving.
 	void ComputeCompositeMovement(const float delta);
 };
@@ -463,7 +348,6 @@ struct MODULARCONTROLLER_API FAngularKinematicCondition
 	GENERATED_BODY()
 
 public:
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
 	FVector AngularAcceleration = FVector(0);
 
@@ -492,21 +376,28 @@ struct MODULARCONTROLLER_API FKinematicComponents
 	GENERATED_BODY()
 
 public:
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
 	FLinearKinematicCondition LinearKinematic = FLinearKinematicCondition();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
 	FAngularKinematicCondition AngularKinematic = FAngularKinematicCondition();
-	
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurfaceHandling")
+	int SurfaceBinaryFlag = -1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SurfaceHandling")
+	TArray<FSurface> SurfacesInContact;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SurfaceHandling")
+	FHitResultExpanded LastMoveHit;
+
 
 	FKinematicComponents();
 
-	FKinematicComponents(FLinearKinematicCondition linearCond, FAngularKinematicCondition angularCond);
+	FKinematicComponents(FLinearKinematicCondition linearCond, FAngularKinematicCondition angularCond, TArray<FSurface>* surfaces = nullptr, int surfacesActive = -1);
 
-	FKinematicComponents FromComponent(FKinematicComponents fromComponent, double withDelta);
-
-	FKinematicComponents FromComponent(FKinematicComponents fromComponent, FVector linearAcceleration, double withDelta);
+	// Make an action for each surface from the set of surfaces in contact defined by SurfaceBinaryFlag
+	bool ForEachSurface(std::function<void(FSurface)> doAction, bool onlyValidOnes = true) const;
 
 	//Get the rotation from angular kinematic.
 	FQuat GetRotation() const;
@@ -520,45 +411,25 @@ struct MODULARCONTROLLER_API FControllerStatus
 	GENERATED_BODY()
 
 public:
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ProcessResult")
-	int DiffManifest = 0;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ProcessResult")
-	int SurfaceIndex = -1;
-
+	// Movement status
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
 	FKinematicComponents Kinematics = FKinematicComponents();
 
+	// States and Action status
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
 	FStatusParameters StatusParams = FStatusParameters();
 
+	// User movement, as it came from the input pool
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
 	FVector MoveInput = FVector(0);
 
+	// The custom direction to find colliding surfaces.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
-	TArray<FSurfaceTrackData> SurfacesInContact;
+	FVector CustomSolverCheckDirection = FVector(0);
 
-
-
-
-	//X= surface friction, Y=Drag, Z= Bounciness
+	// The custom zone drag.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
-	FVector CustomPhysicProperties = FVector(-1);
-
-	//The current surface the controller is on.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
-	FSurfaceInfos ControllerSurface = FSurfaceInfos();
-
-
-
-
-	void ComputeDiffManifest(FControllerStatus diffDatas);
-
-	void FromStatusDiff(int diffManifest, FControllerStatus diffDatas);
-
-	//Get the difference controller staus from Diff Manifest
-	FControllerStatus GetDiffControllerStatus() const;
+	float CustomPhysicDrag = -1;
 };
 
 
@@ -569,8 +440,9 @@ struct MODULARCONTROLLER_API FControllerCheckResult
 	GENERATED_BODY()
 
 public:
-
-	FORCEINLINE FControllerCheckResult() {}
+	FORCEINLINE FControllerCheckResult()
+	{
+	}
 
 	FORCEINLINE FControllerCheckResult(bool condition, FControllerStatus process)
 	{
@@ -632,7 +504,6 @@ struct MODULARCONTROLLER_API FNetKinematic
 	GENERATED_BODY()
 
 public:
-
 	UPROPERTY(VisibleAnywhere, Category = "Network Kinematics")
 	FVector_NetQuantizeNormal MoveInput = FVector(0);
 
@@ -661,7 +532,6 @@ struct MODULARCONTROLLER_API FNetStatusParam
 	GENERATED_BODY()
 
 public:
-
 	UPROPERTY(VisibleAnywhere, Category = "Network Kinematics")
 	int StateIndex = 0;
 

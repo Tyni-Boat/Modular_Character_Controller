@@ -16,46 +16,46 @@
 #pragma region Tools & Utils
 
 bool UModularControllerComponent::ComponentTraceCastSingleUntil(FHitResult& outHit, FVector direction, FVector position,
-	FQuat rotation, std::function<bool(FHitResult)> condition, int iterations, double inflation, bool traceComplex)
+                                                                FQuat rotation, std::function<bool(FHitResult)> condition, int iterations, double inflation, bool traceComplex)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComponentTraceCastSingleUntil");
 
-	TArray<FHitResult> hits;
 	FCollisionQueryParams queryParams = FCollisionQueryParams::DefaultQueryParam;
-	if (ComponentTraceCastMulti_internal(hits, position, direction, rotation, inflation, traceComplex, queryParams))
+	//TArray<FHitResult> hits;
+	// if (ComponentTraceCastMulti_internal(hits, position, direction, rotation, inflation, traceComplex, queryParams))
+	// {
+	// 	for (int i = 0; i < hits.Num(); i++)
+	// 	{
+	// 		if (condition(hits[i]))
+	// 		{
+	// 			outHit = hits[i];
+	// 			return true;
+	// 		}
+	// 	}
+	// }
+	for (int i = 0; i < iterations; i++)
 	{
-		for (int i = 0; i < hits.Num(); i++)
+		FHitResult iterationHit;
+		if (ComponentTraceCastSingle_Internal(iterationHit, position, direction, rotation, inflation, traceComplex, queryParams))
 		{
-			if (condition(hits[i]))
+			if (condition(iterationHit))
 			{
-				outHit = hits[i];
+				outHit = iterationHit;
 				return true;
 			}
+
+			queryParams.AddIgnoredComponent(iterationHit.GetComponent());
+			continue;
 		}
+
+		break;
 	}
-
-	//for (int i = 0; i < iterations; i++)
-	//{
-	//	FHitResult iterationHit;
-	//	if (ComponentTraceCastSingle_Internal(iterationHit, position, direction, rotation, inflation, traceComplex, queryParams))
-	//	{
-	//		if (condition(iterationHit))
-	//		{
-	//			outHit = iterationHit;
-	//			return true;
-	//		}
-
-	//		queryParams.AddIgnoredComponent(iterationHit.GetComponent());
-	//		continue;
-	//	}
-
-	//	break;
-	//}
 	return false;
 }
 
 
-bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation, bool traceComplex, FCollisionQueryParams& queryParams) const
+bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation, bool traceComplex,
+                                                                   FCollisionQueryParams& queryParams) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComponentTraceCastMulti");
 
@@ -69,16 +69,30 @@ bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitRe
 	const auto shape = UpdatedPrimitive->GetCollisionShape(OverlapInflation);
 	const auto channel = UpdatedPrimitive->GetCollisionObjectType();
 	FCollisionResponseParams response = FCollisionResponseParams::DefaultResponseParam;
-	response.CollisionResponse.SetAllChannels(ECollisionResponse::ECR_Overlap);
+	response.CollisionResponse.SetAllChannels(ECollisionResponse::ECR_Block);
 
-	GetWorld()->SweepMultiByChannel(outHits, position, position + direction, rotation, channel, shape, queryParams, response);
+	constexpr int maxIterations = 64;
+	TArray<FHitResult> loopHits;
+	FCollisionQueryParams loopQueryParams = queryParams;
+	for (int i = 0; i < maxIterations; i++)
+	{
+		const bool result = GetWorld()->SweepMultiByChannel(loopHits, position, position + direction, rotation, channel, shape, loopQueryParams);
+		if (!result)
+			break;
+		for (int j = 0; j < loopHits.Num(); j++)
+		{
+			outHits.Add(loopHits[j]);
+			loopQueryParams.AddIgnoredComponent(loopHits[j].GetComponent());
+		}
+	}
 	queryParams.ClearIgnoredActors();
 
 	return outHits.Num() > 0;
 }
 
 
-bool UModularControllerComponent::ComponentTraceCastSingle_Internal(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation, bool traceComplex, FCollisionQueryParams& queryParams) const
+bool UModularControllerComponent::ComponentTraceCastSingle_Internal(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation, bool traceComplex,
+                                                                    FCollisionQueryParams& queryParams) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComponentTraceCastSingle");
 
@@ -99,7 +113,8 @@ bool UModularControllerComponent::ComponentTraceCastSingle_Internal(FHitResult& 
 }
 
 
-void UModularControllerComponent::PathCastComponent_Internal(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, bool stopOnHit, float skinWeight, bool debugRay, bool rotateAlongPath, bool bendOnCollision, bool traceComplex, FCollisionQueryParams& queryParams)
+void UModularControllerComponent::PathCastComponent_Internal(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, bool stopOnHit, float skinWeight, bool debugRay,
+                                                             bool rotateAlongPath, bool bendOnCollision, bool traceComplex, FCollisionQueryParams& queryParams)
 {
 	if (pathPoints.Num() <= 0)
 		return;
@@ -129,7 +144,7 @@ void UModularControllerComponent::PathCastComponent_Internal(TArray<FHitResult>&
 		FVector in = i <= 0 ? start : pathPoints[i - 1];
 		FVector out = pathPoints[i];
 		GetWorld()->SweepSingleByChannel(soloHit, in, out, rotateAlongPath ? (out - in).Rotation().Quaternion() : GetRotation()
-			, primitive->GetCollisionObjectType(), shape, queryParams, FCollisionResponseParams::DefaultResponseParam);
+		                                 , primitive->GetCollisionObjectType(), shape, queryParams, FCollisionResponseParams::DefaultResponseParam);
 		if (debugRay)
 		{
 			UKismetSystemLibrary::DrawDebugArrow(this, in, out, 15, soloHit.Component != nullptr ? FColor::Green : FColor::Silver, 0, 15);
@@ -160,7 +175,8 @@ void UModularControllerComponent::PathCastComponent_Internal(TArray<FHitResult>&
 }
 
 
-void UModularControllerComponent::PathCastLine(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, ECollisionChannel channel, bool stopOnHit, bool debugRay, bool bendOnCollision, bool traceComplex)
+void UModularControllerComponent::PathCastLine(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, ECollisionChannel channel, bool stopOnHit, bool debugRay,
+                                               bool bendOnCollision, bool traceComplex)
 {
 	if (pathPoints.Num() <= 0)
 		return;
@@ -209,7 +225,8 @@ void UModularControllerComponent::PathCastLine(TArray<FHitResult>& results, FVec
 }
 
 
-bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, FVector& contactForce, FVector atPosition, FQuat withOrientation, UPrimitiveComponent* onlyThisComponent, double hullInflation, bool getVelocity)
+bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, FVector& contactForce, FVector atPosition, FQuat withOrientation, UPrimitiveComponent* onlyThisComponent,
+                                                     double hullInflation, bool getVelocity)
 {
 	{
 		FVector moveVec = FVector(0);
@@ -248,7 +265,8 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, F
 					UKismetSystemLibrary::DrawDebugArrow(this, compClosestPt, compClosestPt + separationVector * 10, 1, FColor::Silver, 0, 0.1);
 					if (overlap.GetActor())
 					{
-						UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Overlap Actor: (%s)"), *overlap.GetActor()->GetActorNameOrLabel()), true, true, FColor::White, 0, FName(FString::Printf(TEXT("Overlap_%s"), *overlap.GetActor()->GetActorNameOrLabel())));
+						UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Overlap Actor: (%s)"), *overlap.GetActor()->GetActorNameOrLabel()), true, true, FColor::White, 0,
+						                                  FName(FString::Printf(TEXT("Overlap_%s"), *overlap.GetActor()->GetActorNameOrLabel())));
 					}
 				}
 
@@ -258,7 +276,8 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, F
 					{
 						if (overlap.GetActor())
 						{
-							UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Depentrate Actor: (%s)"), *overlap.GetActor()->GetActorNameOrLabel()), true, true, FColor::Silver, 0, FName(FString::Printf(TEXT("OverlapPenetration_%s"), *overlap.GetActor()->GetActorNameOrLabel())));
+							UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Depentrate Actor: (%s)"), *overlap.GetActor()->GetActorNameOrLabel()), true, true, FColor::Silver,
+							                                  0, FName(FString::Printf(TEXT("OverlapPenetration_%s"), *overlap.GetActor()->GetActorNameOrLabel())));
 						}
 					}
 
@@ -344,31 +363,6 @@ FVector UModularControllerComponent::PointOnShape(FVector direction, const FVect
 	UpdatedPrimitive->GetClosestPointOnCollision(outterBoundPt, onColliderPt);
 
 	return onColliderPt + offset + direction * hullInflation;
-}
-
-
-double UModularControllerComponent::GetHitComponentMass(FHitResult hit)
-{
-	if (hit.Component.IsValid())
-	{
-		const UModularControllerComponent* otherModularComponent = nullptr;
-		const auto component = hit.GetActor()->GetComponentByClass<UModularControllerComponent>();
-		if (component != nullptr)
-		{
-			otherModularComponent = Cast<UModularControllerComponent>(component);
-		}
-
-		if (hit.Component->IsSimulatingPhysics())
-		{
-			return hit.Component->GetMass();
-		}
-		else if (otherModularComponent)
-		{
-			return otherModularComponent->GetMass();
-		}
-	}
-
-	return TNumericLimits<double>().Max();
 }
 
 

@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright ï¿½ 2023 by Tyni Boat. All Rights Reserved.
 
 
 #include "StateBehaviours/FreeFallState.h"
@@ -32,7 +32,6 @@ FVector UFreeFallState::AddGravity(FVector currentAcceleration) const
 }
 
 
-
 #pragma endregion
 
 
@@ -40,15 +39,16 @@ FVector UFreeFallState::AddGravity(FVector currentAcceleration) const
 
 
 FControllerCheckResult UFreeFallState::CheckState_Implementation(UModularControllerComponent* controller,
-	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
+                                                                 const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
 {
 	auto result = startingConditions;
-	result.ControllerSurface.Reset();
+	if (controller)
+		UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, AirTimeVarName, asLastActiveState ? controller->TimeOnCurrentState : 0);
 	return FControllerCheckResult(true, result);
 }
 
 void UFreeFallState::OnEnterState_Implementation(UModularControllerComponent* controller,
-	const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
+                                                 const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
 {
 	if (controller)
 		controller->SetGravity(Gravity);
@@ -56,7 +56,7 @@ void UFreeFallState::OnEnterState_Implementation(UModularControllerComponent* co
 
 
 FControllerStatus UFreeFallState::ProcessState_Implementation(UModularControllerComponent* controller,
-	const FControllerStatus startingConditions, const float delta) const
+                                                              const FControllerStatus startingConditions, const float delta) const
 {
 	FControllerStatus processResult = startingConditions;
 
@@ -68,7 +68,7 @@ FControllerStatus UFreeFallState::ProcessState_Implementation(UModularController
 		const FVector resultingVector = planarInput * AirControlSpeed;
 		inputAxis = resultingVector;
 	}
-	
+
 	//Components separation
 	const FVector HorizontalVelocity = FVector::VectorPlaneProject(startingConditions.Kinematics.LinearKinematic.Velocity, Gravity.GetSafeNormal());
 	const FVector verticalVelocity = startingConditions.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(Gravity.GetSafeNormal());
@@ -82,10 +82,10 @@ FControllerStatus UFreeFallState::ProcessState_Implementation(UModularController
 	//Rotation
 	processResult.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(startingConditions.Kinematics.AngularKinematic, inputAxis, AirControlRotationSpeed, delta);
 
+	processResult.CustomSolverCheckDirection = Gravity.GetSafeNormal() * MaxCheckSurfaceDistance;
+	processResult.Kinematics.SurfaceBinaryFlag = 0;
 	return processResult;
-	
 }
-
 
 
 FString UFreeFallState::DebugString() const
@@ -94,4 +94,3 @@ FString UFreeFallState::DebugString() const
 }
 
 #pragma endregion
-

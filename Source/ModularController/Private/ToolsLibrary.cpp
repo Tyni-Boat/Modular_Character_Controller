@@ -6,7 +6,7 @@ UToolsLibrary::UToolsLibrary()
 }
 
 
-int UToolsLibrary::BoolArrayToInt(const TArray<bool> array)
+int UToolsLibrary::BoolArrayToFlag(const TArray<bool> array)
 {
 	//Translate to int
 	TArray<int> arr;
@@ -22,11 +22,11 @@ int UToolsLibrary::BoolArrayToInt(const TArray<bool> array)
 }
 
 
-TArray<bool> UToolsLibrary::IntToBoolArray(int integer)
+TArray<bool> UToolsLibrary::FlagToBoolArray(int flag)
 {
 	TArray<int> binary_array;
 	TArray<bool> bool_array;
-	int n = integer;
+	int n = flag;
 
 	while (n > 0)
 	{
@@ -73,6 +73,14 @@ TArray<bool> UToolsLibrary::IndexesToBoolArray(const TArray<int> array)
 }
 
 
+int UToolsLibrary::IndexToFlag(const int index)
+{
+	if(index < 0)
+		return 0;
+	return TwoPowX(index);
+}
+
+
 double UToolsLibrary::TenPowX(const int exponent)
 {
 	if (exponent <= 0)
@@ -85,7 +93,6 @@ double UToolsLibrary::TenPowX(const int exponent)
 	return result;
 }
 
-
 double UToolsLibrary::TwoPowX(const int exponent)
 {
 	if (exponent <= 0)
@@ -97,7 +104,6 @@ double UToolsLibrary::TwoPowX(const int exponent)
 		result *= 2;
 	return result;
 }
-
 
 FString UToolsLibrary::DebugBoolArray(TArray<bool> array)
 {

@@ -8,8 +8,7 @@
 #include "FunctionLibrary.h"
 #include "Net/UnrealNetwork.h"
 #include "CollisionQueryParams.h"
-
-
+#include "ToolsLibrary.h"
 
 
 #pragma region Movement XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -19,9 +18,8 @@ void UModularControllerComponent::Move_Implementation(const FKinematicComponents
 	if (!UpdatedPrimitive)
 		return;
 
-	FVector posOffset = GetLocation() - _lastLocation;
-	FVector offset = finalKinematic.LinearKinematic.Position - GetLocation();// initialKinematic.LinearKinematic.Position;
-	FQuat rotOffset = finalKinematic.AngularKinematic.Orientation * GetRotation().Inverse();// initialKinematic.AngularKinematic.Orientation.Inverse();
+	const FVector posOffset = GetLocation() - _lastLocation;
+	const FQuat rotOffset = GetRotation() * _lastRotation.Inverse();
 
 	if (UpdatedPrimitive->IsSimulatingPhysics())
 	{
@@ -31,218 +29,148 @@ void UModularControllerComponent::Move_Implementation(const FKinematicComponents
 	}
 	else
 	{
-		//UpdatedPrimitive->SetWorldRotation(finalKinematic.AngularKinematic.Orientation, false);
+		UpdatedPrimitive->SetWorldRotation(finalKinematic.AngularKinematic.Orientation * rotOffset, false);
 		UpdatedPrimitive->SetWorldLocation(finalKinematic.LinearKinematic.Position + posOffset, false);
-		//UpdatedPrimitive->AddWorldRotation(rotOffset);
-		//UpdatedPrimitive->AddWorldOffset(offset);
 	}
 }
 
 
-FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FControllerStatus processedMove, bool noCollision, float delta, bool applyForceOnSurfaces)
+FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FControllerStatus processedMove, bool noCollision, float delta)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("KinematicMoveEvaluation");
-	FKinematicComponents finalKcomp = FKinematicComponents(processedMove.Kinematics);
-	FVector initialLocation = processedMove.Kinematics.LinearKinematic.Position;
-	FVector startingLocation = processedMove.Kinematics.LinearKinematic.Position;
+	FKinematicComponents finalKcomp = processedMove.Kinematics;
 	const FQuat primaryRotation = processedMove.Kinematics.GetRotation();
-	FVector acceleration = processedMove.Kinematics.LinearKinematic.Acceleration;
-	FQuat surfaceRotRate = FQuat::Identity;
-	constexpr float hull = 0.75;
-	const double drag = processedMove.CustomPhysicProperties.Y >= 0 ? processedMove.CustomPhysicProperties.Y : Drag;
+	FVector initialLocation = processedMove.Kinematics.LinearKinematic.Position;
+	const FVector surfacesProps = UFunctionLibrary::GetMaxSurfacePhysicProperties(finalKcomp);
+
+	constexpr float hull = -0.00001;
+	const double drag = processedMove.CustomPhysicDrag >= 0 ? processedMove.CustomPhysicDrag : Drag;
 
 	//Drag
-	FVector vel = finalKcomp.LinearKinematic.Velocity * 0.01;
-	const double velSqr = vel.SquaredLength();
-	if (vel.Normalize())
 	{
-		acceleration -= vel * ((velSqr * drag) / (2 * GetMass())) * 100;
-	}
-
-	//Penetration force and velocity
-	if (!noCollision)
-	{
-		//FVector penetrationVec = FVector(0);
-		//FVector contactForce = FVector(0);
-		//if (CheckPenetrationAt(penetrationVec, contactForce, initialLocation, primaryRotation, nullptr, hull, true))
-		//{
-		//	FVector forceDirection = contactForce;
-		//	initialLocation += penetrationVec;
-
-		//	if (forceDirection.Normalize() && penetrationVec.Normalize())
-		//	{
-		//		if ((forceDirection | penetrationVec) > 0)
-		//		{
-		//			//acceleration += contactForce / GetMass();
-		//		}
-		//	}
-		//}
-	}
-
-	//Handle surface Operations if any
-	if (processedMove.ControllerSurface.GetSurfacePrimitive())
-	{
-		FVector surfaceVel = processedMove.ControllerSurface.GetSurfaceLinearVelocity(true, true, false);
-		const FVector surfaceValues = UFunctionLibrary::GetSurfacePhysicProperties(processedMove.ControllerSurface.GetHitResult());
-		finalKcomp.LinearKinematic.SetReferentialMovement(surfaceVel, delta, processedMove.ControllerSurface.HadChangedSurface() ? 0 : (1 / delta) * surfaceValues.X);
-		surfaceRotRate = processedMove.ControllerSurface.GetSurfaceAngularVelocity(true);
-	}
-	else
-	{
-		finalKcomp.LinearKinematic.SetReferentialMovement(FVector(0), delta, 0);
-	}
-
-	//Kinematic function to evaluate position and velocity from acceleration
-	FVector selfVel = finalKcomp.LinearKinematic.Velocity;
-	finalKcomp.LinearKinematic.Acceleration = acceleration;
-	finalKcomp.LinearKinematic = finalKcomp.LinearKinematic.GetFinalCondition(delta);
-	acceleration = finalKcomp.LinearKinematic.Acceleration;
-	FVector refMotionVel = finalKcomp.LinearKinematic.refVelocity;
-
-	//Force on surface	
-	if (applyForceOnSurfaces)
-	{
-		if (processedMove.ControllerSurface.GetSurfacePrimitive())
+		FVector vel = UFunctionLibrary::GetRelativeVelocity(finalKcomp, delta) * 0.01;
+		const double velSqr = vel.SquaredLength();
+		if (vel.Normalize())
 		{
-			FVector normalForce = (acceleration).ProjectOnToNormal(processedMove.ControllerSurface.GetHitResult().ImpactNormal) * GetMass();
-			const auto surfacePrimo = processedMove.ControllerSurface.GetSurfacePrimitive();
-			const FVector impactPt = processedMove.ControllerSurface.GetHitResult().ImpactPoint;
-			const FVector impactNormal = processedMove.ControllerSurface.GetHitResult().ImpactNormal;
-			const FName impactBoneName = processedMove.ControllerSurface.GetHitResult().BoneName;
-			const FVector surfaceValues = UFunctionLibrary::GetSurfacePhysicProperties(processedMove.ControllerSurface.GetHitResult());
-
-			FVector outSelfVel = FVector(0);
-			FVector outSurfaceVel = FVector(0);
-
-			if (surfacePrimo && surfacePrimo->IsSimulatingPhysics())
-			{
-				FVector atPtVelocity = surfacePrimo->GetPhysicsLinearVelocityAtPoint(impactPt, impactBoneName);
-				const double surfaceMass = surfacePrimo->GetMass();
-				//Landing
-				if (processedMove.ControllerSurface.HadLandedOnSurface())
-				{
-					if ((selfVel | impactNormal) < 0
-						&& UFunctionLibrary::ComputeCollisionVelocities(selfVel, atPtVelocity, impactNormal, GetMass(), surfaceMass, surfaceValues.Y, outSelfVel, outSurfaceVel))
-					{
-						const FVector forceOnSurface = (outSurfaceVel / delta) * GetMass();
-						surfacePrimo->AddForceAtLocation(forceOnSurface, impactPt, impactBoneName);
-					}
-				}
-				//Continuous
-				else
-				{
-					surfacePrimo->AddForceAtLocation(normalForce * 0.01 + GetGravity() * GetMass(), impactPt, impactBoneName);
-				}
-			}
+			finalKcomp.LinearKinematic.Acceleration -= vel * ((velSqr * drag) / (2 * GetMass())) * 100;
 		}
 	}
 
-
-	//Primary Movement (momentum movement)
+	//Surface and external forces movement
 	{
-		FHitResult sweepMoveHit = FHitResult(EForceInit::ForceInitToZero);
-		FCollisionQueryParams queryParams;
-		queryParams.AddIgnoredComponents(IgnoredCollisionComponents);
-		FVector priMove = finalKcomp.LinearKinematic.Velocity;
-		FVector conservedVelocity = finalKcomp.LinearKinematic.Velocity;
-
-		//Snap displacement
-		const FVector noSnapPriMove = priMove;
-		priMove += finalKcomp.LinearKinematic.SnapDisplacement / delta;
-
-
-		bool blockingHit = false;
-		FVector endLocation = initialLocation;
-		FVector moveDisplacement = FVector(0);
-
-		//Trace to detect hit while moving
-		blockingHit = noCollision ? false : ComponentTraceCastSingle_Internal(sweepMoveHit, initialLocation, priMove * delta, primaryRotation, hull, bUseComplexCollision, queryParams);
-
-		//Try to adjust the referential move
-		if (blockingHit && refMotionVel.SquaredLength() > 0)
+		FVector surfaceVelocity = UFunctionLibrary::GetAverageSurfaceVelocityAt(finalKcomp, initialLocation, delta);
+		const FVector externalAcceleration = _externalForces.ContainsNaN() || _externalForces.IsNearlyZero() ? FVector(0) : _externalForces / GetMass();
+		const FVector externalVelocity = externalAcceleration * delta;
+		if (UFunctionLibrary::IsValidSurfaces(finalKcomp))
 		{
-			priMove -= refMotionVel;
-			conservedVelocity -= refMotionVel;
-			refMotionVel = FVector::VectorPlaneProject(refMotionVel, sweepMoveHit.Normal);
-			priMove += refMotionVel;
-			conservedVelocity += refMotionVel;
-			initialLocation = sweepMoveHit.Location + sweepMoveHit.Normal * 0.01;
-			sweepMoveHit = FHitResult(EForceInit::ForceInitToZero);
-			blockingHit = noCollision ? false : ComponentTraceCastSingle_Internal(sweepMoveHit, initialLocation, priMove * delta, primaryRotation, hull, bUseComplexCollision, queryParams);
+			UFunctionLibrary::SetReferentialMovement(finalKcomp.LinearKinematic,
+			                                         surfaceVelocity + (externalVelocity / FMath::Clamp(surfacesProps.X, TNumericLimits<float>::Min(), TNumericLimits<float>::Max())),
+			                                         delta, surfacesProps.X * (1 / (delta * delta)));
 		}
 		else
 		{
-			finalKcomp.AngularKinematic.Orientation *= surfaceRotRate;
+			finalKcomp.LinearKinematic.refAcceleration = externalAcceleration;
+			finalKcomp.LinearKinematic.refVelocity = externalVelocity;
 		}
+	}
 
-		//Handle collision
-		if (blockingHit)
+
+	//Kinematic function to evaluate position and velocity from acceleration
+	finalKcomp.LinearKinematic = finalKcomp.LinearKinematic.GetFinalCondition(delta);
+
+	//Movement Sweep Test
+	{
+		//Snap displacement
+		const FVector snapMove = finalKcomp.LinearKinematic.SnapDisplacement;
+		finalKcomp.LinearKinematic.Position += snapMove;
+
+		FHitResult sweepMoveHit = FHitResult(EForceInit::ForceInitToZero);
+		FCollisionQueryParams queryParams;
+		queryParams.AddIgnoredComponents(IgnoredCollisionComponents);
+		FVector displacement = finalKcomp.LinearKinematic.Position - initialLocation;
+
+
+		bool blockingHit = false;
+		FVector endLocation = finalKcomp.LinearKinematic.Position;
+		FVector dDir = displacement.GetSafeNormal();
+
+		//Trace to detect hit while moving
+		blockingHit = noCollision
+			              ? false
+			              : ComponentTraceCastSingle_Internal(sweepMoveHit, initialLocation - dDir * FMath::Abs(hull), displacement * (1 + FMath::Abs(hull)), primaryRotation, hull,
+			                                                  bUseComplexCollision,
+			                                                  queryParams);
+
+		// Handle collision
+		if (blockingHit && (sweepMoveHit.Normal | displacement) <= 0)
 		{
-			//Properties of the hit surface (X=friction, Y=Bounciness, Z= hit component mass)
-			const FVector surfaceProperties = UFunctionLibrary::GetSurfacePhysicProperties(sweepMoveHit);
-			const double surfaceMass = GetHitComponentMass(sweepMoveHit);
-			const double friction = processedMove.CustomPhysicProperties.X >= 0 ? processedMove.CustomPhysicProperties.X : surfaceProperties.X;
-			//const double frictionVelocity = UFunctionLibrary::GetFrictionAcceleration(sweepMoveHit.Normal, acceleration * GetMass(), GetMass(), friction) * delta;
-			const double bounciness = processedMove.CustomPhysicProperties.Z >= 0 ? processedMove.CustomPhysicProperties.Z : surfaceProperties.Y;
-
-			//Reaction and Slide on surface
-			const FVector pureReaction = -priMove.ProjectOnToNormal(sweepMoveHit.Normal);
-			const FVector reactionVelocity = pureReaction * bounciness;
-			const FVector frictionlessVelocity = FVector::VectorPlaneProject(priMove, sweepMoveHit.Normal);
-
 			int maxDepth = 1;
-			endLocation = SlideAlongSurfaceAt(sweepMoveHit, primaryRotation, (frictionlessVelocity - pureReaction) * delta, maxDepth, delta, hull);
+			endLocation = SlideAlongSurfaceAt(sweepMoveHit, primaryRotation, displacement, maxDepth, delta, hull);
 
 			//Stuck protection
-			if (sweepMoveHit.bStartPenetrating && initialLocation.Equals(endLocation, 0.35) && priMove.SquaredLength() > 0)
+			if (sweepMoveHit.bStartPenetrating && UpdatedPrimitive && initialLocation.Equals(endLocation, 0.35) && displacement.SquaredLength() > 0)
 			{
 				if (DebugType == ControllerDebugType_MovementDebug)
 				{
-					UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("I'm stuck: initial location: (%s). End location: (%s)"), *initialLocation.ToCompactString(), *endLocation.ToCompactString()), true, true, FColor::Magenta, delta * 2, "stuck");
-					UKismetSystemLibrary::DrawDebugArrow(this, sweepMoveHit.ImpactPoint, sweepMoveHit.ImpactPoint + sweepMoveHit.Normal * 50, 50, FColor::Magenta, delta * 2, 3);
+					UKismetSystemLibrary::PrintString(
+						this, FString::Printf(TEXT("I'm stuck: initial location: (%s). End location: (%s)"), *initialLocation.ToCompactString(), *endLocation.ToCompactString())
+						, true, false, FColor::Magenta, delta * 2, "stuck");
+					UKismetSystemLibrary::DrawDebugArrow(this, sweepMoveHit.ImpactPoint, sweepMoveHit.ImpactPoint + sweepMoveHit.Normal * 50
+					                                     , 50, FColor::Magenta, delta * 2, 3);
 				}
-				endLocation += sweepMoveHit.Normal * (sweepMoveHit.PenetrationDepth > 0 ? sweepMoveHit.PenetrationDepth : 0.125);
+
+				FVector depenetrationVector = FVector(0);
+				const auto depShape = UpdatedPrimitive->GetCollisionShape(0.125);
+				ECollisionChannel shapeResponse = UpdatedPrimitive->GetCollisionObjectType();
+				finalKcomp.ForEachSurface([&depenetrationVector, sweepMoveHit, depShape, endLocation, primaryRotation, shapeResponse](FSurface surface) -> void
+				{
+					const ECollisionResponse collisionResponse = surface.TrackedComponent->GetCollisionResponseToChannel(shapeResponse);
+					const bool isBlocking = collisionResponse == ECollisionResponse::ECR_Block;
+					if (!isBlocking)
+						return;
+					FMTDResult penetrationInfos;
+					if (surface.TrackedComponent.IsValid() && surface.TrackedComponent->ComputePenetration(penetrationInfos, depShape, endLocation, primaryRotation))
+					{
+						const FVector depForce = penetrationInfos.Direction * penetrationInfos.Distance;
+						depenetrationVector += depForce;
+					}
+				}, false);
+				depenetrationVector += sweepMoveHit.Normal * 0.125;
+				endLocation += depenetrationVector;
 			}
 
 			//Debug Movement
 			if (DebugType == ControllerDebugType_MovementDebug)
 			{
-				UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Move Amount Done: (%f) percent. Initial overlap? (%d)"), sweepMoveHit.Time * 100, sweepMoveHit.bStartPenetrating), true, true, FColor::Red, delta, "hitTime");
+				UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Move Amount Done: (%f) percent. Initial overlap? (%d)"), sweepMoveHit.Time * 100
+				                                                        , sweepMoveHit.bStartPenetrating), true, false, FColor::Red, delta, "hitTime");
 			}
 
-			//Handle positioning and Velocity
-			moveDisplacement = endLocation - startingLocation;
-			FVector displacementVector = moveDisplacement;
-			if (displacementVector.Normalize())
+			//Handle new positioning and Velocity
+			finalKcomp.LinearKinematic.Position = endLocation;
+			finalKcomp.LastMoveHit = sweepMoveHit;
+			finalKcomp.LastMoveHit.HitResult.Location = endLocation;
+			finalKcomp.LastMoveHit.HitResult.TraceStart = initialLocation;
+			finalKcomp.LastMoveHit.CustomTraceVector = displacement;
+
+			//Handle collision with other components
+			if (sweepMoveHit.GetActor())
 			{
-				conservedVelocity = FVector(0);// displacementVector* frictionlessVelocity.Length()* (1 - sweepMoveHit.Time);
+				auto moveComp = sweepMoveHit.GetActor()->GetComponentByClass<UModularControllerComponent>();
+				if (moveComp && sweepMoveHit.Component == moveComp->UpdatedPrimitive)
+				{
+					const FVector force = UFunctionLibrary::GetKineticEnergy(finalKcomp.LinearKinematic.Velocity, GetMass(), displacement.Length()).ProjectOnToNormal(sweepMoveHit.Normal);
+					moveComp->AddForce(force * InterCollisionForceScale);
+				}
 			}
-			else
-			{
-				conservedVelocity = FVector(0);// +reactionVelocity;
-			}
-			conservedVelocity = moveDisplacement / delta;
 		}
-		else
+
+		//Debug the move
+		if (DebugType == ControllerDebugType_MovementDebug)
 		{
-			//Make the move
-			moveDisplacement = priMove * delta;
-			endLocation = initialLocation + moveDisplacement;
-
-			//Debug the move
-			if (DebugType == ControllerDebugType_MovementDebug)
-			{
-				UKismetSystemLibrary::DrawDebugArrow(this, initialLocation, initialLocation + priMove * delta, 50, FColor::Green, delta * 2);
-			}
+			UKismetSystemLibrary::DrawDebugArrow(this, initialLocation, endLocation, 15
+			                                     , blockingHit ? FColor::Orange : FColor::Green, delta * 2);
 		}
-
-		//Compute final position ,velocity and acceleration
-		const FVector primaryDelta = moveDisplacement;
-		const FVector location = endLocation;
-		finalKcomp.LinearKinematic = processedMove.Kinematics.LinearKinematic.GetFinalFromPosition(location, delta, false);
-		finalKcomp.LinearKinematic.Acceleration = acceleration;
-		finalKcomp.LinearKinematic.Velocity = conservedVelocity;
-		finalKcomp.LinearKinematic.refVelocity = refMotionVel;
 	}
 
 
@@ -252,22 +180,38 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 		const FVector relativeVel = finalKcomp.LinearKinematic.Velocity - finalKcomp.LinearKinematic.refVelocity;
 		const FVector relativeAcc = finalKcomp.LinearKinematic.Acceleration - finalKcomp.LinearKinematic.refAcceleration;
 
-		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Referential Movement: Vel[Dir:(%s), Lenght:(%f) m/s], Acc[Dir:(%s) Lenght:(%f) m/s2]"), *finalKcomp.LinearKinematic.refVelocity.GetSafeNormal().ToCompactString(), finalKcomp.LinearKinematic.refVelocity.Length() * 0.01, *finalKcomp.LinearKinematic.refAcceleration.GetSafeNormal().ToCompactString(), finalKcomp.LinearKinematic.refAcceleration.Length() * 0.01), true, true, FColor::Magenta, 60, "refInfos");
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Referential Movement: Vel[Dir:(%s), Lenght:(%f) m/s], Acc[Dir:(%s) Lenght:(%f) m/s2]")
+		                                                        , *finalKcomp.LinearKinematic.refVelocity.GetSafeNormal().ToCompactString(),
+		                                                        finalKcomp.LinearKinematic.refVelocity.Length() * 0.01,
+		                                                        *finalKcomp.LinearKinematic.refAcceleration.GetSafeNormal().ToCompactString(),
+		                                                        finalKcomp.LinearKinematic.refAcceleration.Length() * 0.01), true, false, FColor::Magenta, 60, "refInfos");
 
-		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Global Position: (%s)"), *finalKcomp.LinearKinematic.Position.ToCompactString()), true, true, FColor::Blue, 60, "Pos");
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Global Position: (%s)"), *finalKcomp.LinearKinematic.Position.ToCompactString())
+		                                  , true, false, FColor::Blue, 60, "Pos");
 
-		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Linear Velocity [ Global {Dir:(%s), Lenght:(%f) m/s} | Relative {Dir:(%s), Lenght:(%f) m/s}]"), *finalKcomp.LinearKinematic.Velocity.GetSafeNormal().ToCompactString(), (finalKcomp.LinearKinematic.Velocity.Length() * 0.01), *relativeVel.GetSafeNormal().ToCompactString(), relativeVel.Length() * 0.01), true, true, FColor::Cyan, 60, "LineSpd");
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Linear Velocity [ Global {Dir:(%s), Lenght:(%f) m/s} | Relative {Dir:(%s), Lenght:(%f) m/s}]")
+		                                                        , *finalKcomp.LinearKinematic.Velocity.GetSafeNormal().ToCompactString(),
+		                                                        (finalKcomp.LinearKinematic.Velocity.Length() * 0.01),
+		                                                        *relativeVel.GetSafeNormal().ToCompactString(), relativeVel.Length() * 0.01), true, false, FColor::Cyan, 60, "LineSpd");
 
-		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Linear Acceleration [ Global {Dir:(%s), Lenght:(%f) m/s2} | Relative {Dir:(%s), Lenght:(%f) m/s2}]"), *acceleration.GetSafeNormal().ToCompactString(), (acceleration.Length() * 0.01), *relativeAcc.GetSafeNormal().ToCompactString(), relativeAcc.Length() * 0.01), true, true, FColor::Purple, 60, "lineAcc");
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Linear Acceleration [ Global {Dir:(%s), Lenght:(%f) m/s2} | Relative {Dir:(%s), Lenght:(%f) m/s2}]")
+		                                                        , *finalKcomp.LinearKinematic.Acceleration.GetSafeNormal().ToCompactString(),
+		                                                        (finalKcomp.LinearKinematic.Acceleration.Length() * 0.01),
+		                                                        *relativeAcc.GetSafeNormal().ToCompactString(),
+		                                                        relativeAcc.Length() * 0.01), true, false, FColor::Purple, 60, "lineAcc");
 
 		if (finalKcomp.LinearKinematic.Acceleration.SquaredLength() > 0)
 		{
-			UKismetSystemLibrary::DrawDebugArrow(this, finalKcomp.LinearKinematic.Position, finalKcomp.LinearKinematic.Position + finalKcomp.LinearKinematic.Acceleration.GetClampedToMaxSize(100) * 0.5, 50, FColor::Purple, delta * 2, 3);
+			UKismetSystemLibrary::DrawDebugArrow(this, finalKcomp.LinearKinematic.Position,
+			                                     finalKcomp.LinearKinematic.Position + finalKcomp.LinearKinematic.Acceleration.GetClampedToMaxSize(100) * 0.5, 50
+			                                     , FColor::Purple, delta * 2, 3);
 		}
 
 		if (finalKcomp.LinearKinematic.Velocity.SquaredLength() > 0)
 		{
-			UKismetSystemLibrary::DrawDebugArrow(this, finalKcomp.LinearKinematic.Position, finalKcomp.LinearKinematic.Position + finalKcomp.LinearKinematic.Velocity.GetClampedToMaxSize(100) * 0.5, 50, FColor::Cyan, delta * 2, 3);
+			UKismetSystemLibrary::DrawDebugArrow(this, finalKcomp.LinearKinematic.Position
+			                                     , finalKcomp.LinearKinematic.Position + finalKcomp.LinearKinematic.Velocity.GetClampedToMaxSize(100) * 0.5,
+			                                     50, FColor::Cyan, delta * 2, 3);
 		}
 	}
 
@@ -275,12 +219,11 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 }
 
 
-FControllerStatus UModularControllerComponent::ConsumeLastKinematicMove(FVector moveInput) const
+FControllerStatus UModularControllerComponent::ConsumeLastKinematicMove(FVector moveInput, float delta) const
 {
 	//Consume kinematics
 	FControllerStatus initialState = ApplyedControllerStatus;
 	initialState.Kinematics.LinearKinematic.Acceleration = FVector(0);
-	//initialState.Kinematics.LinearKinematic.Velocity = FVector(0);
 	initialState.Kinematics.LinearKinematic.CompositeMovements.Empty();
 	initialState.Kinematics.LinearKinematic.refAcceleration = FVector(0);
 	initialState.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
@@ -288,10 +231,19 @@ FControllerStatus UModularControllerComponent::ConsumeLastKinematicMove(FVector 
 	initialState.Kinematics.AngularKinematic.AngularAcceleration = FVector(0);
 	initialState.Kinematics.AngularKinematic.Orientation = GetRotation();
 	initialState.MoveInput = moveInput;
-	initialState.CustomPhysicProperties = FVector(-1);
+	initialState.CustomPhysicDrag = -1;
 	initialState.StatusParams.PrimaryActionFlag = 0;
-
-	initialState.SurfaceIndex = -1;
+	initialState.Kinematics.SurfaceBinaryFlag = -1;
+	initialState.CustomSolverCheckDirection = FVector(0);
+	if (initialState.Kinematics.LastMoveHit.HitResult.IsValidBlockingHit())
+	{
+		initialState.Kinematics.LinearKinematic.Velocity = UFunctionLibrary::IsValidSurfaces(initialState.Kinematics)
+			                                                   ? UFunctionLibrary::GetVelocityFromReaction(initialState.Kinematics, initialState.Kinematics.LinearKinematic.Velocity, false,
+			                                                                                               ECR_Block)
+			                                                   : (initialState.Kinematics.LastMoveHit.HitResult.Location - initialState.Kinematics.LastMoveHit.HitResult.TraceStart) / delta;
+	}
+	initialState.Kinematics.LastMoveHit = FHitResultExpanded();
+	//initialState.StatusParams.StatusAdditionalCheckVariables.Empty();
 
 	return initialState;
 }
@@ -305,12 +257,18 @@ void UModularControllerComponent::KinematicPostMove(FControllerStatus newStatus,
 }
 
 
-FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(const FAngularKinematicCondition inRotCondition, const float inDelta) const
+FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(const FKinematicComponents inKinematic, const float inDelta) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("HandleKinematicRotation");
-	FAngularKinematicCondition outputCondition = inRotCondition;
+	FAngularKinematicCondition outputCondition = inKinematic.AngularKinematic;
 
 	FVector gravityUp = -GetGravityDirection();
+
+	//Handle surfaces rotation
+	{
+		const FVector surfaceRotVel = UFunctionLibrary::GetAverageSurfaceAngularSpeed(inKinematic);
+		outputCondition.Orientation *= FQuat(surfaceRotVel.GetSafeNormal(), FMath::DegreesToRadians(surfaceRotVel.Length()) * inDelta) * outputCondition.Orientation.Inverse();
+	}
 
 	//Acceleration
 	outputCondition.AngularAcceleration = outputCondition.AngularAcceleration.ProjectOnToNormal(gravityUp);
@@ -336,7 +294,9 @@ FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(
 		{
 			if (DebugType == ControllerDebugType_MovementDebug)
 			{
-				UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Cannot normalize right vector: up = %s, fwd= %s"), *gravityUp.ToCompactString(), *virtualFwdDir.ToCompactString()), true, true, FColor::Yellow, inDelta * 2, "RotError");
+				UKismetSystemLibrary::PrintString(
+					this, FString::Printf(TEXT("Cannot normalize right vector: up = %s, fwd= %s"), *gravityUp.ToCompactString(), *virtualFwdDir.ToCompactString()), true,
+					false, FColor::Yellow, inDelta * 2, "RotError");
 			}
 			return outputCondition;
 		}
@@ -370,9 +330,15 @@ FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(
 			rot.ToAxisAndAngle(rotAxis, rotAngle);
 
 
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Rotation [ Axis: (%s), Angle: (%f)]"), *rotAxis.ToCompactString(), FMath::RadiansToDegrees(rotAngle)), true, true, FColor::Yellow, inDelta * 2, "Rot");
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Angular Velocity [ Axis: (%s), Angle: (%f)]"), *spdAxis.ToCompactString(), FMath::RadiansToDegrees(spdAngle)), true, true, FColor::Orange, inDelta * 2, "Spd");
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Angular Acceleration [ Axis: (%s), Angle: (%f)]"), *acc.GetSafeNormal().ToCompactString(), acc.Length()), true, true, FColor::Red, inDelta * 2, "Acc");
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Rotation [ Axis: (%s), Angle: (%f)]"), *rotAxis.ToCompactString(), FMath::RadiansToDegrees(rotAngle)), true, false,
+			                                  FColor::Yellow, inDelta * 2, "Rot");
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Angular Velocity [ Axis: (%s), Angle: (%f)]"), *spdAxis.ToCompactString(), FMath::RadiansToDegrees(spdAngle)),
+			                                  false,
+			                                  true,
+			                                  FColor::Orange, inDelta * 2, "Spd");
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Angular Acceleration [ Axis: (%s), Angle: (%f)]"), *acc.GetSafeNormal().ToCompactString(), acc.Length()), false,
+			                                  true,
+			                                  FColor::Red, inDelta * 2, "Acc");
 		}
 	}
 
@@ -393,7 +359,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 
 	if (DebugType == ControllerDebugType_MovementDebug)
 	{
-		UFunctionLibrary::DrawDebugCircleOnSurface(Hit, false, 43 + depth * 5, FColor::Green, deltaTime * 2, 1, false);
+		UFunctionLibrary::DrawDebugCircleOnHit(Hit, false, 43 + depth * 5, FColor::Green, deltaTime * 2, 1, false);
 	}
 
 	if ((slideMove | originalMove) > 0.f)
@@ -412,7 +378,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 
 			if (DebugType == ControllerDebugType_MovementDebug)
 			{
-				UFunctionLibrary::DrawDebugCircleOnSurface(primaryHit, false, 38 + depth * 5, FColor::Orange, deltaTime * 2, 1, false);
+				UFunctionLibrary::DrawDebugCircleOnHit(primaryHit, false, 38 + depth * 5, FColor::Orange, deltaTime * 2, 1, false);
 			}
 
 			// Only proceed if the new direction is of significant length and not in reverse of original attempted move.
@@ -429,7 +395,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 
 					if (DebugType == ControllerDebugType_MovementDebug)
 					{
-						UFunctionLibrary::DrawDebugCircleOnSurface(secondaryMove, false, 33 + depth * 5, FColor::Black, deltaTime * 2, 1, false);
+						UFunctionLibrary::DrawDebugCircleOnHit(secondaryMove, false, 33 + depth * 5, FColor::Black, deltaTime * 2, 1, false);
 					}
 
 					if (depth > 0)
@@ -477,7 +443,6 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 				}
 				return endLocation;
 			}
-
 		}
 		else
 		{
@@ -501,4 +466,3 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 
 
 #pragma endregion
-

@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright Â© 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
 #include <functional>
@@ -74,6 +74,8 @@ private:
 
 	FVector _lastLocation = FVector(0);
 
+	FQuat _lastRotation = FQuat::Identity;
+
 protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
@@ -143,7 +145,7 @@ private:
 
 	//The user input pool, store and compute all user-made inputs
 	UPROPERTY()
-	TWeakObjectPtr<UInputEntryPool> _inputPool;
+	UInputEntryPool* _inputPool;
 
 	//The history of direction the user is willing to move.
 	TArray<FVector_NetQuantize10> _userMoveDirectionHistory;
@@ -231,7 +233,7 @@ public:
 protected:
 
 	// Evaluate controller status and return the result.
-	FControllerStatus StandAloneEvaluateStatus(FControllerStatus initialState, float delta, bool noCollision = false, bool physicImpact = true);
+	FControllerStatus StandAloneEvaluateStatus(FControllerStatus initialState, float delta, bool noCollision = false);
 
 	// Apply controller status and return the changed diff.
 	FControllerStatus StandAloneApplyStatus(FControllerStatus state, float delta);
@@ -367,6 +369,18 @@ public:
 	// The Current Frag of the fluid / air. it's divided by the mass
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	float Drag = 0.564;
+	
+	// The Bounciness coefficient of this component on non-surface hits
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
+	float Bounciness = 0;
+	
+	// The number of point in fibonacci sphere, used as cardinal points on the surface.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
+	int CardinalPointsNumber = 64;
+	
+	// The scale of the force applyed to other controller upon collision
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
+	float InterCollisionForceScale = 0.5;
 
 	// Disable collision with the world and other characters
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
@@ -380,11 +394,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	bool bUseComplexCollision = false;
 
-	// Use physic interractions on server and stand alone?
+	// Use physic interactions on server and stand alone?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	bool bUsePhysicAuthority = true;
 
-	// Use physic interractions on clients
+	// Use physic interactions on clients
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	bool bUsePhysicClients = false;
 
@@ -393,7 +407,16 @@ public:
 	FVector _gravityVector = -FVector::UpVector;
 	
 	// The cached array of component in contact
-	TArray<TWeakObjectPtr<UPrimitiveComponent>> _contactComponents;
+	TArray<FHitResultExpanded> _contactHits;
+
+	//The cached array of hits during OverlapSolving
+	TArray<FHitResult> _tempOverlapSolverHits;
+
+	// The list of local space cardinal points;
+	TArray<FVector> _localSpaceCardinalPoints;
+
+	// The external forces applied to the controller
+	FVector _externalForces;
 
 
 
@@ -435,20 +458,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
 	FORCEINLINE float GetMass() const
 	{
-		return (Mass < 0 && UpdatedPrimitive != nullptr && UpdatedPrimitive->IsSimulatingPhysics()) ? UpdatedPrimitive->GetMass() : FMath::Clamp(Mass, 1, 9999999);
+		return (Mass < 0 && UpdatedPrimitive != nullptr && UpdatedPrimitive->IsSimulatingPhysics()) ? UpdatedPrimitive->GetMass() : FMath::Clamp(Mass, 1, TNumericLimits<double>().Max());
 	}
 
 
 
-	// Get the controller's Current State Surface
+	//Add force on component. 
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
-	FSurfaceInfos GetCurrentSurface() const;
+	void AddForce(const FVector force);
+
+	
+	// Evaluates the local poits on the shape in each directions.
+	void EvaluateCardinalPoints();
 
 
-
-	//Add force to surface at location. 
-	UFUNCTION(BlueprintCallable, Category = "Surface|Physic")
-	void AddForce(const FHitResult hit, FVector momentum);
+	// Get the closest cardinal point on the shape matching the worldSpaceDirection. return NAN if an error happened.
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
+	FVector GetWorldSpaceCardinalPoint(const FVector worldSpaceDirection);
 
 
 	// called When overlap occurs.
@@ -457,11 +483,11 @@ public:
 
 
 	//Solve overlap problems recursively.
-	void OverlapSolver(int& maxDepth, float DeltaTime, TArray<TWeakObjectPtr<UPrimitiveComponent>>* touchedComponents = nullptr) const;
+	void OverlapSolver(int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits = nullptr, const FVector scanDirection = FVector(0));
 
 
 	// Handle tracked surfaces.
-	void HandleTrackedSurface(float delta);
+	void HandleTrackedSurface(FControllerStatus& fromStatus, float delta);
 
 
 #pragma endregion
@@ -707,13 +733,6 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Controllers|Controllers|Controller Action|Events")
 	void OnControllerActionChanged(UBaseControllerAction* newAction, UBaseControllerAction* lastAction);
 
-protected:
-
-
-	/// Check controller Actions and returns the index of the active one.
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
-	FControllerStatus CheckControllerActions(FControllerStatus currentControllerStatus, const float inDelta);
-
 	/**
 	 * @brief Check if an action is compatible with this state and those actions
 	 * @param actionInstance The action to verify
@@ -722,6 +741,13 @@ protected:
 	 * @return true if it's compatible
 	 */
 	bool CheckActionCompatibility(const TSoftObjectPtr<UBaseControllerAction> actionInstance, int stateIndex, int actionIndex) const;
+
+protected:
+
+
+	/// Check controller Actions and returns the index of the active one.
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
+	FControllerStatus CheckControllerActions(FControllerStatus currentControllerStatus, const float inDelta);
 
 	/// Try Change actions from action index 1 to 2
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
@@ -776,6 +802,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
 	double PlayAnimationMontage(FActionMotionMontage Montage, float customAnimStartTime = -1);
 
+	
+	// Stop a playing montage
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
+	void StopMontage(FActionMotionMontage montage, bool isPlayingOnState = false);
+
 	///Play an animation montage on the specified controller state linked anim graph. returns the duration
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
 	double PlayAnimationMontageOnState(FActionMotionMontage Montage, FName stateName, float customAnimStartTime = -1);
@@ -794,7 +825,7 @@ public:
 
 
 	//Read the skeletal mesh root motion.
-	void ReadRootMotion(FKinematicComponents& kinematics, const ERootMotionType rootMotionMode) const;
+	void ReadRootMotion(FKinematicComponents& kinematics, const FVector velocity, const ERootMotionType rootMotionMode, float surfaceFriction = 1) const;
 
 	//Read the root motion translation vector
 	FVector GetRootMotionTranslation(const ERootMotionType rootMotionMode, const FVector currentVelocity) const;
@@ -842,7 +873,7 @@ public:
 	FControllerStatus ComputedControllerStatus;
 
 	/// The kinematic components that been apply this frame.
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadWrite, category = "Controllers|Movement")
+	UPROPERTY()
 	FControllerStatus ApplyedControllerStatus;
 
 
@@ -857,11 +888,11 @@ protected:
 
 
 	/// Evaluate the movement and return the new kinematic component.
-	virtual FKinematicComponents KinematicMoveEvaluation(FControllerStatus processedMove, bool noCollision, float delta, bool applyForceOnSurfaces = true);
+	virtual FKinematicComponents KinematicMoveEvaluation(FControllerStatus processedMove, bool noCollision, float delta);
 
 
 	/// Handle premove logic. Always call at the top of the Update.
-	FControllerStatus ConsumeLastKinematicMove(FVector moveInput) const;
+	FControllerStatus ConsumeLastKinematicMove(FVector moveInput, float delta) const;
 
 
 	/// Operation to Conserve momentum.
@@ -869,7 +900,7 @@ protected:
 
 
 	/// Handle the controller rotation to always stay Up aligned with gravity
-	FAngularKinematicCondition HandleKinematicRotation(const FAngularKinematicCondition inRotCondition, const float inDelta) const;
+	FAngularKinematicCondition HandleKinematicRotation(const FKinematicComponents inKinematic, const float inDelta) const;
 
 
 	/// Simulate A slide along a surface at a position with a rotation. Returns the position after slide.
@@ -895,7 +926,7 @@ public:
 	bool ComponentTraceCastSingleUntil(FHitResult& outHit, FVector direction, FVector position, FQuat rotation, std::function<bool(FHitResult)> condition, int iterations = 3, double inflation = 0.100, bool traceComplex = false);
 
 
-	/// Check for collision at a position and rotation in a direction. return true if collision occurs
+	/// Check for all collisions at a position and rotation in a direction as overlaps. return true if any collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
 	FORCEINLINE bool ComponentTraceCastMulti(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
 	{
@@ -960,10 +991,6 @@ public:
 	/// Return a point on the surface of the collider.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
 	FVector PointOnShape(FVector direction, const FVector inLocation, const float hullInflation = 0.126);
-
-	/// Get the mass of a component upon hit
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	double GetHitComponentMass(FHitResult hit);
 
 
 #pragma endregion

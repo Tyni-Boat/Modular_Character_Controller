@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright Â© 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
 #include "ComponentAndBase/BaseControllerState.h"
@@ -17,7 +17,7 @@ class MODULARCONTROLLER_API UFreeFallState : public UBaseControllerState
 #pragma region Parameters
 protected:
 	
-	// The maximun velocity the user can move planar to the gravity force
+	// The maximum velocity the user can move planar to the gravity force
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
 	float AirControlSpeed = 300;
 
@@ -25,24 +25,29 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Air Control")
 	float AirControlRotationSpeed = 3;
 
+	// The maximum distance to check for surface in gravity direction.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Check Surface")
+	float MaxCheckSurfaceDistance = 2000;
+
 	// The Gravity force
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Gravity")
 	FVector Gravity = FVector(0, 0, -981);
+
+	// The name of the air time additional variable
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Additionnal Infos")
+	FName AirTimeVarName = "AirTime";
 	
 
 #pragma endregion
 		
 #pragma region Air Velocity and Checks
 public:
-
 	
 	// To control the controller in the air
 	virtual FVector AirControl(FVector desiredMove, FVector horizontalVelocity, float delta) const;
 
-
 	// Apply Gravity force
-	virtual FVector AddGravity(FVector currentAcceleration) const;
-			
+	virtual FVector AddGravity(FVector currentAcceleration) const;			
 
 #pragma endregion
 
@@ -54,7 +59,6 @@ public:
 	virtual void OnEnterState_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
 
 	virtual FControllerStatus ProcessState_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta) const override;
-
 
 	virtual FString DebugString() const override;
 	

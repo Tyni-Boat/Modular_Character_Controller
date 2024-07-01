@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright Â© 2023 by Tyni Boat. All Rights Reserved.
 
 
 #include "CommonTypes.h"
@@ -25,7 +25,7 @@ void FInputEntry::Reset()
 	Phase = EInputEntryPhase::InputEntryPhase_None;
 }
 
-
+//------------------------------------------------------------------------------------------------------------------------
 
 bool UInputEntryPool::AddOrReplace(FName key, FInputEntry entry, const bool hold)
 {
@@ -98,7 +98,9 @@ void UInputEntryPool::UpdateInputs(float delta, const bool debug, UObject* world
 		{
 			auto input = entry.Value;
 			_inputPool_last[entry.Key].Phase = input.Phase;
-			_inputPool_last[entry.Key].HeldDuration = input.Phase == InputEntryPhase_Held ? delta + _inputPool_last[entry.Key].HeldDuration : 0;
+			_inputPool_last[entry.Key].HeldDuration = input.Phase == InputEntryPhase_Held
+				                                          ? delta + _inputPool_last[entry.Key].HeldDuration
+				                                          : 0;
 			_inputPool_last[entry.Key].Axis = entry.Value.Axis;
 			_inputPool_last[entry.Key].InputBuffer = input.InputBuffer;
 		}
@@ -152,8 +154,14 @@ void UInputEntryPool::UpdateInputs(float delta, const bool debug, UObject* world
 			{
 				debugColor = FColor::Black;
 			}
-			UKismetSystemLibrary::PrintString(worldContext, FString::Printf(TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %f, Held: %f"), *entry.Key.ToString(), *UEnum::GetValueAsName<EInputEntryNature>(_inputPool_last[entry.Key].Nature).ToString(), *UEnum::GetValueAsName<EInputEntryPhase>(_inputPool_last[entry.Key].Phase).ToString(), bufferChrono
-				, activeDuration), true, true, debugColor, 0, entry.Key);
+			UKismetSystemLibrary::PrintString(worldContext, FString::Printf(
+				                                  TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %f, Held: %f"),
+				                                  *entry.Key.ToString(),
+				                                  *UEnum::GetValueAsName<
+					                                  EInputEntryNature>(_inputPool_last[entry.Key].Nature).ToString(),
+				                                  *UEnum::GetValueAsName<EInputEntryPhase>(
+					                                  _inputPool_last[entry.Key].Phase).ToString(), bufferChrono
+				                                  , activeDuration), true, true, debugColor, 0, entry.Key);
 		}
 	}
 
@@ -166,200 +174,29 @@ void UInputEntryPool::UpdateInputs(float delta, const bool debug, UObject* world
 
 #pragma region Surface and Zones
 
-FSurfaceInfos::FSurfaceInfos()
+FHitResultExpanded::FHitResultExpanded()
 {
 }
 
-
-void FSurfaceInfos::UpdateSurfaceInfos(FTransform inTransform, const FHitResult selectedSurface, const float delta)
+FHitResultExpanded::FHitResultExpanded(FHitResult hit, ECollisionResponse queryType)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE_STR("UpdateSurfaceInfos");
-	if (updateLock)
-		return;
-
-	updateLock = true;
-	_surfaceHitResult = selectedSurface;
-	_surfaceNormal = selectedSurface.Normal;
-
-	//We're on the same surface
-	if (_currentSurface.IsValid() && selectedSurface.Component.IsValid() && _currentSurface == selectedSurface.Component && !_currentSurface_Location.ContainsNaN())
-	{
-		isSurfaceSwitch = false;
-		//FTransform surfaceTransform = _currentSurface->GetComponentTransform();
-		//FVector look = surfaceTransform.TransformVector(_surfaceLocalLookDir);
-		//FVector pos = surfaceTransform.TransformPosition(_surfaceLocalHitPoint);
-
-		//Velocity
-		{
-			//Linear Part
-			FVector bodyVelocity = FVector(0);
-			bodyVelocity = (selectedSurface.Component->GetComponentLocation() - _currentSurface_Location) / delta;
-
-			//Angular part
-			FQuat currentPl_quat = selectedSurface.Component->GetComponentRotation().Quaternion();
-			FQuat lastPl_quat = _currentSurface_Rotation;
-			lastPl_quat.EnforceShortestArcWith(currentPl_quat);
-			FQuat pl_rotDiff = currentPl_quat * lastPl_quat.Inverse();
-			float angle;
-			FVector axis;
-			pl_rotDiff.ToAxisAndAngle(axis, angle);
-			angle /= delta;
-			FVector dir, up, fwd;
-			up = axis;
-			fwd = FVector::VectorPlaneProject(inTransform.GetLocation() - _currentSurface->GetComponentLocation(), up).GetSafeNormal();
-			dir = FVector::CrossProduct(up, fwd);
-			dir.Normalize();
-			double r = FVector::VectorPlaneProject(inTransform.GetLocation() - _currentSurface->GetComponentLocation(), up).Length() * 0.01;
-			FVector rotVel = r * angle * dir;
-
-			//Finally
-			_surfaceLinearCompositeVelocity = bodyVelocity;// *1.2331;
-			_surfaceAngularCompositeVelocity = rotVel;// *1.2331;
-			_surfaceAngularCentripetalVelocity = -fwd * ((angle * angle) / r) * 0.0215;
-		}
-
-		//Orientation
-		{
-			FQuat targetQuat = selectedSurface.Component->GetComponentRotation().Quaternion();
-			FQuat currentQuat = _currentSurface_Rotation;
-
-			//Get Angular speed
-			currentQuat.EnforceShortestArcWith(targetQuat);
-			auto quatDiff = targetQuat * currentQuat.Inverse();
-			FVector axis;
-			float angle;
-			quatDiff.ToAxisAndAngle(axis, angle);
-			quatDiff = FQuat(axis, angle);
-			_surfaceAngularVelocity = quatDiff;
-		}
-	}
-
-	//we changed surfaces
-	if (_currentSurface != selectedSurface.Component)
-	{
-		Reset();
-		isSurfaceSwitch = true;
-	}
-	_lastSurface = _currentSurface;
-	_currentSurface = selectedSurface.Component;
-	if (_currentSurface.IsValid())
-	{
-		auto surfaceTransform = _currentSurface->GetComponentTransform();
-		_surfaceLocalLookDir = surfaceTransform.InverseTransformVector(inTransform.GetRotation().Vector());
-		_surfaceLocalHitPoint = surfaceTransform.InverseTransformPosition(inTransform.GetLocation());
-		_currentSurface_Location = _currentSurface->GetComponentLocation();
-		_currentSurface_Rotation = _currentSurface->GetComponentRotation().Quaternion();
-	}
+	HitResult = hit;
+	QueryResponse = queryType != ECR_MAX ? queryType : (hit.bBlockingHit ? ECR_Block : ECR_Ignore);
 }
 
-void FSurfaceInfos::ReleaseLock()
-{
-	if (!updateLock)
-		return;
-	updateLock = false;
-}
+//------------------------------------------------------------------------------------------------------------------------
 
-void FSurfaceInfos::Reset()
-{
-	_currentSurface.Reset();
-	_surfaceLinearCompositeVelocity = FVector(0);
-	_surfaceAngularCompositeVelocity = FVector(0);
-	_surfaceAngularCentripetalVelocity = FVector(0);
-	_surfaceAngularVelocity = FQuat::Identity;
-	_surfaceLocalHitPoint = FVector(0);
-	_currentSurface_Location = FVector(NAN);
-	_currentSurface_Rotation = FQuat::Identity;
-	_surfaceLocalLookDir = FVector(0);
-	ReleaseLock();
-}
-
-FVector FSurfaceInfos::ConsumeSurfaceLinearVelocity(bool linear, bool angular, bool centripetal)
-{
-	FVector velocity = FVector(0);
-	if (linear)
-	{
-		velocity += _surfaceLinearCompositeVelocity;
-		_surfaceLinearCompositeVelocity = FVector(0);
-	}
-	if (angular)
-	{
-		velocity += _surfaceAngularCompositeVelocity * 100;
-		_surfaceAngularCompositeVelocity = FVector(0);
-	}
-	if (centripetal)
-	{
-		velocity += _surfaceAngularCentripetalVelocity * 100;
-		_surfaceAngularCentripetalVelocity = FVector(0);
-	}
-	return velocity;
-}
-
-FVector FSurfaceInfos::GetSurfaceLinearVelocity(bool linear, bool angular, bool centripetal) const
-{
-	FVector velocity = FVector(0);
-	if (linear)
-		velocity += _surfaceLinearCompositeVelocity;
-	if (angular)
-		velocity += _surfaceAngularCompositeVelocity * 100;
-	if (centripetal)
-		velocity += _surfaceAngularCentripetalVelocity * 100;
-	return velocity;
-}
-
-FQuat FSurfaceInfos::GetSurfaceAngularVelocity(bool consume)
-{
-	FQuat value = _surfaceAngularVelocity;
-	if (consume)
-	{
-		_surfaceAngularVelocity = FQuat::Identity;
-	}
-	return value;
-}
-
-FVector FSurfaceInfos::GetSurfaceNormal() const
-{
-	return  _surfaceNormal;
-}
-
-UPrimitiveComponent* FSurfaceInfos::GetSurfacePrimitive() const
-{
-	return  _currentSurface.Get();
-}
-
-UPrimitiveComponent* FSurfaceInfos::GetLastSurfacePrimitive() const
-{
-	return  _lastSurface.Get();
-}
-
-FHitResult FSurfaceInfos::GetHitResult() const
-{
-	return  _surfaceHitResult;
-}
-
-bool FSurfaceInfos::HadChangedSurface() const
-{
-	return  isSurfaceSwitch;
-}
-
-bool FSurfaceInfos::HadLandedOnSurface() const
-{
-	return  _currentSurface.IsValid() && !_lastSurface.IsValid();
-}
-
-bool FSurfaceInfos::HadTookOffSurface() const
-{
-	return  !_currentSurface.IsValid() && _lastSurface.IsValid();
-}
-
-
-
-
-
-FSurfaceTrackData::FSurfaceTrackData()
+FSurface::FSurface()
 {
 }
 
-bool FSurfaceTrackData::UpdateTracking(float deltaTime)
+FSurface::FSurface(FHitResultExpanded hit, bool canStepOn)
+{
+	TrackedComponent = hit.HitResult.Component;
+	UpdateHit(hit, canStepOn);
+}
+
+bool FSurface::UpdateTracking(float deltaTime)
 {
 	FVector linearVelocity = FVector(0);
 	FVector angularVelocity = FVector(0);
@@ -370,20 +207,25 @@ bool FSurfaceTrackData::UpdateTracking(float deltaTime)
 		validSurface = true;
 
 		//Linear Part
-		linearVelocity = (TrackedComponent->GetComponentLocation() - _lastPosition) / deltaTime;
+		linearVelocity = _lastPosition.ContainsNaN() ? FVector(0) : (TrackedComponent->GetSocketLocation(TrackedComponentBoneName) - _lastPosition) / deltaTime;
+		_lastPosition = TrackedComponent->GetSocketLocation(TrackedComponentBoneName);
 
 		//Angular
-		const FQuat targetQuat = TrackedComponent->GetComponentRotation().Quaternion();
+		const FQuat targetQuat = TrackedComponent->GetSocketQuaternion(TrackedComponentBoneName);
 		FQuat currentQuat = _lastRotation;
 
 		//Get Angular speed
-		currentQuat.EnforceShortestArcWith(targetQuat);
-		const FQuat quatDiff = targetQuat * currentQuat.Inverse();
-		FVector axis;
-		float angle;
-		quatDiff.ToAxisAndAngle(axis, angle);
-		axis.Normalize();
-		angularVelocity = axis * angle / deltaTime;
+		if (!_lastRotation.ContainsNaN())
+		{
+			currentQuat.EnforceShortestArcWith(targetQuat);
+			const FQuat quatDiff = targetQuat * currentQuat.Inverse();
+			FVector axis;
+			float angle;
+			quatDiff.ToAxisAndAngle(axis, angle);
+			axis.Normalize();
+			angularVelocity = axis * FMath::RadiansToDegrees(angle / deltaTime);
+		}
+		_lastRotation = TrackedComponent->GetSocketQuaternion(TrackedComponentBoneName);
 	}
 
 	LinearVelocity = linearVelocity;
@@ -392,30 +234,77 @@ bool FSurfaceTrackData::UpdateTracking(float deltaTime)
 }
 
 
-FVector FSurfaceTrackData::GetVelocityAt(const FVector point) const
+void FSurface::UpdateHit(FHitResultExpanded hit, bool canStepOn)
+{
+	SurfacePoint = hit.HitResult.ImpactPoint;
+	SurfaceNormal = hit.HitResult.Normal;
+	SurfaceImpactNormal = hit.HitResult.ImpactNormal;
+	if (TrackedComponentBoneName != hit.HitResult.BoneName)
+	{
+		_lastPosition = FVector(NAN);
+		_lastRotation = FQuat(NAN,NAN,NAN,NAN);
+		LinearVelocity = FVector(0);
+		AngularVelocity = FVector(0);
+	}
+	TrackedComponentBoneName = hit.HitResult.BoneName;
+	SurfacePhysicProperties = hit.HitResult.PhysMaterial.IsValid()
+		                          ? FVector4f(hit.HitResult.PhysMaterial->Friction, hit.HitResult.PhysMaterial->Restitution, hit.QueryResponse, canStepOn? 1 : 0)
+		                          : FVector4f(1, 0, hit.QueryResponse, canStepOn? 1 : 0);
+}
+
+
+FVector FSurface::ApplyForceAtOnSurface(const FVector point, const FVector force, bool reactionForce) const
 {
 	if (!TrackedComponent.IsValid())
-		return LinearVelocity;
+		return FVector(0);
+	if (!TrackedComponent->IsSimulatingPhysics(TrackedComponentBoneName))
+		return FVector(0);
+	FVector f = force;
+	if (reactionForce)
+	{
+		f = (f | SurfaceNormal) >= 0 ? FVector(0) : f.ProjectOnToNormal(SurfaceNormal);
+	}
+	const FVector lastVelocityAt = TrackedComponent->GetPhysicsLinearVelocityAtPoint(point, TrackedComponentBoneName);
+	TrackedComponent->AddForceAtLocation(f, point, TrackedComponentBoneName);
+	return lastVelocityAt;
+}
+
+FVector FSurface::GetVelocityAlongNormal(const FVector velocity, const bool useImpactNormal, const bool reactionPlanarOnly) const
+{
+	if (!TrackedComponent.IsValid())
+		return velocity;
+
+	const FVector normal = useImpactNormal ? SurfaceImpactNormal : SurfaceNormal;
+	if (reactionPlanarOnly && (normal | velocity) > 0)
+		return velocity;
+	return FVector::VectorPlaneProject(velocity, normal);
+}
+
+
+FVector FSurface::GetVelocityAt(const FVector point, const float deltaTime) const
+{
+	FVector linearPart = LinearVelocity;
+	if (SurfaceNormal.SquaredLength() > 0 && linearPart.SquaredLength() > 0)
+	{
+		linearPart = (linearPart.GetSafeNormal() | SurfaceNormal) >= 0 ? LinearVelocity : FVector(0);
+	}
+	if (!TrackedComponent.IsValid())
+		return linearPart;
 
 	//Angular part
 	const FVector rotationAxis = AngularVelocity.GetSafeNormal();
-	FVector radiusDirection = FVector::VectorPlaneProject(point - TrackedComponent->GetComponentLocation(), rotationAxis).GetSafeNormal();
+	const FVector radiusDirection = FVector::VectorPlaneProject(point - TrackedComponent->GetSocketLocation(TrackedComponentBoneName), rotationAxis).GetSafeNormal();
 	FVector tangentialDirection = FVector::CrossProduct(rotationAxis, radiusDirection);
 	tangentialDirection.Normalize();
-	double r = FVector::VectorPlaneProject(point - TrackedComponent->GetComponentLocation(), rotationAxis).Length() * 0.01;
-	const double angle = AngularVelocity.Length();
-	const FVector rotVel = r * angle * tangentialDirection;
-	const FVector centripetal = -radiusDirection * ((angle * angle) / r) * 0.0215;
+	const double radius = FVector::VectorPlaneProject(point - TrackedComponent->GetSocketLocation(TrackedComponentBoneName), rotationAxis).Length();
+	const double angle = FMath::DegreesToRadians(AngularVelocity.Length());
+	const FVector rotVel = radius * angle * tangentialDirection;
+	const FVector centripetal = -radiusDirection * (angle * angle) * radius * deltaTime * deltaTime * 1.5;//(1 + deltaTime);
 
 	//Finally
-	return LinearVelocity + rotVel + centripetal;
+	return linearPart + rotVel + centripetal;
 }
 
-
-
-FSurface::FSurface()
-{
-}
 
 #pragma endregion
 
@@ -423,7 +312,9 @@ FSurface::FSurface()
 #pragma region States and Actions
 
 
-FActionInfos::FActionInfos() {}
+FActionInfos::FActionInfos()
+{
+}
 
 void FActionInfos::Init(FVector timings, float coolDown, int repeatCount)
 {
@@ -450,7 +341,8 @@ double FActionInfos::GetNormalizedTime(EActionPhase phase) const
 		case ActionPhase_Undetermined: return 0;
 		case ActionPhase_Anticipation:
 			if (_remainingActivationTimer >= (_startingDurations.Y + _startingDurations.Z))
-				return  1 - ((_remainingActivationTimer - (_startingDurations.Y + _startingDurations.Z)) / _startingDurations.X);
+				return 1 - ((_remainingActivationTimer - (_startingDurations.Y + _startingDurations.Z)) / _startingDurations
+					.X);
 			return 0;
 		case ActionPhase_Active:
 			if (_remainingActivationTimer < _startingDurations.Z) return 0;
@@ -476,10 +368,12 @@ void FActionInfos::SkipTimeToPhase(EActionPhase phase)
 		case ActionPhase_Recovery:
 			_remainingActivationTimer = _startingDurations.Z;
 			break;
+		default:
+			break;
 	}
 }
 
-void FActionInfos::Update(float deltaTime)
+void FActionInfos::Update(float deltaTime, bool allowCooldownDecrease)
 {
 	if (_remainingActivationTimer >= 0)
 	{
@@ -492,7 +386,8 @@ void FActionInfos::Update(float deltaTime)
 				CurrentPhase = ActionPhase_Anticipation;
 			}
 		}
-		else if (_remainingActivationTimer > _startingDurations.Z && _remainingActivationTimer <= (_startingDurations.Y + _startingDurations.Z))
+		else if (_remainingActivationTimer > _startingDurations.Z && _remainingActivationTimer <= (_startingDurations.Y
+			+ _startingDurations.Z))
 		{
 			if (CurrentPhase != ActionPhase_Active)
 			{
@@ -510,7 +405,7 @@ void FActionInfos::Update(float deltaTime)
 	else
 	{
 		CurrentPhase = EActionPhase::ActionPhase_Undetermined;
-		if (_cooldownTimer > 0)
+		if (_cooldownTimer > 0 && allowCooldownDecrease)
 		{
 			_cooldownTimer -= deltaTime;
 		}
@@ -526,15 +421,20 @@ void FActionInfos::Reset(float coolDown)
 }
 
 
+//------------------------------------------------------------------------------------------------------------------------
 
 
 FActionMotionMontage::FActionMotionMontage()
-{}
+{
+}
 
+
+//------------------------------------------------------------------------------------------------------------------------
 
 
 FStatusParameters::FStatusParameters()
-{}
+{
+}
 
 bool FStatusParameters::HasChanged(FStatusParameters otherStatus) const
 {
@@ -542,89 +442,19 @@ bool FStatusParameters::HasChanged(FStatusParameters otherStatus) const
 	const bool stateFlagChange = PrimaryStateFlag != otherStatus.PrimaryStateFlag;
 	const bool actionChange = ActionIndex != otherStatus.ActionIndex;
 	const bool actionFlagChange = PrimaryActionFlag != otherStatus.PrimaryActionFlag;
-	return  stateChange || stateFlagChange || actionChange || actionFlagChange;
+	return stateChange || stateFlagChange || actionChange || actionFlagChange;
 }
 
 #pragma endregion
 
 
-#pragma region MovementInfosAndReplication
+#pragma region Movement
+
 
 FLinearKinematicCondition::FLinearKinematicCondition()
-{}
-
-void FLinearKinematicCondition::SetReferentialMovement(const FVector movement, const float delta, const float acceleration)
 {
-	const double acc = acceleration >= 0 ? acceleration : 1 / delta;
-	if (acc <= 0)
-	{
-		refAcceleration = FVector(0);
-		refVelocity = FVector(0);
-		return;
-	}
-	const double t = FMath::Clamp(acc * (1 / (3 * delta)), 0, 1 / delta);
-	const FVector v = movement;
-	const FVector v0 = refVelocity;
-	FVector a = FVector(0);
-	a.X = (v.X - v0.X) * t;
-	a.Y = (v.Y - v0.Y) * t;
-	a.Z = (v.Z - v0.Z) * t;
-	refAcceleration = a;
-	refVelocity = a * delta + v0;
 }
 
-void FLinearKinematicCondition::AddCompositeMovement(const FVector movement, const float acceleration, int index)
-{
-	if (index < 0)
-	{
-		bool replaced = false;
-		for (int i = 0; i < CompositeMovements.Num(); i++)
-		{
-			if (CompositeMovements[i].W == 0)
-			{
-				CompositeMovements[i] = FVector4d(movement.X, movement.Y, movement.Z, acceleration);
-				replaced = true;
-			}
-		}
-		if (!replaced)
-		{
-			CompositeMovements.Add(FVector4d(movement.X, movement.Y, movement.Z, acceleration));
-		}
-	}
-	else if (CompositeMovements.IsValidIndex(index))
-	{
-		CompositeMovements[index] = FVector4d(movement.X, movement.Y, movement.Z, acceleration);
-	}
-	else
-	{
-		for (int i = CompositeMovements.Num(); i <= index; i++)
-		{
-			if (i == index)
-				CompositeMovements.Add(FVector4d(movement.X, movement.Y, movement.Z, acceleration));
-			else
-				CompositeMovements.Add(FVector4d(0, 0, 0, 0));
-		}
-	}
-}
-
-bool FLinearKinematicCondition::RemoveCompositeMovement(int index)
-{
-	if (CompositeMovements.IsValidIndex(index))
-	{
-		CompositeMovements.RemoveAt(index);
-		return true;
-	}
-	else
-		return false;
-}
-
-FVector FLinearKinematicCondition::GetAccelerationFromVelocity(FVector desiredVelocity, double deltaTime, bool onlyContribution) const
-{
-	FVector velocityDiff = desiredVelocity - Velocity;
-	if (onlyContribution && desiredVelocity.Length() < Velocity.Length())
-		velocityDiff = desiredVelocity * deltaTime;
-	return velocityDiff / deltaTime;
-}
 
 FLinearKinematicCondition FLinearKinematicCondition::GetFinalCondition(double deltaTime)
 {
@@ -702,10 +532,10 @@ void FLinearKinematicCondition::ComputeCompositeMovement(const float delta)
 	{
 		const auto moveParam = CompositeMovements[i];
 		const FVector movement = FVector(moveParam.X, moveParam.Y, moveParam.Z);
-		const double acceleration = moveParam.W >= 0 ? moveParam.W : 1 / delta;
+		const double acceleration = moveParam.W >= 0 ? moveParam.W : FMath::Abs(moveParam.W) * (1 / (delta * delta));
 		if (acceleration <= 0)
 			continue;
-		const double t = FMath::Clamp(acceleration * (1 / (3 * delta)), 0, 1 / delta);
+		const double t = FMath::Clamp(acceleration * delta, 0, 1 / delta);
 		const FVector v = movement;
 		const FVector v0 = relativeVelocity;
 		FVector a = FVector(0);
@@ -717,6 +547,7 @@ void FLinearKinematicCondition::ComputeCompositeMovement(const float delta)
 }
 
 
+//------------------------------------------------------------------------------------------------------------------------
 
 
 FQuat FAngularKinematicCondition::GetAngularSpeedQuat(float time) const
@@ -752,107 +583,51 @@ FAngularKinematicCondition FAngularKinematicCondition::GetFinalCondition(double 
 }
 
 
+//------------------------------------------------------------------------------------------------------------------------
 
 
 FKinematicComponents::FKinematicComponents()
 {
 }
 
-FKinematicComponents::FKinematicComponents(FLinearKinematicCondition linearCond, FAngularKinematicCondition angularCond)
+FKinematicComponents::FKinematicComponents(FLinearKinematicCondition linearCond, FAngularKinematicCondition angularCond, TArray<FSurface>* surfaces, int surfacesActive)
 {
 	LinearKinematic = linearCond;
 	AngularKinematic = angularCond;
+	if (surfaces)
+		SurfacesInContact = *surfaces;
+	SurfaceBinaryFlag = surfacesActive;
 }
 
-FKinematicComponents FKinematicComponents::FromComponent(FKinematicComponents fromComponent, double withDelta)
+bool FKinematicComponents::ForEachSurface(std::function<void(FSurface)> doAction, bool onlyValidOnes) const
 {
-	LinearKinematic = fromComponent.LinearKinematic.GetFinalCondition(withDelta);
-	AngularKinematic = fromComponent.AngularKinematic.GetFinalCondition(withDelta);
-	return FKinematicComponents(LinearKinematic, AngularKinematic);
-}
+	if (SurfacesInContact.Num() <= 0)
+		return false;
 
-FKinematicComponents FKinematicComponents::FromComponent(FKinematicComponents fromComponent, FVector linearAcceleration,
-	double withDelta)
-{
-	fromComponent.LinearKinematic.Acceleration = linearAcceleration;
-	LinearKinematic = fromComponent.LinearKinematic.GetFinalCondition(withDelta);
-	AngularKinematic = fromComponent.AngularKinematic.GetFinalCondition(withDelta);
-	return FKinematicComponents(LinearKinematic, AngularKinematic);
+	const TArray<bool> surfaceCombination = UToolsLibrary::FlagToBoolArray(SurfaceBinaryFlag);
+	if (onlyValidOnes)
+	{
+		if (surfaceCombination.Num() <= 0)
+			return false;
+	}
+
+	for (int i = 0; i < SurfacesInContact.Num(); i++)
+	{
+		if(onlyValidOnes)
+		{
+			if (!surfaceCombination.IsValidIndex(i) || !surfaceCombination[i])
+				continue;
+		}
+		const auto surface = SurfacesInContact[i];
+		doAction(surface);
+	}
+
+	return true;
 }
 
 FQuat FKinematicComponents::GetRotation() const
 {
 	return AngularKinematic.Orientation;
-}
-
-
-
-
-void FControllerStatus::ComputeDiffManifest(FControllerStatus diffDatas)
-{
-	TArray<bool> changedMap;
-	if (FVector_NetQuantize(Kinematics.LinearKinematic.Velocity) != FVector_NetQuantize(diffDatas.Kinematics.LinearKinematic.Velocity)) changedMap.Add(true); else changedMap.Add(false); //[0]
-	if (FVector_NetQuantize(Kinematics.LinearKinematic.Position) != FVector_NetQuantize(diffDatas.Kinematics.LinearKinematic.Position)) changedMap.Add(true); else changedMap.Add(false); //[1]
-	FVector selfOrientationVector = FVector(0);
-	FVector diffOrientationVector = FVector(0);
-	float selfAngle = 0;
-	float diffAngle = 0;
-	Kinematics.AngularKinematic.Orientation.ToAxisAndAngle(selfOrientationVector, selfAngle);
-	diffDatas.Kinematics.AngularKinematic.Orientation.ToAxisAndAngle(diffOrientationVector, diffAngle);
-	if ((selfOrientationVector | diffOrientationVector) <= 0.8 || FMath::Abs(selfAngle - diffAngle) > FMath::DegreesToRadians(5)) changedMap.Add(true); else changedMap.Add(false); //[2]
-	if (StatusParams.StateIndex != diffDatas.StatusParams.StateIndex) changedMap.Add(true); else changedMap.Add(false); //[3]
-	if (StatusParams.ActionIndex != diffDatas.StatusParams.ActionIndex) changedMap.Add(true); else changedMap.Add(false); //[4]
-	if (StatusParams.PrimaryStateFlag != diffDatas.StatusParams.PrimaryStateFlag) changedMap.Add(true); else changedMap.Add(false); //[5]
-	if (StatusParams.PrimaryActionFlag != diffDatas.StatusParams.PrimaryActionFlag) changedMap.Add(true); else changedMap.Add(false); //[6]
-	if (StatusParams.StateModifiers1 != diffDatas.StatusParams.StateModifiers1) changedMap.Add(true); else changedMap.Add(false); //[7]
-	if (StatusParams.StateModifiers2 != diffDatas.StatusParams.StateModifiers2) changedMap.Add(true); else changedMap.Add(false); //[8]
-	if (StatusParams.ActionsModifiers1 != diffDatas.StatusParams.ActionsModifiers1) changedMap.Add(true); else changedMap.Add(false); //[9]
-	if (StatusParams.ActionsModifiers2 != diffDatas.StatusParams.ActionsModifiers2) changedMap.Add(true); else changedMap.Add(false); //[10]
-	if (MoveInput != diffDatas.MoveInput) changedMap.Add(true); else changedMap.Add(false); //[11]
-	if (CustomPhysicProperties != diffDatas.CustomPhysicProperties) changedMap.Add(true); else changedMap.Add(false); //[12]
-
-	int manifest = UToolsLibrary::BoolArrayToInt(changedMap);
-	DiffManifest = manifest;
-}
-
-void FControllerStatus::FromStatusDiff(int diffManifest, FControllerStatus diffDatas)
-{
-	TArray<bool> changedMap = UToolsLibrary::IntToBoolArray(diffManifest);
-	if (changedMap.IsValidIndex(0) && changedMap[0]) Kinematics.LinearKinematic.Velocity = diffDatas.Kinematics.LinearKinematic.Velocity;
-	if (changedMap.IsValidIndex(1) && changedMap[1]) Kinematics.LinearKinematic.Velocity = diffDatas.Kinematics.LinearKinematic.Position;
-	if (changedMap.IsValidIndex(2) && changedMap[2]) Kinematics.AngularKinematic.Orientation = diffDatas.Kinematics.AngularKinematic.Orientation;
-	if (changedMap.IsValidIndex(3) && changedMap[3]) StatusParams.StateIndex = diffDatas.StatusParams.StateIndex;
-	if (changedMap.IsValidIndex(4) && changedMap[4]) StatusParams.ActionIndex = diffDatas.StatusParams.ActionIndex;
-	if (changedMap.IsValidIndex(5) && changedMap[5]) StatusParams.PrimaryStateFlag = diffDatas.StatusParams.PrimaryStateFlag;
-	if (changedMap.IsValidIndex(6) && changedMap[6]) StatusParams.PrimaryActionFlag = diffDatas.StatusParams.PrimaryActionFlag;
-	if (changedMap.IsValidIndex(7) && changedMap[7]) StatusParams.StateModifiers1 = diffDatas.StatusParams.StateModifiers1;
-	if (changedMap.IsValidIndex(8) && changedMap[8]) StatusParams.StateModifiers2 = diffDatas.StatusParams.StateModifiers2;
-	if (changedMap.IsValidIndex(9) && changedMap[9]) StatusParams.ActionsModifiers1 = diffDatas.StatusParams.ActionsModifiers1;
-	if (changedMap.IsValidIndex(10) && changedMap[10]) StatusParams.ActionsModifiers2 = diffDatas.StatusParams.ActionsModifiers2;
-	if (changedMap.IsValidIndex(11) && changedMap[11]) MoveInput = diffDatas.MoveInput;
-	if (changedMap.IsValidIndex(12) && changedMap[12]) CustomPhysicProperties = diffDatas.CustomPhysicProperties;
-}
-
-FControllerStatus FControllerStatus::GetDiffControllerStatus() const
-{
-	TArray<bool> changedMap = UToolsLibrary::IntToBoolArray(DiffManifest);
-	FControllerStatus diff = FControllerStatus();
-	diff.CustomPhysicProperties = FVector(0);
-	if (changedMap.IsValidIndex(0) && changedMap[0]) diff.Kinematics.LinearKinematic.Velocity = Kinematics.LinearKinematic.Velocity;
-	if (changedMap.IsValidIndex(1) && changedMap[1]) diff.Kinematics.LinearKinematic.Velocity = Kinematics.LinearKinematic.Position;
-	if (changedMap.IsValidIndex(2) && changedMap[2]) diff.Kinematics.AngularKinematic.Orientation = Kinematics.AngularKinematic.Orientation;
-	if (changedMap.IsValidIndex(3) && changedMap[3]) diff.StatusParams.StateIndex = StatusParams.StateIndex;
-	if (changedMap.IsValidIndex(4) && changedMap[4]) diff.StatusParams.ActionIndex = StatusParams.ActionIndex;
-	if (changedMap.IsValidIndex(5) && changedMap[5]) diff.StatusParams.PrimaryStateFlag = StatusParams.PrimaryStateFlag;
-	if (changedMap.IsValidIndex(6) && changedMap[6]) diff.StatusParams.PrimaryActionFlag = StatusParams.PrimaryActionFlag;
-	if (changedMap.IsValidIndex(7) && changedMap[7]) diff.StatusParams.StateModifiers1 = StatusParams.StateModifiers1;
-	if (changedMap.IsValidIndex(8) && changedMap[8]) diff.StatusParams.StateModifiers2 = StatusParams.StateModifiers2;
-	if (changedMap.IsValidIndex(9) && changedMap[9]) diff.StatusParams.ActionsModifiers1 = StatusParams.ActionsModifiers1;
-	if (changedMap.IsValidIndex(10) && changedMap[10]) diff.StatusParams.ActionsModifiers2 = StatusParams.ActionsModifiers2;
-	if (changedMap.IsValidIndex(11) && changedMap[11]) diff.MoveInput = MoveInput;
-	if (changedMap.IsValidIndex(12) && changedMap[12]) diff.CustomPhysicProperties = CustomPhysicProperties;
-
-	return diff;
 }
 
 
@@ -878,6 +653,8 @@ void FNetKinematic::RestoreOnToStatus(FControllerStatus& status) const
 	status.Kinematics.AngularKinematic.Orientation = Orientation.ToOrientationQuat();
 }
 
+
+//------------------------------------------------------------------------------------------------------------------------
 
 
 void FNetStatusParam::ExtractFromStatus(FControllerStatus status)

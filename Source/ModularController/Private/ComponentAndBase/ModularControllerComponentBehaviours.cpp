@@ -10,7 +10,6 @@
 #include "Net/UnrealNetwork.h"
 
 
-
 #pragma region All Behaviours
 
 
@@ -20,7 +19,6 @@ void UModularControllerComponent::SetOverrideRootMotionMode(USkeletalMeshCompone
 }
 
 #pragma endregion
-
 
 
 #pragma region States
@@ -38,9 +36,9 @@ bool UModularControllerComponent::CheckControllerStateByType(TSubclassOf<UBaseCo
 	if (StatesInstances.Num() <= 0)
 		return false;
 	const auto index = StatesInstances.IndexOfByPredicate([moduleType](const TSoftObjectPtr<UBaseControllerState>& state)
-		{
-			return state.IsValid() && state->GetClass() == moduleType;
-		});
+	{
+		return state.IsValid() && state->GetClass() == moduleType;
+	});
 	return StatesInstances.IsValidIndex(index);
 }
 
@@ -49,9 +47,9 @@ bool UModularControllerComponent::CheckControllerStateByName(FName moduleName) c
 	if (StatesInstances.Num() <= 0)
 		return false;
 	const auto index = StatesInstances.IndexOfByPredicate([moduleName](const TSoftObjectPtr<UBaseControllerState>& state)
-		{
-			return state.IsValid() && state->GetDescriptionName() == moduleName;
-		});
+	{
+		return state.IsValid() && state->GetDescriptionName() == moduleName;
+	});
 	return StatesInstances.IsValidIndex(index);
 }
 
@@ -60,9 +58,9 @@ bool UModularControllerComponent::CheckControllerStateByPriority(int modulePrior
 	if (StatesInstances.Num() <= 0)
 		return false;
 	const auto index = StatesInstances.IndexOfByPredicate([modulePriority](const TSoftObjectPtr<UBaseControllerState>& state)
-		{
-			return state.IsValid() && state->GetPriority() == modulePriority;
-		});
+	{
+		return state.IsValid() && state->GetPriority() == modulePriority;
+	});
 	return StatesInstances.IsValidIndex(index);
 }
 
@@ -71,9 +69,9 @@ void UModularControllerComponent::SortStates()
 	if (StatesInstances.Num() > 1)
 	{
 		StatesInstances.Sort([](const TSoftObjectPtr<UBaseControllerState>& a, const TSoftObjectPtr<UBaseControllerState>& b)
-			{
-				return a.IsValid() && b.IsValid() && a->GetPriority() > b->GetPriority();
-			});
+		{
+			return a.IsValid() && b.IsValid() && a->GetPriority() > b->GetPriority();
+		});
 	}
 }
 
@@ -109,7 +107,10 @@ UBaseControllerState* UModularControllerComponent::GetControllerStateByName(FNam
 {
 	if (StatesInstances.Num() <= 0)
 		return nullptr;
-	const auto index = StatesInstances.IndexOfByPredicate([moduleName](const TSoftObjectPtr<UBaseControllerState>& state) { return state.IsValid() && state->GetDescriptionName() == moduleName; });
+	const auto index = StatesInstances.IndexOfByPredicate([moduleName](const TSoftObjectPtr<UBaseControllerState>& state)
+	{
+		return state.IsValid() && state->GetDescriptionName() == moduleName;
+	});
 	if (StatesInstances.IsValidIndex(index))
 		return StatesInstances[index].Get();
 	return nullptr;
@@ -122,9 +123,9 @@ void UModularControllerComponent::RemoveControllerStateByType_Implementation(TSu
 	if (CheckControllerStateByType(moduleType))
 	{
 		const auto state = StatesInstances.FindByPredicate([moduleType](const TSoftObjectPtr<UBaseControllerState>& st)
-			{
-				return st.IsValid() && st->GetClass() == moduleType->GetClass();
-			});
+		{
+			return st.IsValid() && st->GetClass() == moduleType->GetClass();
+		});
 		StatesInstances.Remove(*state);
 		SortStates();
 	}
@@ -135,9 +136,9 @@ void UModularControllerComponent::RemoveControllerStateByName_Implementation(FNa
 	if (CheckControllerStateByName(moduleName))
 	{
 		auto state = StatesInstances.FindByPredicate([moduleName](const TSoftObjectPtr<UBaseControllerState>& st)
-			{
-				return st.IsValid() && st->GetDescriptionName() == moduleName;
-			});
+		{
+			return st.IsValid() && st->GetDescriptionName() == moduleName;
+		});
 		StatesInstances.Remove(*state);
 		SortStates();
 	}
@@ -148,14 +149,13 @@ void UModularControllerComponent::RemoveControllerStateByPriority_Implementation
 	if (CheckControllerStateByPriority(modulePriority))
 	{
 		auto state = StatesInstances.FindByPredicate([modulePriority](const TSoftObjectPtr<UBaseControllerState>& st)
-			{
-				return st.IsValid() && st->GetPriority() == modulePriority;
-			});
+		{
+			return st.IsValid() && st->GetPriority() == modulePriority;
+		});
 		StatesInstances.Remove(*state);
 		SortStates();
 	}
 }
-
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -203,12 +203,11 @@ FControllerStatus UModularControllerComponent::CheckControllerStates(FController
 
 				//Don't event check lower priorities
 				if (StatesInstances[i]->GetPriority() < maxStatePriority)
-				{
-					//Reset the surface if it's not even checked.
 					continue;
-				}
+
 
 				const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, overrideNewState ? false : endStatus.StatusParams.StateIndex == i);
+				endStatus.StatusParams.StatusAdditionalCheckVariables = checkResult.ProcessResult.StatusParams.StatusAdditionalCheckVariables;
 				if (checkResult.CheckedCondition)
 				{
 					selectedStateIndex = i;
@@ -217,7 +216,6 @@ FControllerStatus UModularControllerComponent::CheckControllerStates(FController
 				}
 			}
 		}
-
 	}
 
 	endStatus = selectedStatus;
@@ -230,25 +228,15 @@ FControllerCheckResult UModularControllerComponent::TryChangeControllerState(FCo
 {
 	int fromIndex = fromStateStatus.StatusParams.StateIndex;
 	int toIndex = ToStateStatus.StatusParams.StateIndex;
-	if (fromIndex < 0)
-		fromStateStatus.ControllerSurface.Reset();
-	if (toIndex < 0)
-		ToStateStatus.ControllerSurface.Reset();
-	FControllerCheckResult result = FControllerCheckResult(false, ToStateStatus);
+	FControllerCheckResult result = FControllerCheckResult(false, fromStateStatus);
+	result.ProcessResult.StatusParams.StatusAdditionalCheckVariables = ToStateStatus.StatusParams.StatusAdditionalCheckVariables;
 
 	if (!StatesInstances.IsValidIndex(toIndex))
-	{
-		//result = FControllerCheckResult(false, fromStateStatus);
 		return result;
-	}
 
 	if (toIndex == fromIndex)
 	{
-		//result.ProcessResult.Kinematics = fromStateStatus.Kinematics;
-		//result.ProcessResult.CustomPhysicProperties = fromStateStatus.CustomPhysicProperties;
-		//result.ProcessResult.MoveInput = fromStateStatus.MoveInput;
-		//result.ProcessResult.DiffManifest = fromStateStatus.DiffManifest;
-		//result.ProcessResult.StatusParams = fromStateStatus.StatusParams;
+		result.ProcessResult.Kinematics = ToStateStatus.Kinematics;
 		return result;
 	}
 
@@ -314,7 +302,6 @@ void UModularControllerComponent::OnControllerStateChanged_Implementation(UBaseC
 #pragma endregion
 
 
-
 #pragma region Actions
 
 
@@ -341,9 +328,9 @@ bool UModularControllerComponent::CheckActionBehaviourByType(TSubclassOf<UBaseCo
 	if (ActionInstances.Num() <= 0)
 		return false;
 	const auto index = ActionInstances.IndexOfByPredicate([moduleType](const TSoftObjectPtr<UBaseControllerAction>& action)
-		{
-			return action.IsValid() && action->GetClass() == moduleType;
-		});
+	{
+		return action.IsValid() && action->GetClass() == moduleType;
+	});
 	return ActionInstances.IsValidIndex(index);
 }
 
@@ -352,9 +339,9 @@ bool UModularControllerComponent::CheckActionBehaviourByName(FName moduleName) c
 	if (ActionInstances.Num() <= 0)
 		return false;
 	const auto index = ActionInstances.IndexOfByPredicate([moduleName](const TSoftObjectPtr<UBaseControllerAction>& action)
-		{
-			return action.IsValid() && action->GetDescriptionName() == moduleName;
-		});
+	{
+		return action.IsValid() && action->GetDescriptionName() == moduleName;
+	});
 	return ActionInstances.IsValidIndex(index);
 }
 
@@ -363,9 +350,9 @@ bool UModularControllerComponent::CheckActionBehaviourByPriority(int modulePrior
 	if (ActionInstances.Num() <= 0)
 		return false;
 	const auto index = ActionInstances.IndexOfByPredicate([modulePriority](const TSoftObjectPtr<UBaseControllerAction>& action)
-		{
-			return action.IsValid() && action->GetPriority() == modulePriority;
-		});
+	{
+		return action.IsValid() && action->GetPriority() == modulePriority;
+	});
 	return ActionInstances.IsValidIndex(index);
 }
 
@@ -374,16 +361,16 @@ void UModularControllerComponent::SortActions()
 	if (ActionInstances.Num() > 1)
 	{
 		ActionInstances.Sort([](const TSoftObjectPtr<UBaseControllerAction>& a, const TSoftObjectPtr<UBaseControllerAction>& b)
-			{
-				return a.IsValid() && b.IsValid() && a->GetPriority() > b->GetPriority();
-			});
+		{
+			return a.IsValid() && b.IsValid() && a->GetPriority() > b->GetPriority();
+		});
 	}
 
 	//Remove null references
 	ActionInfos = ActionInfos.FilterByPredicate([](TTuple<TSoftObjectPtr<UBaseControllerAction>, FActionInfos> item) -> bool
-		{
-			return item.Key.IsValid();
-		});
+	{
+		return item.Key.IsValid();
+	});
 
 	//Add new references
 	for (int i = 0; i < ActionInstances.Num(); i++)
@@ -416,9 +403,9 @@ UBaseControllerAction* UModularControllerComponent::GetActionByType(TSubclassOf<
 	if (ActionInstances.Num() <= 0)
 		return nullptr;
 	const auto index = ActionInstances.IndexOfByPredicate([moduleType](const TSoftObjectPtr<UBaseControllerAction>& action)
-		{
-			return action.IsValid() && action->GetClass() == moduleType;
-		});
+	{
+		return action.IsValid() && action->GetClass() == moduleType;
+	});
 	if (ActionInstances.IsValidIndex(index))
 	{
 		return ActionInstances[index].Get();
@@ -433,9 +420,9 @@ void UModularControllerComponent::RemoveActionBehaviourByType_Implementation(TSu
 	if (CheckActionBehaviourByType(moduleType))
 	{
 		auto behaviour = ActionInstances.FindByPredicate([moduleType](const TSoftObjectPtr<UBaseControllerAction>& action)
-			{
-				return action.IsValid() && action->GetClass() == moduleType->GetClass();
-			});
+		{
+			return action.IsValid() && action->GetClass() == moduleType->GetClass();
+		});
 		ActionInstances.Remove(*behaviour);
 		SortActions();
 	}
@@ -446,9 +433,9 @@ void UModularControllerComponent::RemoveActionBehaviourByName_Implementation(FNa
 	if (CheckActionBehaviourByName(moduleName))
 	{
 		auto behaviour = ActionInstances.FindByPredicate([moduleName](const TSoftObjectPtr<UBaseControllerAction>& action)
-			{
-				return action.IsValid() && action->GetDescriptionName() == moduleName;
-			});
+		{
+			return action.IsValid() && action->GetDescriptionName() == moduleName;
+		});
 		ActionInstances.Remove(*behaviour);
 		SortActions();
 	}
@@ -459,9 +446,9 @@ void UModularControllerComponent::RemoveActionBehaviourByPriority_Implementation
 	if (CheckActionBehaviourByPriority(modulePriority))
 	{
 		auto behaviour = ActionInstances.FindByPredicate([modulePriority](TSoftObjectPtr<UBaseControllerAction>& action)
-			{
-				return action.IsValid() && action->GetPriority() == modulePriority;
-			});
+		{
+			return action.IsValid() && action->GetPriority() == modulePriority;
+		});
 		ActionInstances.Remove(*behaviour);
 		SortActions();
 	}
@@ -531,10 +518,13 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 			continue;
 		if (currentPhase == ActionPhase_Recovery && !ActionInstances[i]->bCanTransitionToSelf)
 			continue;
+		if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
+			continue;
 
 		if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
 		{
 			const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
+			endStatus.StatusParams.StatusAdditionalCheckVariables = chkResult.ProcessResult.StatusParams.StatusAdditionalCheckVariables;
 			if (chkResult.CheckedCondition)
 			{
 				selectedActionIndex = i;
@@ -542,7 +532,9 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 
 				if (DebugType == ControllerDebugType_StatusDebug)
 				{
-					UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) was checked as active. Remaining Time: %f"), *ActionInstances[i]->DebugString(), ActionInfos[ActionInstances[i]].GetRemainingActivationTime()), true, true, FColor::Silver, 0
+					UKismetSystemLibrary::PrintString(
+						GetWorld(), FString::Printf(TEXT("Action (%s) was checked as active. Remaining Time: %f"), *ActionInstances[i]->DebugString(),
+						                            ActionInfos[ActionInstances[i]].GetRemainingActivationTime()), true, false, FColor::Silver, 0
 						, FName(FString::Printf(TEXT("CheckControllerActions_%s"), *ActionInstances[i]->GetDescriptionName().ToString())));
 				}
 			}
@@ -551,8 +543,8 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 
 	if (DebugType == ControllerDebugType_StatusDebug)
 	{
-		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Action Phase: %d"), selectedActionIndex), true, true, FColor::Silver, 0
-			, TEXT("CheckControllerActions"));
+		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Action Phase: %d"), selectedActionIndex), true, false, FColor::Silver, 0
+		                                  , TEXT("CheckControllerActions"));
 	}
 
 	endStatus = selectedStatus;
@@ -572,61 +564,61 @@ bool UModularControllerComponent::CheckActionCompatibility(const TSoftObjectPtr<
 		default:
 			break;
 		case ActionCompatibilityMode_WhileCompatibleActionOnly:
-		{
-			incompatible = true;
-			if (actionInstance->CompatibleActions.Num() > 0)
 			{
-				if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex].IsValid())
+				incompatible = true;
+				if (actionInstance->CompatibleActions.Num() > 0)
 				{
-					const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
-					if (actionInstance->CompatibleActions.Contains(actionName))
+					if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex].IsValid())
+					{
+						const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
+						if (actionInstance->CompatibleActions.Contains(actionName))
+						{
+							incompatible = false;
+						}
+					}
+				}
+			}
+			break;
+		case ActionCompatibilityMode_OnCompatibleStateOnly:
+			{
+				incompatible = true;
+				if (StatesInstances.IsValidIndex(stateIndex) && actionInstance->CompatibleStates.Num() > 0 && StatesInstances[stateIndex].IsValid())
+				{
+					const auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
+					if (actionInstance->CompatibleStates.Contains(stateName))
 					{
 						incompatible = false;
 					}
 				}
 			}
-		}
-		break;
-		case ActionCompatibilityMode_OnCompatibleStateOnly:
-		{
-			incompatible = true;
-			if (StatesInstances.IsValidIndex(stateIndex) && actionInstance->CompatibleStates.Num() > 0 && StatesInstances[stateIndex].IsValid())
-			{
-				const auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
-				if (actionInstance->CompatibleStates.Contains(stateName))
-				{
-					incompatible = false;
-				}
-			}
-		}
-		break;
+			break;
 		case ActionCompatibilityMode_OnBothCompatiblesStateAndAction:
-		{
-			int compatibilityCount = 0;
-			//State
-			if (StatesInstances.IsValidIndex(stateIndex) && actionInstance->CompatibleStates.Num() > 0 && StatesInstances[stateIndex].IsValid())
 			{
-				const auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
-				if (actionInstance->CompatibleStates.Contains(stateName))
+				int compatibilityCount = 0;
+				//State
+				if (StatesInstances.IsValidIndex(stateIndex) && actionInstance->CompatibleStates.Num() > 0 && StatesInstances[stateIndex].IsValid())
 				{
-					compatibilityCount++;
-				}
-			}
-			//Actions
-			if (actionInstance->CompatibleActions.Num() > 0)
-			{
-				if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex].IsValid())
-				{
-					const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
-					if (actionInstance->CompatibleActions.Contains(actionName))
+					const auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
+					if (actionInstance->CompatibleStates.Contains(stateName))
 					{
 						compatibilityCount++;
 					}
 				}
+				//Actions
+				if (actionInstance->CompatibleActions.Num() > 0)
+				{
+					if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex].IsValid())
+					{
+						const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
+						if (actionInstance->CompatibleActions.Contains(actionName))
+						{
+							compatibilityCount++;
+						}
+					}
+				}
+				incompatible = compatibilityCount < 2;
 			}
-			incompatible = compatibilityCount < 2;
-		}
-		break;
+			break;
 	}
 
 	return !incompatible;
@@ -640,6 +632,7 @@ FControllerCheckResult UModularControllerComponent::TryChangeControllerAction(FC
 
 	const int fromActionIndex = ComputedControllerStatus.StatusParams.ActionIndex;
 	const int toActionIndex = toActionStatus.StatusParams.ActionIndex;
+	result.ProcessResult.StatusParams.StatusAdditionalCheckVariables = toActionStatus.StatusParams.StatusAdditionalCheckVariables;
 
 	if (fromActionIndex == toActionIndex)
 	{
@@ -680,8 +673,8 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 
 	if (DebugType == ControllerDebugType_StatusDebug)
 	{
-		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Trying to change action from: %d to: %d"), fromActionIndex, toActionIndex), true, true
-			, FColor::White, 5, "TryChangeControllerActions_1");
+		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Trying to change action from: %d to: %d"), fromActionIndex, toActionIndex), true, false
+		                                  , FColor::White, 5, "TryChangeControllerActions_1");
 	}
 
 	//Disable last action
@@ -692,8 +685,9 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 			ActionInfos[ActionInstances[fromActionIndex]].Reset(ActionInstances[fromActionIndex]->CoolDownDelay);
 		if (DebugType == ControllerDebugType_StatusDebug)
 		{
-			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Disabled"), *ActionInstances[fromActionIndex]->DebugString()), true, true, FColor::Red, 5, "TryChangeControllerActions_2");
-
+			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Disabled"), *ActionInstances[fromActionIndex]->DebugString()), true, false, FColor::Red,
+			                                  5,
+			                                  "TryChangeControllerActions_2");
 		}
 	}
 
@@ -702,25 +696,28 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 	{
 		const FVector actTimings = ActionInstances[toActionIndex]->OnActionBegins(this, toActionStatus.Kinematics, toActionStatus.MoveInput, inDelta);
 		if (ActionInfos.Contains(ActionInstances[toActionIndex]))
-			ActionInfos[ActionInstances[toActionIndex]].Init(actTimings, ActionInstances[toActionIndex]->CoolDownDelay, transitionToSelf ? (ActionInfos[ActionInstances[toActionIndex]]._repeatCount + 1) : 0);
+			ActionInfos[ActionInstances[toActionIndex]].Init(actTimings, ActionInstances[toActionIndex]->CoolDownDelay,
+			                                                 transitionToSelf ? (ActionInfos[ActionInstances[toActionIndex]]._repeatCount + 1) : 0);
 		if (DebugType == ControllerDebugType_StatusDebug)
 		{
-			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Activated. Remaining Time: %f"), *ActionInstances[toActionIndex]->DebugString(), ActionInfos.Contains(ActionInstances[toActionIndex]) ? ActionInfos[ActionInstances[toActionIndex]].GetRemainingActivationTime() : -1), true, true, FColor::Green, 5
+			UKismetSystemLibrary::PrintString(
+				GetWorld(), FString::Printf(TEXT("Action (%s) is Being Activated. Remaining Time: %f"), *ActionInstances[toActionIndex]->DebugString(),
+				                            ActionInfos.Contains(ActionInstances[toActionIndex]) ? ActionInfos[ActionInstances[toActionIndex]].GetRemainingActivationTime() : -1), true, false,
+				FColor::Green, 5
 				, "TryChangeControllerActions_3");
 		}
 	}
 
 	OnControllerActionChanged(ActionInstances.IsValidIndex(toActionIndex) ? ActionInstances[toActionIndex].Get() : nullptr
-		, ActionInstances.IsValidIndex(fromActionIndex) ? ActionInstances[fromActionIndex].Get() : nullptr);
+	                          , ActionInstances.IsValidIndex(fromActionIndex) ? ActionInstances[fromActionIndex].Get() : nullptr);
 	OnControllerActionChangedEvent.Broadcast(ActionInstances.IsValidIndex(toActionIndex) ? ActionInstances[toActionIndex].Get() : nullptr
-		, ActionInstances.IsValidIndex(fromActionIndex) ? ActionInstances[fromActionIndex].Get() : nullptr);
+	                                         , ActionInstances.IsValidIndex(fromActionIndex) ? ActionInstances[fromActionIndex].Get() : nullptr);
 
 	if (DebugType == ControllerDebugType_StatusDebug)
 	{
-		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Changed actions from: %d  to: %d"), fromActionIndex, toActionIndex), true, true
-			, FColor::Yellow, 5, TEXT("TryChangeControllerActions_4"));
+		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Changed actions from: %d  to: %d"), fromActionIndex, toActionIndex), true, false
+		                                  , FColor::Yellow, 5, TEXT("TryChangeControllerActions_4"));
 	}
-
 }
 
 
@@ -735,7 +732,10 @@ FControllerStatus UModularControllerComponent::ProcessControllerAction(const FCo
 
 		if (DebugType == ControllerDebugType_StatusDebug)
 		{
-			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Processed. Remaining Time: %f"), *ActionInstances[index]->DebugString(), ActionInfos.Contains(ActionInstances[index]) ? ActionInfos[ActionInstances[index]].GetRemainingActivationTime() : -1), true, true, FColor::White, 5
+			UKismetSystemLibrary::PrintString(
+				GetWorld(), FString::Printf(TEXT("Action (%s) is Being Processed. Remaining Time: %f"), *ActionInstances[index]->DebugString(),
+				                            ActionInfos.Contains(ActionInstances[index]) ? ActionInfos[ActionInstances[index]].GetRemainingActivationTime() : -1), true, false, FColor::White,
+				5
 				, "ProcessControllerActions");
 		}
 	}
@@ -773,4 +773,3 @@ void UModularControllerComponent::OnControllerActionChanged_Implementation(UBase
 
 
 #pragma endregion
-

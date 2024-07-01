@@ -38,7 +38,7 @@ TSoftObjectPtr<USkeletalMeshComponent> UModularControllerComponent::GetSkeletalM
 }
 
 double UModularControllerComponent::PlayAnimationMontage_Internal(FActionMotionMontage Montage, float customAnimStartTime
-	, bool useMontageEndCallback, FOnMontageEnded endCallBack)
+                                                                  , bool useMontageEndCallback, FOnMontageEnded endCallBack)
 {
 	if (UAnimInstance* animInstance = GetAnimInstance())
 	{
@@ -50,7 +50,7 @@ double UModularControllerComponent::PlayAnimationMontage_Internal(FActionMotionM
 
 
 double UModularControllerComponent::PlayAnimationMontageOnState_Internal(FActionMotionMontage Montage, FName stateName, float customAnimStartTime
-	, bool useMontageEndCallback, FOnMontageEnded endCallBack)
+                                                                         , bool useMontageEndCallback, FOnMontageEnded endCallBack)
 {
 	if (UAnimInstance* animInstance = GetAnimInstance(stateName))
 	{
@@ -64,6 +64,34 @@ double UModularControllerComponent::PlayAnimationMontageOnState_Internal(FAction
 double UModularControllerComponent::PlayAnimationMontage(FActionMotionMontage Montage, float customAnimStartTime)
 {
 	return PlayAnimationMontage_Internal(Montage, customAnimStartTime);
+}
+
+
+void UModularControllerComponent::StopMontage(FActionMotionMontage montage, bool isPlayingOnState)
+{
+	if (isPlayingOnState)
+	{
+		if (const auto currentState = GetCurrentControllerState())
+		{
+			if (auto* animInstance = GetAnimInstance(currentState->GetDescriptionName()))
+			{
+				if (animInstance->Montage_IsPlaying(montage.Montage))
+				{
+					animInstance->Montage_Stop(montage.Montage->BlendOut.GetBlendTime(), montage.Montage);
+				}
+			}
+		}
+	}
+	else
+	{
+		if (auto* animInstance = GetAnimInstance())
+		{
+			if (animInstance->Montage_IsPlaying(montage.Montage))
+			{
+				animInstance->Montage_Stop(montage.Montage->BlendOut.GetBlendTime(), montage.Montage);
+			}
+		}
+	}
 }
 
 
@@ -104,44 +132,7 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 	//The mesh is not Listed.
 	if (!_linkedAnimClasses.Contains(skeletalMeshReference))
 	{
-		TMap <FName, TWeakObjectPtr<UAnimInstance>> meshLinkEntry;
-
-		//Unlink All
-		{
-			for (auto AnimClass : _linkedAnimClasses)
-			{
-				if (AnimClass.Key == nullptr)
-					continue;
-				for (auto Pair : AnimClass.Value)
-				{
-					if (Pair.Value == nullptr)
-						continue;
-					auto instance = Pair.Value;
-					if (instance == nullptr)
-						continue;
-				}
-			}
-			skeletalMeshReference->LinkAnimClassLayers(nullptr);
-		}
-
-		//link
-		skeletalMeshReference->LinkAnimClassLayers(animClass);
-		if(DebugType == ControllerDebugType_AnimationDebug)
-		{
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to new %s"), *animClass->GetName(), *skeletalMeshReference->GetName()));
-		}
-
-		//Register
-		meshLinkEntry.Add(key, skeletalMeshReference->GetLinkedAnimLayerInstanceByClass(animClass));
-		_linkedAnimClasses.Add(skeletalMeshReference, meshLinkEntry);
-		skeletalMeshReference->SetWorldRotation(lookDir);
-		return;
-	}
-
-	//The mesh links with a new key
-	if (!_linkedAnimClasses[skeletalMeshReference].Contains(key))
-	{
-		TMap <FName, TWeakObjectPtr<UAnimInstance>> meshLinkEntry;
+		TMap<FName, TWeakObjectPtr<UAnimInstance>> meshLinkEntry;
 
 		//Unlink All
 		{
@@ -165,7 +156,44 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 		skeletalMeshReference->LinkAnimClassLayers(animClass);
 		if (DebugType == ControllerDebugType_AnimationDebug)
 		{
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked new %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()));
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to new %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
+		}
+
+		//Register
+		meshLinkEntry.Add(key, skeletalMeshReference->GetLinkedAnimLayerInstanceByClass(animClass));
+		_linkedAnimClasses.Add(skeletalMeshReference, meshLinkEntry);
+		skeletalMeshReference->SetWorldRotation(lookDir);
+		return;
+	}
+
+	//The mesh links with a new key
+	if (!_linkedAnimClasses[skeletalMeshReference].Contains(key))
+	{
+		TMap<FName, TWeakObjectPtr<UAnimInstance>> meshLinkEntry;
+
+		//Unlink All
+		{
+			for (auto AnimClass : _linkedAnimClasses)
+			{
+				if (AnimClass.Key == nullptr)
+					continue;
+				for (auto Pair : AnimClass.Value)
+				{
+					if (Pair.Value == nullptr)
+						continue;
+					auto instance = Pair.Value;
+					if (instance == nullptr)
+						continue;
+				}
+			}
+			skeletalMeshReference->LinkAnimClassLayers(nullptr);
+		}
+
+		//link
+		skeletalMeshReference->LinkAnimClassLayers(animClass);
+		if (DebugType == ControllerDebugType_AnimationDebug)
+		{
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked new %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
 		}
 
 		//Register
@@ -189,7 +217,7 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 		_linkedAnimClasses[skeletalMeshReference][key] = skeletalMeshReference->GetLinkedAnimLayerInstanceByClass(animClass);
 		if (DebugType == ControllerDebugType_AnimationDebug)
 		{
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()));
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
 		}
 	}
 
@@ -198,7 +226,7 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 
 
 double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animInstance, FActionMotionMontage montage, float customAnimStartTime
-	, bool useMontageEndCallback, FOnMontageEnded endCallBack)
+                                                          , bool useMontageEndCallback, FOnMontageEnded endCallBack)
 {
 	if (animInstance == nullptr)
 	{
@@ -233,29 +261,31 @@ double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animIns
 		duration = montage.Montage->GetSectionLength(sectionID);
 	}
 
+	duration /= montage.Montage->RateScale;
 	return duration;
 }
 
 
-void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematics, const ERootMotionType rootMotionMode) const
+void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematics, const FVector velocity, const ERootMotionType rootMotionMode, float surfaceFriction) const
 {
 	if (rootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
 	{
 		//Rotation
 		kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
+	}
 
-		//Translation
-		switch (rootMotionMode)
-		{
-			case RootMotionType_No_RootMotion:
-				break;
-			default:
+	//Translation
+	switch (rootMotionMode)
+	{
+		case RootMotionType_No_RootMotion:
+			UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, velocity, -surfaceFriction, 0);
+			break;
+		default:
 			{
-				const FVector translation = GetRootMotionTranslation(rootMotionMode, kinematics.LinearKinematic.Velocity);
-				kinematics.LinearKinematic.AddCompositeMovement(translation, -1, 0);
+				const FVector translation = GetRootMotionTranslation(rootMotionMode, velocity);
+				UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, translation, -surfaceFriction, 0);
 			}
 			break;
-		}
 	}
 }
 
@@ -265,15 +295,15 @@ FVector UModularControllerComponent::GetRootMotionTranslation(const ERootMotionT
 	switch (rootMotionMode)
 	{
 		case RootMotionType_Additive:
-		{
-			return GetRootMotionVector() + currentVelocity;
-		}
-		break;
+			{
+				return GetRootMotionVector() + currentVelocity;
+			}
+			break;
 		case RootMotionType_Override:
-		{
-			return GetRootMotionVector();
-		}
-		break;
+			{
+				return GetRootMotionVector();
+			}
+			break;
 		default:
 			break;
 	}
@@ -315,13 +345,15 @@ FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const 
 			switch (_overrideRootMotionCommand.OverrideTranslationRootMotionMode)
 			{
 				case RootMotionType_Additive:
-				{
-					result.Kinematics.LinearKinematic.Velocity += GetRootMotionVector();
-				}break;
+					{
+						result.Kinematics.LinearKinematic.Velocity += GetRootMotionVector();
+					}
+					break;
 				case RootMotionType_Override:
-				{
-					result.Kinematics.LinearKinematic.Velocity = GetRootMotionVector();
-				}break;
+					{
+						result.Kinematics.LinearKinematic.Velocity = GetRootMotionVector();
+					}
+					break;
 			}
 		}
 

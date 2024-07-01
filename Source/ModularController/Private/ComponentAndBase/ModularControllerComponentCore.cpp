@@ -105,12 +105,15 @@ void UModularControllerComponent::Initialize()
 		SortActions();
 	}
 
+	//Physic Inits
+	EvaluateCardinalPoints();
+
 	//Init last move
 	_lastLocation = GetLocation();
 	ComputedControllerStatus.Kinematics.LinearKinematic.Position = GetLocation();
 	ApplyedControllerStatus.Kinematics.LinearKinematic.Position = GetLocation();
-	ComputedControllerStatus.Kinematics.AngularKinematic.Orientation = UpdatedPrimitive->GetComponentQuat();
-	ApplyedControllerStatus.Kinematics.AngularKinematic.Orientation = UpdatedPrimitive->GetComponentQuat();
+	ComputedControllerStatus.Kinematics.AngularKinematic.Orientation = UpdatedPrimitive ? UpdatedPrimitive->GetComponentQuat() : GetRotation();
+	ApplyedControllerStatus.Kinematics.AngularKinematic.Orientation = UpdatedPrimitive ? UpdatedPrimitive->GetComponentQuat() : GetRotation();
 
 	//Set time elapsed
 	const auto timePassedSince = FDateTime::UtcNow() - FDateTime(2024, 06, 01, 0, 0, 0, 0);
@@ -121,6 +124,9 @@ void UModularControllerComponent::Initialize()
 // Called every frame
 void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
+	if(!IsComponentTickEnabled())
+		return;
+	
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	if (ThisTickFunction->TickGroup == TG_PrePhysics)
@@ -134,6 +140,9 @@ void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick Tick
 		TRACE_CPUPROFILER_EVENT_SCOPE_STR("SecondaryTick_PostPhysic_ModularController");
 		// Evaluate next frame movements here
 		ComputeTickComponent(DeltaTime);
+
+		//Reset external forces
+		_externalForces = FVector(0);
 	}
 }
 
@@ -143,7 +152,7 @@ void UModularControllerComponent::MovementTickComponent(float delta)
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("MovementTickComponent");
 
 	//Update Inputs
-	if (_inputPool.IsValid())
+	if (_inputPool)
 		_inputPool->UpdateInputs(delta, DebugType == ControllerDebugType_InputDebug, this);
 
 	//Update Action infos
@@ -152,7 +161,9 @@ void UModularControllerComponent::MovementTickComponent(float delta)
 		if (!infos.Key.IsValid())
 			continue;
 		auto phase = infos.Value.CurrentPhase;
-		ActionInfos[infos.Key].Update(delta);
+		const int stateIndex = ApplyedControllerStatus.StatusParams.StateIndex;
+		const int actionIndex = ApplyedControllerStatus.StatusParams.ActionIndex;
+		ActionInfos[infos.Key].Update(delta, CheckActionCompatibility(infos.Key, stateIndex, actionIndex));
 		if (ActionInfos[infos.Key].CurrentPhase != phase)
 		{
 			OnControllerActionPhaseChangedEvent.Broadcast(ActionInfos[infos.Key].CurrentPhase, phase);
@@ -172,8 +183,6 @@ void UModularControllerComponent::MovementTickComponent(float delta)
 void UModularControllerComponent::ComputeTickComponent(float delta)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComputeTickComponent");
-	//if (!OwnerPawn.IsValid())
-	//	return;
 
 	//Extract Root motion
 	EvaluateRootMotions(delta);
@@ -183,22 +192,15 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 
 	//Solve collisions
 	int maxDepth = 64;
-	OverlapSolver(maxDepth, delta, &_contactComponents);
+	OverlapSolver(maxDepth, delta, &_contactHits, ApplyedControllerStatus.CustomSolverCheckDirection);
 
 	//Handle tracked surfaces
-	HandleTrackedSurface(delta);
+	HandleTrackedSurface(ApplyedControllerStatus, delta);
 
 	//In StandAlone Mode, don't bother with net logic at all
 	if (GetNetMode() == NM_Standalone)
 	{
-		//AuthorityComputeComponent(delta);
-
-		const FVector moveInp = ConsumeMovementInput();
-		const FControllerStatus initialState = ConsumeLastKinematicMove(moveInp);
-		ComputedControllerStatus = initialState;
-		//auto status = StandAloneEvaluateStatus(initialState, delta);
-		//ComputedControllerStatus = status;
-
+		AuthorityComputeComponent(delta);
 		_lastLocation = GetLocation();
 		return;
 	}
@@ -213,32 +215,34 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 			AutonomousProxyUpdateComponent(delta);
 			break;
 		default:
-		{
-			if (OwnerPawn.IsValid() && !OwnerPawn->IsLocallyControlled())
 			{
-				DedicatedServerUpdateComponent(delta);
-			}
-			else
-			{
-				AuthorityComputeComponent(delta, true);
-			}
-		};
+				if (OwnerPawn.IsValid() && !OwnerPawn->IsLocallyControlled())
+				{
+					DedicatedServerUpdateComponent(delta);
+				}
+				else
+				{
+					AuthorityComputeComponent(delta, true);
+				}
+			};
+			break;
 	}
+
+	_lastLocation = GetLocation();
 }
 
 
-FControllerStatus UModularControllerComponent::StandAloneEvaluateStatus(FControllerStatus initialState, float delta, bool noCollision, bool physicImpact)
+FControllerStatus UModularControllerComponent::StandAloneEvaluateStatus(FControllerStatus initialState, float delta, bool noCollision)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("StandAloneEvaluateStatus");
 	FControllerStatus processState = initialState;
-	processState = EvaluateStatusParams(initialState, delta);
+	processState = EvaluateStatusParams(processState, delta);
 	processState = ProcessStatus(processState, delta);
 	processState = EvaluateRootMotionOverride(processState, delta);
-	processState.Kinematics.AngularKinematic = HandleKinematicRotation(processState.Kinematics.AngularKinematic, delta);
+	processState.Kinematics.AngularKinematic = HandleKinematicRotation(processState.Kinematics, delta);
 
 	//Evaluate
-	FKinematicComponents finalKcomp = KinematicMoveEvaluation(processState, noCollision || bDisableCollision, delta, physicImpact);
-	processState.Kinematics = finalKcomp;
+	processState.Kinematics = KinematicMoveEvaluation(processState, noCollision || bDisableCollision, delta);
 	return processState;
 }
 
@@ -248,7 +252,6 @@ FControllerStatus UModularControllerComponent::StandAloneApplyStatus(FController
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("StandAloneApplyStatus");
 	ApplyStatusParams(state, delta);
 	Move(state.Kinematics, delta);
-	state.ComputeDiffManifest(ApplyedControllerStatus);
 	KinematicPostMove(state, delta);
 	return state;
 }
@@ -265,18 +268,16 @@ FControllerStatus UModularControllerComponent::EvaluateStatusParams(const FContr
 
 	const auto swapCheckedStatus = TryChangeControllerState(stateControllerStatus, stateStatus);
 	stateStatus = swapCheckedStatus.ProcessResult;
-	//stateStatus.ControllerSurface = swapCheckedStatus.ProcessResult.ControllerSurface;
-	UFunctionLibrary::DrawDebugCircleOnSurface(stateControllerStatus.ControllerSurface.GetHitResult(), true, 100);
 
 	//Actions
 	FControllerStatus actionStatus = stateStatus;
 	const int initialActionIndex = actionStatus.StatusParams.ActionIndex;
 	const auto actionControllerStatus = CheckControllerActions(actionStatus, delta);
 	actionStatus.StatusParams.ActionIndex = initialActionIndex;
-
+	
 	const auto actionCheckedStatus = TryChangeControllerAction(actionControllerStatus, actionStatus);
 	actionStatus = actionCheckedStatus.ProcessResult;
-
+	
 	return actionStatus;
 }
 
@@ -298,4 +299,3 @@ FControllerStatus UModularControllerComponent::ProcessStatus(const FControllerSt
 
 
 #pragma endregion
-

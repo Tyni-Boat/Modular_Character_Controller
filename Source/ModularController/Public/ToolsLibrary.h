@@ -15,13 +15,13 @@ public:
 
 	UToolsLibrary();
 
-	// Convert from a bool array to an integer. useful to serialize indexes in an array.
+	// Convert from a bool array to an integer flag. useful to serialize indexes in an array.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools")
-	static int BoolArrayToInt(const TArray<bool> array);
+	static int BoolArrayToFlag(const TArray<bool> array);
 
-	// Convert from an in to an bool array. useful to deserialize indexes in an array.
+	// Convert from an integer flag to an bool array. useful to deserialize indexes in an array.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools")
-	static TArray<bool> IntToBoolArray(int integer);
+	static TArray<bool> FlagToBoolArray(int flag);
 
 	// Convert a bool array to an index array
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools")
@@ -30,6 +30,10 @@ public:
 	// Convert an int array of indexes to an bool array
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools")
 	static TArray<bool> IndexesToBoolArray(const TArray<int> array);
+
+	// Convert an index to integer flag.
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools")
+	static int IndexToFlag(const int index);
 
 	// Returns a power of ten for positive values only.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools", meta = (CompactNodeTitle = "10powX"))

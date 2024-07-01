@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright Â© 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
 #include "Animation/AnimMontage.h"
@@ -36,11 +36,11 @@ protected:
 
 	// The normalized Jump curve [0-1]
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "JumpTo Parameters")
-	UCurveFloat* JumpCurve;
+	FAlphaBlend JumpCurve;
 
 	// The Jump force scale
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "JumpTo Parameters")
-	float JumpForce = 2943;	
+	float JumpForce = 4450;	
 
 
 	// Rotation speed to turn toward the jump direction

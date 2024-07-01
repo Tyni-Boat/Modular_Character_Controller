@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright ï¿½ 2023 by Tyni Boat. All Rights Reserved.
 
 
 #include "ComponentAndBase/BaseControllerState.h"
@@ -19,7 +19,6 @@ FControllerCheckResult UBaseControllerState::CheckState_Implementation(UModularC
 	const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
 {
 	auto result = startingConditions;
-	result.ControllerSurface.Reset();
 	return FControllerCheckResult(false, result);
 }
 

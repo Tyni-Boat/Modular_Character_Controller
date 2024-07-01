@@ -18,10 +18,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Inputs")
 	FName DashInputCommand;
 
-	//[Axis] The Name of the Axis Dash location input. this is the location where the controller will try to Dash to. If a value is set and not used, the controller will always try to Dash to zero location.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Inputs")
-	FName DashLocationInput;
-
 	//------------------------------------------------------------------------------------------
 
 
@@ -35,7 +31,7 @@ public:
 	/// <returns></returns>
 	bool CheckDash(UModularControllerComponent* controller) const;
 
-
+	
 	/**
 	 * @brief Get the closest direction on transform to the desired direction.
 	 * @param bodyTransform The transform from wich calculate the four directionnal
@@ -44,6 +40,9 @@ public:
 	 * @return the closest direction to the desired dir.
 	 */
 	FVector GetFourDirectionnalVector(FTransform bodyTransform, FVector desiredDir, int& directionIndex) const;
+
+	// Get the direction from index. 1-fwd, 2-back, 3-left, 4-right.
+	FVector GetFourDirectionnalVectorFromIndex(FTransform bodyTransform, const int directionIndex) const;
 
 #pragma endregion
 
@@ -54,14 +53,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Dash Parameters")
 	TEnumAsByte<ERootMotionType> RootMotionMode;
 
-	// The dash distance
+	// The dash speed
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
-	float DashDistance = 1000;
-
-
-	// Rotation speed we turn toward the Dash direction
+	float DashSpeed = 1000;
+	
+	// The normalized Dash curve [0-1]
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
-	bool bTurnTowardDashDirection = false;
+	FAlphaBlend DashCurve;
 
 	// Should the dash conserve the current controller rotation?
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters", meta = (EditCondition = "!bTurnTowardDashDirection"))
