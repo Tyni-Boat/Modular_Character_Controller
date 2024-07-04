@@ -5,7 +5,6 @@
 #include "BaseDashAction.generated.h"
 
 
-
 UCLASS(BlueprintType, Blueprintable, ClassGroup = "Controller Action Behaviours", abstract)
 class MODULARCONTROLLER_API UBaseDashAction : public UBaseControllerAction
 {
@@ -13,7 +12,6 @@ class MODULARCONTROLLER_API UBaseDashAction : public UBaseControllerAction
 
 #pragma region Check
 protected:
-
 	//[Button] The Name of the button Dash command.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Inputs")
 	FName DashInputCommand;
@@ -21,9 +19,7 @@ protected:
 	//------------------------------------------------------------------------------------------
 
 
-
 public:
-
 	/// <summary>
 	/// Check for a Dash
 	/// </summary>
@@ -31,7 +27,7 @@ public:
 	/// <returns></returns>
 	bool CheckDash(UModularControllerComponent* controller) const;
 
-	
+
 	/**
 	 * @brief Get the closest direction on transform to the desired direction.
 	 * @param bodyTransform The transform from wich calculate the four directionnal
@@ -48,15 +44,14 @@ public:
 
 #pragma region Dash
 protected:
-
 	// The State's Root motion Mode
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Dash Parameters")
 	TEnumAsByte<ERootMotionType> RootMotionMode;
 
 	// The dash speed
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
-	float DashSpeed = 1000;
-	
+	float DashSpeed = 500;
+
 	// The normalized Dash curve [0-1]
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
 	FAlphaBlend DashCurve;
@@ -93,19 +88,24 @@ protected:
 
 #pragma region Functions
 public:
+	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta,
+	                                                          bool asLastActiveAction) const override;
 
-	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveAction) const override;
+	virtual FVector OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput,
+	                                              const float delta) const override;
 
-	virtual FVector OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
+	virtual void OnActionEnds_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput,
+	                                         const float delta) const override;
 
-	virtual void OnActionEnds_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
+	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+	                                                                          const float delta) const override;
 
-	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const override;
+	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+	                                                                    const float delta) const override;
 
-	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const override;
+	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+	                                                                      const float delta) const override;
 
-	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const override;
-	
 
 #pragma endregion
 };

@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright Â© 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
 #include "Enums.h"
@@ -26,7 +26,7 @@ class UModularControllerComponent;
 /// The abstract basic state behaviour for a Modular controller.
 /// </summary>
 UCLASS(BlueprintType, Blueprintable, ClassGroup = "Modular Controller States", abstract)
-class MODULARCONTROLLER_API UBaseControllerState : public UObject
+class MODULARCONTROLLER_API UBaseControllerState : public UPrimaryDataAsset
 {
 	GENERATED_BODY()
 

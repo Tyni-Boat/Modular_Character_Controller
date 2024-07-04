@@ -43,7 +43,7 @@ FControllerCheckResult UFreeFallState::CheckState_Implementation(UModularControl
 {
 	auto result = startingConditions;
 	if (controller)
-		UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, AirTimeVarName, asLastActiveState ? controller->TimeOnCurrentState : 0);
+		UFunctionLibrary::AddOrReplaceCosmeticVariable(result.StatusParams, AirTimeVarName, asLastActiveState ? controller->TimeOnCurrentState : 0);
 	return FControllerCheckResult(true, result);
 }
 

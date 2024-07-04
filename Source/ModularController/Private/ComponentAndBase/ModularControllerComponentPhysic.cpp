@@ -9,7 +9,6 @@
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/EngineTypes.h"
-#include "Engine/OverlapResult.h"
 #include "CollisionQueryParams.h"
 #include "Sampling/SphericalFibonacci.h"
 #include "VectorTypes.h"
@@ -50,10 +49,10 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 	const auto channel = UpdatedPrimitive->GetCollisionObjectType();
 	const FVector toCardinalPoint = (GetWorldSpaceCardinalPoint(scanDirection) - location);
 	FVector offset = scanDirection.GetClampedToMaxSize(toCardinalPoint.Length());
-	if(offset.SquaredLength() > 0)
+	if (offset.SquaredLength() > 0)
 	{
 		FHitResult hit;
-		if(ComponentTraceCastSingle_Internal(hit, location, offset, rotation, 0, bUseComplexCollision))
+		if (ComponentTraceCastSingle_Internal(hit, location, offset, rotation, 0, bUseComplexCollision))
 		{
 			offset = (hit.Location - offset.GetSafeNormal() * 1.126) - location;
 		}
@@ -132,7 +131,7 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 				FColor debugCol = FColor::Silver;
 				switch (response)
 				{
-					case ECR_Block: debugCol = fromStatus.Kinematics.SurfacesInContact[i].SurfacePhysicProperties.W > 0 ? FColor::Yellow : FColor::Red;
+					case ECR_Block: debugCol = fromStatus.Kinematics.SurfacesInContact[i].SurfacePhysicProperties.W > 0 ? FColor::Orange : FColor::Red;
 						break;
 					case ECR_Overlap: debugCol = fromStatus.Kinematics.SurfacesInContact[i].SurfacePhysicProperties.W > 0 ? FColor::Emerald : FColor::Green;
 						break;
@@ -172,8 +171,9 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 	}
 	else
 	{
-		for (const auto hit : _contactHits)
+		for (int i = 0; i < _contactHits.Num(); i++)
 		{
+			const auto hit = _contactHits[i];
 			const bool validPawn = hit.HitResult.Component.IsValid();
 			const bool canStepOn = validPawn ? hit.HitResult.Component->CanCharacterStepUpOn == ECB_Owner || hit.HitResult.Component->CanCharacterStepUpOn == ECB_Yes : true;
 			fromStatus.Kinematics.SurfacesInContact.Add(FSurface(hit, canStepOn));

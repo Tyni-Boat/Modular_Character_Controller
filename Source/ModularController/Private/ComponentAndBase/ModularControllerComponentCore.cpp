@@ -86,7 +86,7 @@ void UModularControllerComponent::Initialize()
 	{
 		for (int i = StateClasses.Num() - 1; i >= 0; i--)
 		{
-			if (!StateClasses[i].IsValid())
+			if (!StateClasses[i])
 				continue;
 			StatesInstances.Add(StateClasses[i]->GetDefaultObject());
 		}
@@ -98,7 +98,7 @@ void UModularControllerComponent::Initialize()
 	{
 		for (int i = ActionClasses.Num() - 1; i >= 0; i--)
 		{
-			if (!ActionClasses[i].IsValid())
+			if (!ActionClasses[i])
 				continue;
 			ActionInstances.Add(ActionClasses[i]->GetDefaultObject());
 		}
@@ -110,6 +110,7 @@ void UModularControllerComponent::Initialize()
 
 	//Init last move
 	_lastLocation = GetLocation();
+	_lastRotation = GetRotation();
 	ComputedControllerStatus.Kinematics.LinearKinematic.Position = GetLocation();
 	ApplyedControllerStatus.Kinematics.LinearKinematic.Position = GetLocation();
 	ComputedControllerStatus.Kinematics.AngularKinematic.Orientation = UpdatedPrimitive ? UpdatedPrimitive->GetComponentQuat() : GetRotation();
@@ -124,9 +125,9 @@ void UModularControllerComponent::Initialize()
 // Called every frame
 void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
-	if(!IsComponentTickEnabled())
+	if (!IsComponentTickEnabled())
 		return;
-	
+
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	if (ThisTickFunction->TickGroup == TG_PrePhysics)
@@ -170,12 +171,10 @@ void UModularControllerComponent::MovementTickComponent(float delta)
 		}
 	}
 
-	//In StandAlone Mode, don't bother with net logic at all
-	if (GetNetMode() == NM_Standalone)
+	//Apply movement computed
+	//if (GetNetMode() == NM_Standalone)
 	{
 		AuthorityMoveComponent(delta);
-		_lastLocation = FVector(0);
-		return;
 	}
 }
 
@@ -202,6 +201,7 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 	{
 		AuthorityComputeComponent(delta);
 		_lastLocation = GetLocation();
+		_lastRotation = GetRotation();
 		return;
 	}
 
@@ -229,6 +229,7 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 	}
 
 	_lastLocation = GetLocation();
+	_lastRotation = GetRotation();
 }
 
 
@@ -256,6 +257,19 @@ FControllerStatus UModularControllerComponent::StandAloneApplyStatus(FController
 	return state;
 }
 
+FControllerStatus UModularControllerComponent::StandAloneCosmeticStatus(FControllerStatus state, float delta)
+{
+	FControllerStatus endState = state;
+	FControllerStatus processState = CosmeticUpdateStatusParams(state, delta);
+	processState = ProcessStatus(processState, delta);
+
+	endState.CustomSolverCheckDirection = processState.CustomSolverCheckDirection;
+	endState.StatusParams.StatusCosmeticVariables = processState.StatusParams.StatusCosmeticVariables;
+	endState.Kinematics.SurfaceBinaryFlag = processState.Kinematics.SurfaceBinaryFlag;
+
+	return endState;
+}
+
 
 FControllerStatus UModularControllerComponent::EvaluateStatusParams(const FControllerStatus initialStatus, const float delta)
 {
@@ -274,11 +288,22 @@ FControllerStatus UModularControllerComponent::EvaluateStatusParams(const FContr
 	const int initialActionIndex = actionStatus.StatusParams.ActionIndex;
 	const auto actionControllerStatus = CheckControllerActions(actionStatus, delta);
 	actionStatus.StatusParams.ActionIndex = initialActionIndex;
-	
+
 	const auto actionCheckedStatus = TryChangeControllerAction(actionControllerStatus, actionStatus);
 	actionStatus = actionCheckedStatus.ProcessResult;
-	
+
 	return actionStatus;
+}
+
+FControllerStatus UModularControllerComponent::CosmeticUpdateStatusParams(const FControllerStatus initialStatus, const float delta)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR("CosmeticUpdateStatusParams");
+	//State
+	const auto stateControllerStatus = CosmeticCheckState(initialStatus, delta);
+	//Actions
+	const auto actionControllerStatus = CosmeticCheckActions(stateControllerStatus, delta);
+
+	return actionControllerStatus;
 }
 
 

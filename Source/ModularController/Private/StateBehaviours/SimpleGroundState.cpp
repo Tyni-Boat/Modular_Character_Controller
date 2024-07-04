@@ -30,6 +30,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 	//Find the best surface
 	int surfaceIndex = -1;
 	float closestSurface = TNumericLimits<float>::Max();
+	float testingClosestSurface = TNumericLimits<float>::Max();
 	for (int i = 0; i < status.Kinematics.SurfacesInContact.Num(); i++)
 	{
 		const auto surface = status.Kinematics.SurfacesInContact[i];
@@ -62,12 +63,18 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		if (angle > 89)
 			continue;
 
+		const FVector heightVector = (surface.SurfacePoint - lowestPt).ProjectOnToNormal(-gravityDirection);
+		if(heightVector.SquaredLength() < testingClosestSurface)
+		{
+			UFunctionLibrary::AddOrReplaceCosmeticVariable(statusParams, GroundDistanceVarName, heightVector.Length());
+			testingClosestSurface = heightVector.SquaredLength();
+		}
+		
 		//Avoid surface we are moving sharply away
 		if (!asActive && (surface.SurfaceImpactNormal | velocity.GetSafeNormal()) > 0.5)
 			continue;
 
 		//Step height verification
-		const FVector heightVector = (surface.SurfacePoint - lowestPt).ProjectOnToNormal(-gravityDirection);
 		if (heightVector.Length() > (MaxStepHeight + 5))
 			continue;
 
@@ -83,7 +90,6 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 			continue;
 		}
 
-		UFunctionLibrary::AddOrReplaceCheckVariable(statusParams, GroundDistanceVarName, heightVector.Length());
 		closestSurface = distance;
 		surfaceIndex = i;
 	}
@@ -101,33 +107,6 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 
 #pragma endregion
 
-
-#pragma region Surface and Snapping XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-
-//
-// FVector USimpleGroundState::GetSlidingVector(const FSurfaceInfos SurfaceInfos) const
-// {
-// 	const auto t_currentSurfaceInfos = SurfaceInfos.GetHitResult();
-// 	if (!t_currentSurfaceInfos.GetComponent())
-// 		return FVector(0);
-//
-// 	const float surfaceFriction = t_currentSurfaceInfos.PhysMaterial != nullptr ? t_currentSurfaceInfos.PhysMaterial->Friction : 1;
-// 	const FVector normal = (t_currentSurfaceInfos.TraceStart - t_currentSurfaceInfos.TraceEnd).GetSafeNormal();
-// 	const float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(t_currentSurfaceInfos.ImpactNormal, normal)));
-// 	if (angle > MaxSlopeAngle)
-// 	{
-// 		const FVector slopeDirection = FVector::VectorPlaneProject(t_currentSurfaceInfos.ImpactNormal, normal).GetSafeNormal();
-// 		const double alpha = (angle - MaxSlopeAngle) / 5;
-// 		const FVector slidingVelocity = slopeDirection * FMath::Lerp(0, 1, alpha) * (1 - FMath::Clamp(surfaceFriction, 0, 1));
-// 		return slidingVelocity;
-// 	}
-//
-// 	return FVector(0);
-// }
-
-
-#pragma endregion
 
 
 #pragma region General Movement XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -165,7 +144,7 @@ FControllerCheckResult USimpleGroundState::CheckState_Implementation(UModularCon
                                                                      const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
 {
 	FControllerCheckResult result = FControllerCheckResult(false, startingConditions);
-	UFunctionLibrary::AddOrReplaceCheckVariable(result.ProcessResult.StatusParams, GroundDistanceVarName, TNumericLimits<float>::Max());
+	UFunctionLibrary::AddOrReplaceCosmeticVariable(result.ProcessResult.StatusParams, GroundDistanceVarName, TNumericLimits<float>::Max());
 	if (!controller)
 	{
 		return result;
@@ -180,11 +159,9 @@ FControllerCheckResult USimpleGroundState::CheckState_Implementation(UModularCon
 	{
 		const FVector relativeVel = FVector::VectorPlaneProject(result.ProcessResult.Kinematics.LinearKinematic.Velocity - result.ProcessResult.Kinematics.LinearKinematic.refVelocity,
 		                                                        controller->GetGravityDirection());
-		UFunctionLibrary::AddOrReplaceCheckVariable(result.ProcessResult.StatusParams, FName(FString::Printf(TEXT("%sX"), *GroundMoveVarName.ToString())), relativeVel.X);
-		UFunctionLibrary::AddOrReplaceCheckVariable(result.ProcessResult.StatusParams, FName(FString::Printf(TEXT("%sY"), *GroundMoveVarName.ToString())), relativeVel.Y);
-		UFunctionLibrary::AddOrReplaceCheckVariable(result.ProcessResult.StatusParams, FName(FString::Printf(TEXT("%sZ"), *GroundMoveVarName.ToString())), relativeVel.Z);
-	}
-
+		UFunctionLibrary::AddOrReplaceCosmeticVector(result.ProcessResult.StatusParams, GroundMoveVarName, relativeVel);
+	}	
+	
 	return result;
 }
 
@@ -233,25 +210,18 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	}
 
 	//Lerp velocity
-	FVector lastMoveVec = FVector(0);
-	{
-		lastMoveVec.X = UFunctionLibrary::GetCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sX"), *GroundMoveVarName.ToString())), 0);
-		lastMoveVec.Y = UFunctionLibrary::GetCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sY"), *GroundMoveVarName.ToString())), 0);
-		lastMoveVec.Z = UFunctionLibrary::GetCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sZ"), *GroundMoveVarName.ToString())), 0);
-	}
-	FVector moveVec = FMath::Lerp(lastMoveVec, GetMoveVector(inputMove, moveScale, surface, controller), Acceleration * delta);
+	FVector lastMoveVec = UFunctionLibrary::GetCosmeticVector(result.StatusParams, GroundMoveVarName, FVector(0));
+	const FVector targetMoveVec = GetMoveVector(inputMove, moveScale, surface, controller);
+	FVector moveVec = FMath::Lerp(lastMoveVec, targetMoveVec, Acceleration * delta);
 	{
 		if (!controller->ActionInstances.IsValidIndex(result.StatusParams.ActionIndex))
 		{
-			UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sX"), *GroundMoveVarName.ToString())), moveVec.X);
-			UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sY"), *GroundMoveVarName.ToString())), moveVec.Y);
-			UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sZ"), *GroundMoveVarName.ToString())), moveVec.Z);
-		}else
+			UFunctionLibrary::AddOrReplaceCosmeticVector(result.StatusParams, GroundMoveVarName, moveVec);
+		}
+		else
 		{
-			const FVector relVel = FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity - result.Kinematics.LinearKinematic.refVelocity,controller->GetGravityDirection());
-			UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sX"), *GroundMoveVarName.ToString())), relVel.X);
-			UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sY"), *GroundMoveVarName.ToString())), relVel.Y);
-			UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, FName(FString::Printf(TEXT("%sZ"), *GroundMoveVarName.ToString())), relVel.Z);
+			const FVector relVel = FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity - result.Kinematics.LinearKinematic.refVelocity, controller->GetGravityDirection());
+			UFunctionLibrary::AddOrReplaceCosmeticVector(result.StatusParams, GroundMoveVarName, relVel);
 		}
 	}
 

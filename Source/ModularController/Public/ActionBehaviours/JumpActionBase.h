@@ -53,11 +53,11 @@ protected:
 
 	// The montage should be played on the current state's linked animation blueprint or on the root skeletal mesh anim blueprint
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "JumpTo Parameters")
-	bool bMontageShouldBePlayerOnStateAnimGraph;
+	bool bMontageShouldBePlayerOnStateAnimGraph = false;
 	
 	// Should the montage lenght be used as action duration?
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "JumpTo Parameters")
-	bool bUseMontageDuration;
+	bool bUseMontageDuration = false;
 
 			
 public:

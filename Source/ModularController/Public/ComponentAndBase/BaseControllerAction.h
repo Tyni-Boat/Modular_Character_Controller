@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright Â© 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
 #include "Animation/AnimMontage.h"
@@ -21,7 +21,7 @@
 /// The abstract basic Action behaviour for a Modular controller.
 /// </summary>
 UCLASS(BlueprintType, Blueprintable, ClassGroup = "Modular Action Behaviours", abstract)
-class MODULARCONTROLLER_API UBaseControllerAction : public UObject
+class MODULARCONTROLLER_API UBaseControllerAction : public UPrimaryDataAsset
 {
 	GENERATED_BODY()
 

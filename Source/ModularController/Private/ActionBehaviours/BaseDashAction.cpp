@@ -197,7 +197,7 @@ FControllerStatus UBaseDashAction::OnActionProcessActivePhase_Implementation(UMo
 			FQuat headingRot = result.Kinematics.AngularKinematic.Orientation * FQuat(axis, angle);
 			result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, headingRot.Vector(), TNumericLimits<float>::Max(), delta);
 		}
-		UFunctionLibrary::AddOrReplaceCheckVariable(result.StatusParams, "DashDir", directionID);
+		UFunctionLibrary::AddOrReplaceCosmeticVariable(result.StatusParams, "DashDir", directionID);
 	}
 	else
 	{
@@ -205,7 +205,7 @@ FControllerStatus UBaseDashAction::OnActionProcessActivePhase_Implementation(UMo
 		result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, currentOrientation.Vector(), 500, delta);
 	}
 
-	directionIndex = UFunctionLibrary::GetCheckVariable(result.StatusParams, "DashDir", 1);
+	directionIndex = UFunctionLibrary::GetCosmeticVariable(result.StatusParams, "DashDir", 1);
 	FVector dashVector = GetFourDirectionnalVectorFromIndex(compTransform, directionIndex);
 
 	//Movement

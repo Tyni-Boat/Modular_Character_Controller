@@ -272,9 +272,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
 	FVector_NetQuantize10 ActionsModifiers;
 
-	// Additional variables from whatever state or action that's been checked, actives or not. useful for let say know the distance from the ground while airborne. 
+	// Cosmetic states and actions variables. useful for let say know the distance from the ground while airborne. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
-	TMap<FName, float> StatusAdditionalCheckVariables;
+	TMap<FName, float> StatusCosmeticVariables;
 	
 };
 

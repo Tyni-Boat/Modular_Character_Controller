@@ -65,11 +65,19 @@ public:
 
 	// Add or replace a key value pair in StatusAdditionalCheckVariables. return true if the key is new.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Status Parameters")
-	static bool AddOrReplaceCheckVariable(FStatusParameters& statusParam, const FName key, const float value);
+	static bool AddOrReplaceCosmeticVariable(FStatusParameters& statusParam, const FName key, const float value);
+
+	// Add or replace a Vector key value pair in StatusAdditionalCheckVariables. return true if the key is new.
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Status Parameters")
+	static bool AddOrReplaceCosmeticVector(FStatusParameters& statusParam, const FName key, const FVector value);
 
 	// Get variable value from StatusAdditionalCheckVariables at key.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Status Parameters")
-	static float GetCheckVariable(FStatusParameters statusParam, const FName key, const float notFoundValue = 0);
+	static float GetCosmeticVariable(FStatusParameters statusParam, const FName key, const float notFoundValue = 0);
+
+	// Get vector value from StatusAdditionalCheckVariables at key.
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Status Parameters")
+	static FVector GetCosmeticVector(FStatusParameters statusParam, const FName key, const FVector notFoundValue = FVector(0));
 
 	//Set the referential movement (usually the surface the controller is on)
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics | Linear")

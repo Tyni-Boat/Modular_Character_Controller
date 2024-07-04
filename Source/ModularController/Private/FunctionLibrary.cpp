@@ -103,7 +103,7 @@ void UFunctionLibrary::DrawDebugCircleOnSurface(const FSurface MyStructRef, floa
 {
 	if (!MyStructRef.TrackedComponent.IsValid())
 		return;
-	FVector up = useImpact? MyStructRef.SurfaceImpactNormal : MyStructRef.SurfaceNormal;
+	FVector up = useImpact ? MyStructRef.SurfaceImpactNormal : MyStructRef.SurfaceNormal;
 	if (!up.Normalize())
 		return;
 	FVector right = up.Rotation().Quaternion().GetAxisY();
@@ -160,7 +160,8 @@ FKinematicComponents UFunctionLibrary::LerpKinematic(const FKinematicComponents 
 	FKinematicComponents result = A;
 	result.LinearKinematic.Velocity = FMath::Lerp(A.LinearKinematic.Velocity, B.LinearKinematic.Velocity, delta);
 	result.LinearKinematic.Position = FMath::Lerp(A.LinearKinematic.Position, B.LinearKinematic.Position, delta);
-	result.AngularKinematic.Orientation = FQuat::Slerp(A.AngularKinematic.Orientation, B.AngularKinematic.Orientation, delta);
+	// result.AngularKinematic.Orientation = FQuat::Slerp(A.AngularKinematic.Orientation, B.AngularKinematic.Orientation, delta);
+	result.AngularKinematic.Orientation = B.AngularKinematic.Orientation;
 
 	return result;
 }
@@ -183,27 +184,44 @@ FVector UFunctionLibrary::GetSnapOnSurfaceVector(const FVector onShapeTargetSnap
 	const FVector hitPoint = Surface.SurfacePoint;
 	const FVector elevationDiff = (hitPoint - onShapeTargetSnapPoint).ProjectOnToNormal(snapDirection);
 	FVector snapVector = elevationDiff;
-	
+
 	return snapVector;
 }
 
-bool UFunctionLibrary::AddOrReplaceCheckVariable(FStatusParameters& statusParam, const FName key, const float value)
+bool UFunctionLibrary::AddOrReplaceCosmeticVariable(FStatusParameters& statusParam, const FName key, const float value)
 {
-	if (statusParam.StatusAdditionalCheckVariables.Contains(key))
+	if (statusParam.StatusCosmeticVariables.Contains(key))
 	{
-		statusParam.StatusAdditionalCheckVariables[key] = value;
+		statusParam.StatusCosmeticVariables[key] = value;
 		return false;
 	}
 
-	statusParam.StatusAdditionalCheckVariables.Add(key, value);
+	statusParam.StatusCosmeticVariables.Add(key, value);
 	return true;
 }
 
-float UFunctionLibrary::GetCheckVariable(FStatusParameters statusParam, const FName key, const float notFoundValue)
+bool UFunctionLibrary::AddOrReplaceCosmeticVector(FStatusParameters& statusParam, const FName key, const FVector value)
 {
-	if (statusParam.StatusAdditionalCheckVariables.Contains(key))
+	const bool xRes = AddOrReplaceCosmeticVariable(statusParam, FName(FString::Printf(TEXT("%sX"), *key.ToString())), value.X);
+	const bool yRes = AddOrReplaceCosmeticVariable(statusParam, FName(FString::Printf(TEXT("%sY"), *key.ToString())), value.Y);
+	const bool zRes = AddOrReplaceCosmeticVariable(statusParam, FName(FString::Printf(TEXT("%sZ"), *key.ToString())), value.Z);
+	return xRes | yRes | zRes;
+}
+
+FVector UFunctionLibrary::GetCosmeticVector(FStatusParameters statusParam, const FName key, const FVector notFoundValue)
+{
+	const float xRes = GetCosmeticVariable(statusParam, FName(FString::Printf(TEXT("%sX"), *key.ToString())), notFoundValue.X);
+	const float yRes = GetCosmeticVariable(statusParam, FName(FString::Printf(TEXT("%sY"), *key.ToString())), notFoundValue.Y);
+	const float zRes = GetCosmeticVariable(statusParam, FName(FString::Printf(TEXT("%sZ"), *key.ToString())), notFoundValue.Z);
+
+	return FVector(xRes, yRes, zRes);
+}
+
+float UFunctionLibrary::GetCosmeticVariable(FStatusParameters statusParam, const FName key, const float notFoundValue)
+{
+	if (statusParam.StatusCosmeticVariables.Contains(key))
 	{
-		return statusParam.StatusAdditionalCheckVariables[key];
+		return statusParam.StatusCosmeticVariables[key];
 	}
 	return notFoundValue;
 }
@@ -252,7 +270,7 @@ void UFunctionLibrary::AddCompositeMovement(FLinearKinematicCondition& linearKin
 	}
 	else
 	{
-		for (int i =linearKinematic. CompositeMovements.Num(); i <= index; i++)
+		for (int i = linearKinematic.CompositeMovements.Num(); i <= index; i++)
 		{
 			if (i == index)
 				linearKinematic.CompositeMovements.Add(FVector4d(movement.X, movement.Y, movement.Z, acceleration));

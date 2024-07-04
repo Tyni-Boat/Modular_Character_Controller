@@ -207,7 +207,7 @@ FControllerStatus UModularControllerComponent::CheckControllerStates(FController
 
 
 				const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, overrideNewState ? false : endStatus.StatusParams.StateIndex == i);
-				endStatus.StatusParams.StatusAdditionalCheckVariables = checkResult.ProcessResult.StatusParams.StatusAdditionalCheckVariables;
+				endStatus.StatusParams.StatusCosmeticVariables = checkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
 				if (checkResult.CheckedCondition)
 				{
 					selectedStateIndex = i;
@@ -224,12 +224,37 @@ FControllerStatus UModularControllerComponent::CheckControllerStates(FController
 }
 
 
+FControllerStatus UModularControllerComponent::CosmeticCheckState(FControllerStatus currentControllerStatus, const float inDelta)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR("CosmeticCheckState");
+	FControllerStatus endStatus = currentControllerStatus;
+
+	//Check if a State's check have success state
+	{
+		for (int i = 0; i < StatesInstances.Num(); i++)
+		{
+			if (!StatesInstances[i].IsValid())
+				continue;
+
+			const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, currentControllerStatus.StatusParams.StateIndex == i);
+			endStatus.StatusParams.StatusCosmeticVariables = checkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
+			if(currentControllerStatus.StatusParams.StateIndex == i)
+			{
+				endStatus = checkResult.ProcessResult;
+			}
+		}
+	}
+
+	return endStatus;
+}
+
+
 FControllerCheckResult UModularControllerComponent::TryChangeControllerState(FControllerStatus ToStateStatus, FControllerStatus fromStateStatus) const
 {
 	int fromIndex = fromStateStatus.StatusParams.StateIndex;
 	int toIndex = ToStateStatus.StatusParams.StateIndex;
 	FControllerCheckResult result = FControllerCheckResult(false, fromStateStatus);
-	result.ProcessResult.StatusParams.StatusAdditionalCheckVariables = ToStateStatus.StatusParams.StatusAdditionalCheckVariables;
+	result.ProcessResult.StatusParams.StatusCosmeticVariables = ToStateStatus.StatusParams.StatusCosmeticVariables;
 
 	if (!StatesInstances.IsValidIndex(toIndex))
 		return result;
@@ -524,7 +549,7 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 		if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
 		{
 			const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
-			endStatus.StatusParams.StatusAdditionalCheckVariables = chkResult.ProcessResult.StatusParams.StatusAdditionalCheckVariables;
+			endStatus.StatusParams.StatusCosmeticVariables = chkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
 			if (chkResult.CheckedCondition)
 			{
 				selectedActionIndex = i;
@@ -549,6 +574,65 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 
 	endStatus = selectedStatus;
 	endStatus.StatusParams.ActionIndex = selectedActionIndex;
+	return endStatus;
+}
+
+
+FControllerStatus UModularControllerComponent::CosmeticCheckActions(FControllerStatus currentControllerStatus, const float inDelta)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR("CosmeticCheckActions");
+	FControllerStatus endStatus = currentControllerStatus;
+	int selectedActionIndex = endStatus.StatusParams.ActionIndex;
+
+	//Check active action still active
+	if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid() && ActionInfos.Contains(ActionInstances[selectedActionIndex]))
+	{
+		const auto chkResult = ActionInstances[selectedActionIndex]->CheckAction(this, endStatus, inDelta, true);
+		endStatus = chkResult.ProcessResult;
+		endStatus.StatusParams.StatusCosmeticVariables = chkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
+	}
+
+	//Check actions
+	for (int i = 0; i < ActionInstances.Num(); i++)
+	{
+		if (selectedActionIndex == i)
+			continue;
+
+		if (!ActionInstances[i].IsValid())
+			continue;
+		if (!ActionInfos.Contains(ActionInstances[i]))
+			continue;
+
+		if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid())
+		{
+			if (ActionInstances[i]->GetPriority() <= ActionInstances[selectedActionIndex]->GetPriority())
+			{
+				if (ActionInstances[i]->GetPriority() != ActionInstances[selectedActionIndex]->GetPriority())
+					continue;
+				if (ActionInstances[i]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
+					&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
+					&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != ActionPhase_Recovery)
+				{
+					continue;
+				}
+			}
+		}
+
+		const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
+		if (currentPhase == ActionPhase_Anticipation || currentPhase == ActionPhase_Active)
+			continue;
+		if (currentPhase == ActionPhase_Recovery && !ActionInstances[i]->bCanTransitionToSelf)
+			continue;
+		if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
+			continue;
+
+		if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
+		{
+			const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
+			endStatus.StatusParams.StatusCosmeticVariables = chkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
+		}
+	}
+
 	return endStatus;
 }
 
@@ -632,7 +716,7 @@ FControllerCheckResult UModularControllerComponent::TryChangeControllerAction(FC
 
 	const int fromActionIndex = ComputedControllerStatus.StatusParams.ActionIndex;
 	const int toActionIndex = toActionStatus.StatusParams.ActionIndex;
-	result.ProcessResult.StatusParams.StatusAdditionalCheckVariables = toActionStatus.StatusParams.StatusAdditionalCheckVariables;
+	result.ProcessResult.StatusParams.StatusCosmeticVariables = toActionStatus.StatusParams.StatusCosmeticVariables;
 
 	if (fromActionIndex == toActionIndex)
 	{
@@ -657,9 +741,11 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 		if (!transitionToSelf)
 		{
 			bool repeatAuto = false;
-			if (ActionInstances.IsValidIndex(fromActionIndex) && ActionInstances[fromActionIndex].IsValid() && ActionInfos.Contains(ActionInstances[fromActionIndex]))
+			const auto netRole = GetNetRole(OwnerPawn);
+			if ((netRole == ROLE_SimulatedProxy || (netRole == ROLE_Authority && !OwnerPawn->IsLocallyControlled())) &&
+				ActionInstances.IsValidIndex(fromActionIndex) && ActionInstances[fromActionIndex].IsValid() && ActionInfos.Contains(ActionInstances[fromActionIndex]))
 			{
-				if (ActionInfos[ActionInstances[fromActionIndex]].GetRemainingActivationTime() < -0.1
+				if (ActionInfos[ActionInstances[fromActionIndex]].GetRemainingActivationTime() < inDelta
 					&& ActionInfos[ActionInstances[fromActionIndex]].CurrentPhase == ActionPhase_Recovery
 					&& ActionInstances[fromActionIndex]->bCanTransitionToSelf)
 				{
@@ -702,7 +788,8 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 		{
 			UKismetSystemLibrary::PrintString(
 				GetWorld(), FString::Printf(TEXT("Action (%s) is Being Activated. Remaining Time: %f"), *ActionInstances[toActionIndex]->DebugString(),
-				                            ActionInfos.Contains(ActionInstances[toActionIndex]) ? ActionInfos[ActionInstances[toActionIndex]].GetRemainingActivationTime() : -1), true, false,
+				                            ActionInfos.Contains(ActionInstances[toActionIndex]) ? ActionInfos[ActionInstances[toActionIndex]].GetRemainingActivationTime() : -1), true,
+				false,
 				FColor::Green, 5
 				, "TryChangeControllerActions_3");
 		}
@@ -761,6 +848,7 @@ FControllerStatus UModularControllerComponent::ProcessSingleAction(TSoftObjectPt
 		case ActionPhase_Recovery:
 			processMotion = actionInstance->OnActionProcessRecoveryPhase(this, processMotion, ActionInfos[actionInstance], inDelta);
 			break;
+		default: break;
 	}
 
 	return processMotion;

@@ -29,7 +29,8 @@ void UModularControllerComponent::Move_Implementation(const FKinematicComponents
 	}
 	else
 	{
-		UpdatedPrimitive->SetWorldRotation(finalKinematic.AngularKinematic.Orientation * rotOffset, false);
+		const FQuat orientation = finalKinematic.AngularKinematic.Orientation;
+		UpdatedPrimitive->SetWorldRotation(orientation * rotOffset, false);
 		UpdatedPrimitive->SetWorldLocation(finalKinematic.LinearKinematic.Position + posOffset, false);
 	}
 }
@@ -56,10 +57,10 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 		}
 	}
 
+	const FVector externalAcceleration = _externalForces.ContainsNaN() || _externalForces.IsNearlyZero() ? FVector(0) : _externalForces / GetMass();
 	//Surface and external forces movement
 	{
 		FVector surfaceVelocity = UFunctionLibrary::GetAverageSurfaceVelocityAt(finalKcomp, initialLocation, delta);
-		const FVector externalAcceleration = _externalForces.ContainsNaN() || _externalForces.IsNearlyZero() ? FVector(0) : _externalForces / GetMass();
 		const FVector externalVelocity = externalAcceleration * delta;
 		if (UFunctionLibrary::IsValidSurfaces(finalKcomp))
 		{
@@ -81,7 +82,9 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 	//Movement Sweep Test
 	{
 		//Snap displacement
-		const FVector snapMove = finalKcomp.LinearKinematic.SnapDisplacement;
+		FVector snapMove = finalKcomp.LinearKinematic.SnapDisplacement;
+		if ((externalAcceleration | snapMove) < 0) // && finalKcomp.LinearKinematic.Acceleration.Length() >= GetGravityScale() * 0.5))
+			snapMove = FVector(0);
 		finalKcomp.LinearKinematic.Position += snapMove;
 
 		FHitResult sweepMoveHit = FHitResult(EForceInit::ForceInitToZero);
@@ -267,7 +270,7 @@ FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(
 	//Handle surfaces rotation
 	{
 		const FVector surfaceRotVel = UFunctionLibrary::GetAverageSurfaceAngularSpeed(inKinematic);
-		outputCondition.Orientation *= FQuat(surfaceRotVel.GetSafeNormal(), FMath::DegreesToRadians(surfaceRotVel.Length()) * inDelta) * outputCondition.Orientation.Inverse();
+		outputCondition.Orientation *= FQuat(surfaceRotVel.GetSafeNormal(), FMath::DegreesToRadians(surfaceRotVel.Length()) * inDelta);
 	}
 
 	//Acceleration

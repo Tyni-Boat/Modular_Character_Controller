@@ -91,7 +91,7 @@ protected:
 
 	//Use this to offset rotation. useful when using skeletal mesh without as root primitive.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Core")
-	FRotator RotationOffset;
+	FRotator RotationOffset = FRotator(0);
 
 	//The component owner class, casted to pawn
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadWrite, category = "Controllers|Core")
@@ -209,6 +209,14 @@ private:
 	double _timeNetLatency = 0;
 
 public:
+	
+	// Try to compensate this amount of the latency
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network", meta=(ClampMin=0, ClampMax = 1, UIMin = 0, UIMax = 1))
+	float LatencyCompensationScale = 0.1;
+	
+	// Evaluate cosmetic variables on dedicated server?
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Network")
+	bool bServerSideCosmetic = false;
 
 
 	// Used to replicate some properties.
@@ -238,9 +246,15 @@ protected:
 	// Apply controller status and return the changed diff.
 	FControllerStatus StandAloneApplyStatus(FControllerStatus state, float delta);
 
+	// Evaluate cosmetic value from a defined state 
+	FControllerStatus StandAloneCosmeticStatus(FControllerStatus state, float delta);
+
 
 	//Evaluate the status params of the controller
 	FControllerStatus EvaluateStatusParams(const FControllerStatus initialStatus, const float delta);
+
+	//Force the Update of status params based on a state and an action
+	FControllerStatus CosmeticUpdateStatusParams(const FControllerStatus initialStatus, const float delta);
 
 	// Apply status params on the controller.
 	void ApplyStatusParams(const FControllerStatus status, const float delta);
@@ -256,7 +270,9 @@ protected:
 #pragma region Server Logic
 protected:
 
-	TQueue<TTuple<double, FControllerStatus>> _clientRequestReceptionQueue;
+	TArray<TTuple<double, FControllerStatus>> _clientRequestReceptionQueue;
+
+	double waitingClientCorrectionACK = -1;
 
 public:
 
@@ -277,11 +293,11 @@ public:
 
 	/// Replicate server's statesClasses to clients on request
 	UFUNCTION(NetMulticast, Reliable, Category = "Controllers|Network|Server To CLient|RPC")
-	void MultiCastStates(const TArray<TSoftClassPtr<UBaseControllerState>>& statesClasses, UModularControllerComponent* caller);
+	void MultiCastStates(const TArray<TSubclassOf<UBaseControllerState>>& statesClasses, UModularControllerComponent* caller);
 
 	/// Replicate server's actionsClasses to clients on request
 	UFUNCTION(NetMulticast, Reliable, Category = "Controllers|Network|Server To CLient|RPC")
-	void MultiCastActions(const TArray<TSoftClassPtr<UBaseControllerAction>>& actionsClasses, UModularControllerComponent* caller);
+	void MultiCastActions(const TArray<TSubclassOf<UBaseControllerAction>>& actionsClasses, UModularControllerComponent* caller);
 
 
 #pragma region Listened/StandAlone
@@ -394,13 +410,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	bool bUseComplexCollision = false;
 
-	// Use physic interactions on server and stand alone?
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
-	bool bUsePhysicAuthority = true;
-
-	// Use physic interactions on clients
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
-	bool bUsePhysicClients = false;
 
 
 	// The component's current gravity vector
@@ -524,7 +533,7 @@ public:
 
 	// The State types used on this controller by default
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, category = "Controllers|Controller State")
-	TArray<TSoftClassPtr<UBaseControllerState>> StateClasses;
+	TArray<TSubclassOf<UBaseControllerState>> StateClasses;
 
 	// The states instances used on this controller.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller State")
@@ -615,6 +624,9 @@ protected:
 	//Check state
 	FControllerStatus CheckControllerStates(FControllerStatus currentControllerStatus, const float inDelta);
 
+	//Execute check states juste to arouse cosmetic variables
+	FControllerStatus CosmeticCheckState(FControllerStatus currentControllerStatus, const float inDelta);
+
 	/// try Change from state 1 to 2
 	FControllerCheckResult TryChangeControllerState(FControllerStatus ToStateStatus, FControllerStatus fromStateStatus) const;
 
@@ -640,7 +652,7 @@ public:
 
 	/// The actions types used on this controller.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, category = "Controllers|Controller Action")
-	TArray<TSoftClassPtr<UBaseControllerAction>> ActionClasses;
+	TArray<TSubclassOf<UBaseControllerAction>> ActionClasses;
 
 	/// The actions instances used on this controller.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller Action")
@@ -748,6 +760,9 @@ protected:
 	/// Check controller Actions and returns the index of the active one.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
 	FControllerStatus CheckControllerActions(FControllerStatus currentControllerStatus, const float inDelta);
+
+	//Execute check actions juste to arouse cosmetic variables
+	FControllerStatus CosmeticCheckActions(FControllerStatus currentControllerStatus, const float inDelta);
 
 	/// Try Change actions from action index 1 to 2
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")

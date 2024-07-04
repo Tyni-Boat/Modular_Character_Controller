@@ -8,6 +8,7 @@
 #include "Engine/HitResult.h"
 #include "Engine/NetSerialization.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 
 
 #pragma region Inputs

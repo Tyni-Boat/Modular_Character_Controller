@@ -85,7 +85,7 @@ void UModularControllerComponent::MultiCastKinematics_Implementation(FNetKinemat
 	if (role != ROLE_SimulatedProxy)
 		return;
 	netKinematic.RestoreOnToStatus(lastUpdatedControllerStatus);
-	lastUpdatedControllerStatus.Kinematics.LinearKinematic = lastUpdatedControllerStatus.Kinematics.LinearKinematic.GetFinalCondition(GetNetLatency() * 0.1);
+	lastUpdatedControllerStatus.Kinematics.LinearKinematic = lastUpdatedControllerStatus.Kinematics.LinearKinematic.GetFinalCondition(GetNetLatency() * LatencyCompensationScale);
 	if (DebugType == ControllerDebugType_NetworkDebug)
 	{
 		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[DOWN] - Simulated Client { Received Kinematics with %fs latency}"), GetNetLatency()), true, true, FColor::Cyan, 1, "SimClientReceiveCommand_kin");
@@ -107,14 +107,14 @@ void UModularControllerComponent::MultiCastStatusParams_Implementation(FNetStatu
 
 
 
-void UModularControllerComponent::MultiCastStates_Implementation(const TArray<TSoftClassPtr<UBaseControllerState>>& states, UModularControllerComponent* caller)
+void UModularControllerComponent::MultiCastStates_Implementation(const TArray<TSubclassOf<UBaseControllerState>>& states, UModularControllerComponent* caller)
 {
 	if (caller != this)
 		return;
 	StatesInstances.Empty();
 	for (int i = 0; i < states.Num(); i++)
 	{
-		if (!states[i].IsValid())
+		if (!states[i])
 			continue;
 		StatesInstances.Add(states[i]->GetDefaultObject());
 	}
@@ -123,14 +123,14 @@ void UModularControllerComponent::MultiCastStates_Implementation(const TArray<TS
 }
 
 
-void UModularControllerComponent::MultiCastActions_Implementation(const TArray<TSoftClassPtr<UBaseControllerAction>>& actions, UModularControllerComponent* caller)
+void UModularControllerComponent::MultiCastActions_Implementation(const TArray<TSubclassOf<UBaseControllerAction>>& actions, UModularControllerComponent* caller)
 {
 	if (caller != this)
 		return;
 	ActionInstances.Empty();
 	for (int i = 0; i < actions.Num(); i++)
 	{
-		if (!actions[i].IsValid())
+		if (!actions[i])
 			continue;
 		ActionInstances.Add(actions[i]->GetDefaultObject());
 	}
@@ -183,23 +183,29 @@ void UModularControllerComponent::AuthorityMoveComponent(float delta)
 
 void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 {
-	TTuple<double, FControllerStatus> receivedState;
-	FControllerStatus initialState = ComputedControllerStatus;
-	FVector moveInput = ComputedControllerStatus.MoveInput;
-	if (_clientRequestReceptionQueue.Dequeue(receivedState))
+	lastUpdatedControllerStatus = _clientRequestReceptionQueue.Num() > 0? _clientRequestReceptionQueue[0].Value : ApplyedControllerStatus;
+	if(_clientRequestReceptionQueue.Num() > 0) _clientRequestReceptionQueue.RemoveAt(0);
+	FControllerStatus initialState = ConsumeLastKinematicMove(lastUpdatedControllerStatus.MoveInput, delta);	
+	initialState.Kinematics = UFunctionLibrary::LerpKinematic(initialState.Kinematics, lastUpdatedControllerStatus.Kinematics, delta * (UToolsLibrary::GetFPS(delta) * 0.5));
+
+	if(bServerSideCosmetic)
 	{
-		moveInput = receivedState.Value.MoveInput;
-		initialState = ConsumeLastKinematicMove(moveInput, delta);
-		lastUpdatedControllerStatus = receivedState.Value;
+		const auto cosmeticsVars = initialState.StatusParams.StatusCosmeticVariables;
+		initialState.StatusParams = lastUpdatedControllerStatus.StatusParams;
+		initialState.StatusParams.StatusCosmeticVariables = cosmeticsVars;
+	
+		// Cosmetic Evaluation
+		initialState = StandAloneCosmeticStatus(initialState, delta);
 	}
 	else
 	{
-		initialState = ConsumeLastKinematicMove(moveInput, delta);
+		initialState.StatusParams = lastUpdatedControllerStatus.StatusParams;		
 	}
-	initialState.Kinematics = UFunctionLibrary::LerpKinematic(initialState.Kinematics, lastUpdatedControllerStatus.Kinematics, delta * (UToolsLibrary::GetFPS(delta) * 0.5));
-	initialState.StatusParams = lastUpdatedControllerStatus.StatusParams;
-	initialState = StandAloneApplyStatus(initialState, delta);
 
+	//TODO: Check correction
+	
+	ComputedControllerStatus = initialState;
+	
 	//multi-casting
 	{
 		MultiCastTime(_timeElapsed);
@@ -209,7 +215,7 @@ void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 		FNetStatusParam netStatusParams;
 		netStatusParams.ExtractFromStatus(initialState);
 		MultiCastStatusParams(netStatusParams);
-
+	
 		if (DebugType == ControllerDebugType_NetworkDebug)
 		{
 			int dataSize = sizeof(netKinematic) + sizeof(netStatusParams) + sizeof(_timeElapsed);
@@ -231,11 +237,22 @@ void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 
 void UModularControllerComponent::ServerControllerStatus_Implementation(double timeStamp, FNetKinematic netkinematic, FNetStatusParam netStatusParam)
 {
+	if(waitingClientCorrectionACK >= 0 && waitingClientCorrectionACK != timeStamp)
+	{
+		if (DebugType == ControllerDebugType_NetworkDebug)
+		{
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[DOWN] - Dedicated Server { Ignoring Recived Status: Waiting client correction acknowledgement}"))
+				, true, true, FColor::Red, 1, "DedicatedServerReceiveCommand");
+		}
+		return;
+	}
+	
 	_timeNetLatency = FMath::Abs(timeStamp - _timeElapsed);
-	FControllerStatus cloneLastStatus = lastUpdatedControllerStatus;
+	FControllerStatus cloneLastStatus = _clientRequestReceptionQueue.Num() > 0? _clientRequestReceptionQueue[_clientRequestReceptionQueue.Num() - 1].Value : ApplyedControllerStatus;
 	netkinematic.RestoreOnToStatus(cloneLastStatus);
 	netStatusParam.RestoreOnToStatus(cloneLastStatus);
-	_clientRequestReceptionQueue.Enqueue(TTuple<double, FControllerStatus>(timeStamp, cloneLastStatus));
+	cloneLastStatus.Kinematics.LinearKinematic = cloneLastStatus.Kinematics.LinearKinematic.GetFinalCondition(GetNetLatency() * LatencyCompensationScale);
+	_clientRequestReceptionQueue.Add(TTuple<double, FControllerStatus>(timeStamp, cloneLastStatus));
 
 	if (DebugType == ControllerDebugType_NetworkDebug)
 	{
@@ -260,9 +277,9 @@ void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 {
 	const FVector moveInp = ConsumeMovementInput();
 	const FControllerStatus initialState = ConsumeLastKinematicMove(moveInp, delta);
-	auto status = StandAloneEvaluateStatus(initialState, delta);
-	status = StandAloneApplyStatus(status, delta);
-
+	const auto status = StandAloneEvaluateStatus(initialState, delta);
+	ComputedControllerStatus = status;
+	
 	//Server-casting
 	{
 		FNetKinematic netKinematic;
@@ -270,7 +287,7 @@ void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 		FNetStatusParam netStatusParams;
 		netStatusParams.ExtractFromStatus(status);
 		ServerControllerStatus(_timeElapsed, netKinematic, netStatusParams);
-
+	
 		if (DebugType == ControllerDebugType_NetworkDebug)
 		{
 			int dataSize = sizeof(netKinematic) + sizeof(netStatusParams) + sizeof(_timeElapsed);
@@ -288,8 +305,14 @@ void UModularControllerComponent::SimulatedProxyComputeComponent(float delta)
 {
 	FControllerStatus initialState = ConsumeLastKinematicMove(lastUpdatedControllerStatus.MoveInput, delta);
 	initialState.Kinematics = UFunctionLibrary::LerpKinematic(initialState.Kinematics, lastUpdatedControllerStatus.Kinematics, delta * (UToolsLibrary::GetFPS(delta) * 0.5));
+	const auto cosmeticsVars = initialState.StatusParams.StatusCosmeticVariables;
 	initialState.StatusParams = lastUpdatedControllerStatus.StatusParams;
-	StandAloneApplyStatus(initialState, delta);
+	initialState.StatusParams.StatusCosmeticVariables = cosmeticsVars;
+	
+	// Cosmetic Evaluation
+	initialState = StandAloneCosmeticStatus(initialState, delta);
+	
+	ComputedControllerStatus = initialState;
 }
 
 

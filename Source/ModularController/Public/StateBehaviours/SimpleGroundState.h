@@ -34,11 +34,11 @@ protected:
 	TEnumAsByte<ERootMotionType> RootMotionMode;
 
 	// The name of the ground distance additional variable
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Additionnal Infos")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	FName GroundDistanceVarName = "GroundDistance";
 
 	// The base name of the ground move additional variable. X, Y and Z is added to this name for each component
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Additionnal Infos")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	FName GroundMoveVarName = "GroundMove";
 
 
@@ -70,9 +70,6 @@ public:
 
 #pragma region Slope And Sliding XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
-	// The maximum surface inclination angle in degree
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Slope and Slide", meta=(ClampMin = 1, ClampMax = 89))
-	float MaxSlopeAngle = 60;
 
 	// Should the slope increase or decrease speed when we are ascending and descending?
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Slope and Slide")
@@ -85,15 +82,15 @@ protected:
 protected:
 	// The maximum speed of the controller on the surface (cm/s)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
-	float MaxSpeed = 350;
+	float MaxSpeed = 700;
 
 	// The movement acceleration
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
-	float Acceleration = 10;
+	float Acceleration = 5;
 
 	// The speed used to rotate toward movement direction
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
-	float TurnSpeed = 20;
+	float TurnSpeed = 15;
 
 #pragma endregion
 
