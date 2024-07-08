@@ -201,13 +201,13 @@ FControllerStatus UModularControllerComponent::CheckControllerStates(FController
 				if (!StatesInstances[i].IsValid())
 					continue;
 
-				//Don't event check lower priorities
+				const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, overrideNewState ? false : endStatus.StatusParams.StateIndex == i);
+				endStatus.StatusParams.StatusCosmeticVariables = checkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
+
+				//Select the highest priority only
 				if (StatesInstances[i]->GetPriority() < maxStatePriority)
 					continue;
 
-
-				const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, overrideNewState ? false : endStatus.StatusParams.StateIndex == i);
-				endStatus.StatusParams.StatusCosmeticVariables = checkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
 				if (checkResult.CheckedCondition)
 				{
 					selectedStateIndex = i;
@@ -218,6 +218,7 @@ FControllerStatus UModularControllerComponent::CheckControllerStates(FController
 		}
 	}
 
+	selectedStatus.StatusParams.StatusCosmeticVariables = endStatus.StatusParams.StatusCosmeticVariables;
 	endStatus = selectedStatus;
 	endStatus.StatusParams.StateIndex = selectedStateIndex;
 	return endStatus;
@@ -238,7 +239,7 @@ FControllerStatus UModularControllerComponent::CosmeticCheckState(FControllerSta
 
 			const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, currentControllerStatus.StatusParams.StateIndex == i);
 			endStatus.StatusParams.StatusCosmeticVariables = checkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
-			if(currentControllerStatus.StatusParams.StateIndex == i)
+			if (currentControllerStatus.StatusParams.StateIndex == i)
 			{
 				endStatus = checkResult.ProcessResult;
 			}
@@ -313,6 +314,14 @@ FControllerStatus UModularControllerComponent::ProcessControllerState(const FCon
 	{
 		TimeOnCurrentState += inDelta;
 		processMotion = StatesInstances[index]->ProcessState(this, initialState, inDelta);
+
+		if(DebugType == ControllerDebugType_StatusDebug)
+		{
+			UKismetSystemLibrary::PrintString(
+				GetWorld(), FString::Printf(TEXT("State (%s) is Being Processed. Index: %d. Time In: %f"), *StatesInstances[index]->DebugString(), index, TimeOnCurrentState), true, false, FColor::White,
+				5
+				, "ProcessControllerState");
+		}
 	}
 
 	return processMotion;
@@ -572,6 +581,7 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 		                                  , TEXT("CheckControllerActions"));
 	}
 
+	selectedStatus.StatusParams.StatusCosmeticVariables = endStatus.StatusParams.StatusCosmeticVariables;
 	endStatus = selectedStatus;
 	endStatus.StatusParams.ActionIndex = selectedActionIndex;
 	return endStatus;

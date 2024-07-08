@@ -267,10 +267,10 @@ public:
 	int PrimaryActionFlag = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
-	FVector_NetQuantize10 StateModifiers;
+	FVector StateModifiers;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
-	FVector_NetQuantize10 ActionsModifiers;
+	FVector ActionsModifiers;
 
 	// Cosmetic states and actions variables. useful for let say know the distance from the ground while airborne. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")

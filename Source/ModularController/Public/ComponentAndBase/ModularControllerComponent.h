@@ -155,6 +155,10 @@ public:
 	// Input a direction in wich to move the controller
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
 	void MovementInput(FVector movement);
+	
+	//Get the move vector from an input w/o root motion
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Inputs")
+	virtual FVector GetMoveVector(const FVector inputVector, const float MaxSpeed, const float moveScale = 1, const ERootMotionType RootMotionType = RootMotionType_No_RootMotion);
 
 	// Lister to user input and Add input to the inputs pool
 	void ListenInput(const FName key, const FInputEntry entry, const bool hold = false) const;
@@ -477,13 +481,14 @@ public:
 	void AddForce(const FVector force);
 
 	
-	// Evaluates the local poits on the shape in each directions.
+	// Evaluates the local points on the shape in each directions. Call it after modify the primitive shape.
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
 	void EvaluateCardinalPoints();
 
 
 	// Get the closest cardinal point on the shape matching the worldSpaceDirection. return NAN if an error happened.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
-	FVector GetWorldSpaceCardinalPoint(const FVector worldSpaceDirection);
+	FVector GetWorldSpaceCardinalPoint(const FVector worldSpaceDirection) const;
 
 
 	// called When overlap occurs.

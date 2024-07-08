@@ -243,7 +243,7 @@ void UFunctionLibrary::SetReferentialMovement(FLinearKinematicCondition& linearK
 	a.Y = (v.Y - v0.Y) * t;
 	a.Z = (v.Z - v0.Z) * t;
 	linearKinematic.refAcceleration = a;
-	linearKinematic.refVelocity = a * delta + v0;
+	linearKinematic.refVelocity = linearKinematic.refAcceleration * delta + v0;
 }
 
 void UFunctionLibrary::AddCompositeMovement(FLinearKinematicCondition& linearKinematic, const FVector movement, const float acceleration, int index)
@@ -330,7 +330,19 @@ FVector UFunctionLibrary::GetVelocityFromReaction(FKinematicComponents kinematic
 			continue;
 		if (channelFilter != ECR_MAX && static_cast<ECollisionResponse>(kinematicComponent.SurfacesInContact[i].SurfacePhysicProperties.Z) != channelFilter)
 			continue;
-		subSequentVelocity = kinematicComponent.SurfacesInContact[i].GetVelocityAlongNormal(subSequentVelocity, useImpactNormal, true);
+		FVector surVel = kinematicComponent.SurfacesInContact[i].GetVelocityAlongNormal(subSequentVelocity, useImpactNormal, true);
+		const FVector projected = surVel.ProjectOnToNormal(subSequentVelocity.GetSafeNormal());
+		const FVector planed = FVector::VectorPlaneProject(surVel, subSequentVelocity.GetSafeNormal());
+		if ((projected | subSequentVelocity) > 0)
+		{
+			if (projected.SquaredLength() > subSequentVelocity.SquaredLength())
+				subSequentVelocity = projected;
+		}
+		else
+		{
+			subSequentVelocity += projected;
+		}
+		subSequentVelocity += planed;
 	}
 
 	return subSequentVelocity;
@@ -353,7 +365,7 @@ FVector UFunctionLibrary::GetAverageSurfaceVelocityAt(FKinematicComponents kinem
 		if (channelFilter != ECR_MAX && static_cast<ECollisionResponse>(surface.SurfacePhysicProperties.Z) != channelFilter)
 			continue;
 		const FVector surVel = surface.GetVelocityAt(point, deltaTime);
-		if (cumulated.IsZero())
+		if (cumulated.IsNearlyZero())
 		{
 			cumulated = surVel;
 			continue;

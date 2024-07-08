@@ -287,7 +287,7 @@ FVector FSurface::GetVelocityAt(const FVector point, const float deltaTime) cons
 	FVector linearPart = LinearVelocity;
 	if (SurfaceNormal.SquaredLength() > 0 && linearPart.SquaredLength() > 0)
 	{
-		linearPart = (linearPart.GetSafeNormal() | SurfaceNormal) >= 0 ? LinearVelocity : FVector(0);
+		linearPart = (linearPart.GetSafeNormal() | SurfaceNormal) >= 0 ? LinearVelocity : FVector::VectorPlaneProject(LinearVelocity, SurfaceNormal);
 	}
 	if (!TrackedComponent.IsValid())
 		return linearPart;

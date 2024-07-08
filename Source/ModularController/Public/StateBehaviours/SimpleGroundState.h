@@ -20,10 +20,14 @@ protected:
 	// The maximum step height
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
 	float MaxStepHeight = 35;
+	
+	// The maximum surface angle from plane defined by gravity vector
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
+	float MaxSurfaceAngle = 40;
 
 	// The speed used to "snap" the controller ton the surface.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main", meta=(ClampMin = 0, ClampMax = 1))
-	float SnapSpeed = 0.25;
+	float SnapSpeed = 1;
 
 	// The ground collision Channel.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")

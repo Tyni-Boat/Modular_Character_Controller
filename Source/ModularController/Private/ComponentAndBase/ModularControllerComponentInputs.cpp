@@ -20,6 +20,14 @@ void UModularControllerComponent::MovementInput(FVector movement)
 		_userMoveDirectionHistory.Add(FVector(0));
 }
 
+FVector UModularControllerComponent::GetMoveVector(const FVector inputVector, const float MaxSpeed, const float moveScale, const ERootMotionType RootMotionType)
+{
+	FVector desiredMove = inputVector * MaxSpeed * moveScale;
+	desiredMove = GetRootMotionTranslation(RootMotionType, desiredMove);
+	const FVector normal = GetGravityDirection();
+	return desiredMove;
+}
+
 void UModularControllerComponent::ListenInput(const FName key, const FInputEntry entry, const bool hold) const
 {
 	if (_inputPool)

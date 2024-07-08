@@ -70,6 +70,7 @@ bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitRe
 	const auto channel = UpdatedPrimitive->GetCollisionObjectType();
 	FCollisionResponseParams response = FCollisionResponseParams::DefaultResponseParam;
 	response.CollisionResponse.SetAllChannels(ECollisionResponse::ECR_Block);
+	const float shapeHalfLenght = (GetWorldSpaceCardinalPoint(direction) - GetLocation()).Length();
 
 	constexpr int maxIterations = 64;
 	TArray<FHitResult> loopHits;
@@ -77,13 +78,26 @@ bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitRe
 	for (int i = 0; i < maxIterations; i++)
 	{
 		const bool result = GetWorld()->SweepMultiByChannel(loopHits, position, position + direction, rotation, channel, shape, loopQueryParams);
-		if (!result)
-			break;
 		for (int j = 0; j < loopHits.Num(); j++)
 		{
+			if (result && OverlapInflation > 0 && j == loopHits.Num() - 1)
+			{
+				FHitResult zeroHitResult;
+				const FVector pt = loopHits[j].ImpactPoint - direction.GetSafeNormal() + FVector::VectorPlaneProject(loopHits[j].ImpactPoint - position, direction.GetSafeNormal()) * 0.1;
+				const FVector dir = direction * 2 + direction.GetSafeNormal() * shapeHalfLenght;
+				const auto respParam = FCollisionResponseParams::DefaultResponseParam;
+				const auto objParam = FCollisionObjectQueryParams::DefaultObjectQueryParam;
+				if (loopHits[j].GetComponent()->LineTraceComponent(zeroHitResult, pt, pt + dir, channel, loopQueryParams, respParam, objParam))
+				{
+					loopHits[j].ImpactPoint = zeroHitResult.ImpactPoint;
+				}
+			}
 			outHits.Add(loopHits[j]);
 			loopQueryParams.AddIgnoredComponent(loopHits[j].GetComponent());
 		}
+
+		if (!result)
+			break;
 	}
 	queryParams.ClearIgnoredActors();
 
