@@ -14,13 +14,10 @@ FVector UFreeFallState::AirControl(FVector desiredMove, FVector horizontalVeloci
 {
 	if (desiredMove.Length() > 0)
 	{
-		FVector resultingVector = horizontalVelocity + desiredMove * delta;
-		if (resultingVector.Length() > AirControlSpeed)
-		{
-			const float maxAllowedAdd = AirControlSpeed - horizontalVelocity.Length();
-			resultingVector = horizontalVelocity + (maxAllowedAdd > 0 ? desiredMove.GetSafeNormal() * maxAllowedAdd : FVector(0));
-		}
-		return resultingVector;
+		const FVector resultingVector = horizontalVelocity + desiredMove * delta;
+		const FVector projection = resultingVector.ProjectOnToNormal(horizontalVelocity.GetSafeNormal()).GetClampedToMaxSize(AirControlSpeed);
+		const FVector planed = FVector::VectorPlaneProject(resultingVector, horizontalVelocity.GetSafeNormal());
+		return projection + planed;
 	}
 	return horizontalVelocity;
 }

@@ -59,6 +59,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "JumpTo Parameters")
 	bool bUseMontageDuration = false;
 
+	// Try to use montage sections
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "JumpTo Parameters")
+	bool bUseMontageSectionsAsPhases;
+
 			
 public:
 

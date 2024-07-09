@@ -84,6 +84,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
 	bool bUseMontageDuration;
 
+	// Try to use montage sections
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Dash Parameters")
+	bool bUseMontageSectionsAsPhases;
+
 #pragma endregion
 
 #pragma region Functions

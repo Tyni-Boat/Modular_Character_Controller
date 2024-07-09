@@ -17,6 +17,7 @@
 #include <Kismet/KismetSystemLibrary.h>
 
 #include "BaseControllerState.generated.h"
+#define BASE_STATE
 
 
 class UModularControllerComponent;

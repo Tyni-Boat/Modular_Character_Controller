@@ -43,7 +43,7 @@ protected:
 
 	// The base name of the ground move additional variable. X, Y and Z is added to this name for each component
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
-	FName GroundMoveVarName = "GroundMove";
+	FName GroundMoveVarName = "GroundMoveAmount";
 
 
 	//------------------------------------------------------------------------------------------

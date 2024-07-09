@@ -106,6 +106,11 @@ FVector UBaseDashAction::OnActionBegins_Implementation(UModularControllerCompone
 
 	if (controller)
 	{
+		if(bUseMontageSectionsAsPhases)
+		{
+			timings = RemapDurationByMontageSections(selectedMontage.Montage, timings);
+		}
+		
 		//Play montage
 		float montageDuration = 0;
 		if (bMontageShouldBePlayerOnStateAnimGraph)
@@ -120,7 +125,7 @@ FVector UBaseDashAction::OnActionBegins_Implementation(UModularControllerCompone
 
 		if (bUseMontageDuration && montageDuration > 0)
 		{
-			timings = RemapDuration(montageDuration);
+			timings = RemapDuration(montageDuration, timings);
 		}
 	}
 

@@ -107,6 +107,11 @@ FVector UJumpActionBase::OnActionBegins_Implementation(UModularControllerCompone
 
 	if (controller)
 	{
+		if(bUseMontageSectionsAsPhases)
+		{
+			defaultTimings = RemapDurationByMontageSections(JumpMontage.Montage, defaultTimings);
+		}
+		
 		//Play montage
 		float montageDuration = 0;
 		if (bMontageShouldBePlayerOnStateAnimGraph)
@@ -127,7 +132,7 @@ FVector UJumpActionBase::OnActionBegins_Implementation(UModularControllerCompone
 
 		if (bUseMontageDuration && montageDuration > 0)
 		{
-			defaultTimings = RemapDuration(montageDuration);
+			defaultTimings = RemapDuration(montageDuration, defaultTimings);
 		}
 	}
 

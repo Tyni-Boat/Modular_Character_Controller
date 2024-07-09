@@ -238,9 +238,16 @@ double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animIns
 		return -1;
 	}
 
+	const int sectionsCount = montage.Montage->GetNumSections();
 	const float startTime = customAnimStartTime >= 0 ? customAnimStartTime : 0;
 	float duration = animInstance->Montage_Play(montage.Montage, 1, EMontagePlayReturnType::Duration, startTime);
-	duration = montage.Montage->GetSectionLength(0);
+	duration = 0;
+	for (int i = 0; i < sectionsCount; i++)
+	{
+		duration += montage.Montage->GetSectionLength(i);
+		if (!montage.Montage->GetAnimCompositeSection(i).NextSectionName.IsValid() || montage.Montage->GetAnimCompositeSection(i).NextSectionName == montage.Montage->GetSectionName(i))
+			break;
+	}
 
 	if (useMontageEndCallback)
 	{
@@ -258,7 +265,13 @@ double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animIns
 		animInstance->Montage_JumpToSection(montage.MontageSection, montage.Montage);
 		const float newMontagePos = animInstance->Montage_GetPosition(montage.Montage);
 		const auto sectionID = montage.Montage->GetSectionIndex(montage.MontageSection);
-		duration = montage.Montage->GetSectionLength(sectionID);
+		duration = 0;
+		for (int i = sectionID; i < sectionsCount; i++)
+		{
+			duration += montage.Montage->GetSectionLength(i);
+			if (!montage.Montage->GetAnimCompositeSection(i).NextSectionName.IsValid() || montage.Montage->GetAnimCompositeSection(i).NextSectionName == montage.Montage->GetSectionName(i))
+				break;
+		}
 	}
 
 	duration /= montage.Montage->RateScale;

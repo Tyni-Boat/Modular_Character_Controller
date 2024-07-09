@@ -24,7 +24,9 @@
 #endif
 
 #include "ModularControllerComponent.generated.h"
+#define MODULAR_CONTROLLER_COMPONENT
 
+class UBaseControllerState;
 struct FCollisionQueryParams;
 
 
@@ -893,7 +895,7 @@ public:
 	FControllerStatus ComputedControllerStatus;
 
 	/// The kinematic components that been apply this frame.
-	UPROPERTY()
+	UPROPERTY(BlueprintReadOnly, category = "Controllers|Movement")
 	FControllerStatus ApplyedControllerStatus;
 
 

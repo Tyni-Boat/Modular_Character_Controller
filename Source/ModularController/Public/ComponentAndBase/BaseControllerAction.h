@@ -13,8 +13,9 @@
 #include "CommonTypes.h"
 #include "Engine/DataAsset.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Animation/AnimMontage.h"
 #include "BaseControllerAction.generated.h"
-
+#define BASE_ACTION
 
 
 ///<summary>
@@ -26,7 +27,6 @@ class MODULARCONTROLLER_API UBaseControllerAction : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
-
 	// The State's unique name
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base")
 	FName ActionName = "[Set Action Unique Name]";
@@ -52,7 +52,6 @@ public:
 	bool bCanTransitionToSelf;
 
 
-
 	// The action cool down delay. the duration the action cannot be done again.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing")
 	float CoolDownDelay = 0.25f;
@@ -72,12 +71,16 @@ public:
 
 	// The list of compatible states names.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
-		, meta = (EditCondition = "ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnCompatibleStateOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"))
+		, meta = (EditCondition =
+			"ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnCompatibleStateOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"
+		))
 	TArray<FName> CompatibleStates;
 
 	// The list of compatible actions names
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
-		, meta = (EditCondition = "ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_WhileCompatibleActionOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"))
+		, meta = (EditCondition =
+			"ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_WhileCompatibleActionOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"
+		))
 	TArray<FName> CompatibleActions;
 
 	// Enable or disable debug for this action
@@ -85,11 +88,7 @@ public:
 	bool bDebugAction;
 
 
-
-
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 
 
 	/// <summary>
@@ -113,12 +112,12 @@ public:
 	FControllerCheckResult CheckAction(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveAction) const;
 
 
-
 	/// <summary>
 	/// Process action's anticipation phase and return velocity.
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Events")
-	FControllerStatus OnActionProcessAnticipationPhase(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const;
+	FControllerStatus OnActionProcessAnticipationPhase(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+	                                                   const float delta) const;
 
 
 	/// <summary>
@@ -135,7 +134,6 @@ public:
 	FControllerStatus OnActionProcessRecoveryPhase(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const;
 
 
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -148,20 +146,23 @@ public:
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Events|C++ Implementation")
-	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta, bool asLastActiveAction) const;
-
-
-
-	UFUNCTION(BlueprintCallable, Category = "Action|Events|C++ Implementation")
-	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const;
+	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta,
+	                                                          bool asLastActiveAction) const;
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Events|C++ Implementation")
-	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const;
+	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+	                                                                          const float delta) const;
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Events|C++ Implementation")
-	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos, const float delta) const;
+	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+	                                                                    const float delta) const;
+
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Events|C++ Implementation")
+	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+	                                                                      const float delta) const;
 
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -188,8 +189,7 @@ public:
 	/// jumping
 	/// </summary>
 	UFUNCTION(BlueprintGetter)
-	FORCEINLINE FName GetDescriptionName() const { return  ActionName; }
-
+	FORCEINLINE FName GetDescriptionName() const { return ActionName; }
 
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -197,6 +197,9 @@ public:
 
 	//Remap the durations
 	UFUNCTION(BlueprintCallable, Category = "Action|Timing")
-	FVector RemapDuration(float duration, bool tryDontMapAnticipation = false, bool tryDontMapRecovery = false) const;
+	FVector RemapDuration(float duration, FVector customTiming = FVector(0), bool tryDontMapAnticipation = false, bool tryDontMapRecovery = false) const;
 
+	//Remap the durations using Montage's sections. Used only the first 3 sections to map Anticipation-Active-Recovery. if sections count is less than 3, it prioritize Active->Recovery->Anticipation
+	UFUNCTION(BlueprintCallable, Category = "Action|Timing")
+	FVector RemapDurationByMontageSections(UAnimMontage* montage, FVector fallBackTimings) const;
 };
