@@ -20,23 +20,23 @@ enum class EInputEntryType: uint8
 * The type of an Input Phase
 */
 UENUM(BlueprintType)
-enum EInputEntryPhase
+enum class EInputEntryPhase: uint8
 {
-	InputEntryPhase_None,
-	InputEntryPhase_Pressed,
-	InputEntryPhase_Held,
-	InputEntryPhase_Released,
+	None,
+	Pressed,
+	Held,
+	Released,
 };
 
 /*
 * The nature of an Input
 */
 UENUM(BlueprintType)
-enum EInputEntryNature
+enum class EInputEntryNature: uint8
 {
-	InputEntryNature_Axis,
-	InputEntryNature_Value,
-	InputEntryNature_Button,
+	Axis,
+	Value,
+	Button,
 };
 
 
@@ -45,53 +45,27 @@ enum EInputEntryNature
 * The type of root motion to apply
 */
 UENUM(BlueprintType)
-enum ERootMotionType
+enum class ERootMotionType: uint8
 {
-	RootMotionType_No_RootMotion,
-	RootMotionType_Override,
-	RootMotionType_Additive,
+	NoRootMotion,
+	Override,
+	Additive,
 };
-
-
-
-/// <summary>
-/// The ground state
-/// </summary>
-UENUM(BlueprintType)
-enum EGroundLocomotionMode
-{
-	GroundLocomotionMode_Jogging,
-	GroundLocomotionMode_Sprinting,
-	GroundLocomotionMode_Crouching,
-	GroundLocomotionMode_Crawling,
-};
-
-
-/// <summary>
-/// The check shape enum
-/// </summary>
-UENUM(BlueprintType)
-enum EShapeMode
-{
-	ShapeMode_Sphere,
-	ShapeMode_Cube,
-};
-
 
 
 /// <summary>
 /// The type of debug to use on the controller.
 /// </summary>
 UENUM(BlueprintType)
-enum EControllerDebugType
+enum class EControllerDebugType: uint8
 {
-	ControllerDebugType_None,
-	ControllerDebugType_MovementDebug,
-	ControllerDebugType_PhysicDebug,
-	ControllerDebugType_NetworkDebug,
-	ControllerDebugType_StatusDebug,
-	ControllerDebugType_AnimationDebug,
-	ControllerDebugType_InputDebug,
+	None,
+	MovementDebug,
+	PhysicDebug,
+	NetworkDebug,
+	StatusDebug,
+	AnimationDebug,
+	InputDebug,
 };
 
 
@@ -99,12 +73,12 @@ enum EControllerDebugType
 /// The type of compatibility mode an controller action.
 /// </summary>
 UENUM(BlueprintType)
-enum EActionCompatibilityMode
+enum class EActionCompatibilityMode: uint8
 {
-	ActionCompatibilityMode_AlwaysCompatible,
-	ActionCompatibilityMode_OnCompatibleStateOnly,
-	ActionCompatibilityMode_WhileCompatibleActionOnly,
-	ActionCompatibilityMode_OnBothCompatiblesStateAndAction,
+	AlwaysCompatible,
+	OnCompatibleStateOnly,
+	WhileCompatibleActionOnly,
+	OnBothCompatiblesStateAndAction,
 };
 
 
@@ -112,10 +86,25 @@ enum EActionCompatibilityMode
 /// The type of phases an action can be in
 /// </summary>
 UENUM(BlueprintType)
-enum EActionPhase
+enum class EActionPhase: uint8
 {
-	ActionPhase_Undetermined,
-	ActionPhase_Anticipation,
-	ActionPhase_Active,
-	ActionPhase_Recovery,
+	Undetermined,
+	Anticipation,
+	Active,
+	Recovery,
+};
+
+/// <summary>
+/// The sixaxis directionnal enum 
+/// </summary>
+UENUM(BlueprintType)
+enum class ESixAxisDirectionType: uint8
+{
+	NoDirection,
+	Forward,
+	Backward,
+	Left,
+	Right,
+	UpSide,
+	Downside,
 };

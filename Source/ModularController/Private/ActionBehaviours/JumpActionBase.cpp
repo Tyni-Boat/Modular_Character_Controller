@@ -99,42 +99,11 @@ FControllerCheckResult UJumpActionBase::CheckAction_Implementation(UModularContr
 }
 
 
-FVector UJumpActionBase::OnActionBegins_Implementation(UModularControllerComponent* controller,
-                                                       const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
+FVector4 UJumpActionBase::OnActionBegins_Implementation(UModularControllerComponent* controller,
+                                                        const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
 {
-	FVector defaultTimings = FVector(AnticipationPhaseDuration, ActivePhaseDuration, RecoveryPhaseDuration);
+	FVector4 defaultTimings = FVector4(AnticipationPhaseDuration, ActivePhaseDuration, RecoveryPhaseDuration, 0);
 	//const auto jumpLocation = JumpLocationInput.IsNone() ? FVector(NAN) : (controller? controller->ReadAxisInput(JumpLocationInput) : FVector(NAN));
-
-	if (controller)
-	{
-		if(bUseMontageSectionsAsPhases)
-		{
-			defaultTimings = RemapDurationByMontageSections(JumpMontage.Montage, defaultTimings);
-		}
-		
-		//Play montage
-		float montageDuration = 0;
-		if (bMontageShouldBePlayerOnStateAnimGraph)
-		{
-			if (const auto currentState = controller->GetCurrentControllerState())
-				montageDuration = controller->PlayAnimationMontageOnState_Internal(JumpMontage, currentState->GetDescriptionName(), -1, bUseMontageDuration);
-		}
-		else
-		{
-			montageDuration = controller->PlayAnimationMontage_Internal(JumpMontage, -1, bUseMontageDuration);
-		}
-
-		if (bDebugAction)
-		{
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("(%s) -> Montage duration: %f"), *GetDescriptionName().ToString(), montageDuration), true, true, FColor::Emerald, 5,
-			                                  "JumpMontageDuration");
-		}
-
-		if (bUseMontageDuration && montageDuration > 0)
-		{
-			defaultTimings = RemapDuration(montageDuration, defaultTimings);
-		}
-	}
 
 	return defaultTimings;
 }
@@ -143,10 +112,6 @@ FVector UJumpActionBase::OnActionBegins_Implementation(UModularControllerCompone
 void UJumpActionBase::OnActionEnds_Implementation(UModularControllerComponent* controller,
                                                   const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
 {
-	if (controller)
-	{
-		controller->StopMontage(JumpMontage, bMontageShouldBePlayerOnStateAnimGraph);
-	}
 }
 
 
@@ -155,6 +120,17 @@ FControllerStatus UJumpActionBase::OnActionProcessAnticipationPhase_Implementati
 {
 	FControllerStatus result = startingConditions;
 	result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
+	if (bStopOnAnticipation)
+	{
+		if (result.StatusParams.ActionsModifiers.SquaredLength() <= 0)
+			result.StatusParams.ActionsModifiers = result.Kinematics.LinearKinematic.Velocity;
+		const float normalizedTime = actionInfos.GetNormalizedTime(EActionPhase::Anticipation);
+		result.Kinematics = UFunctionLibrary::LerpKinematic(
+			FKinematicComponents(FLinearKinematicCondition(result.Kinematics.LinearKinematic.Position, result.StatusParams.ActionsModifiers),
+			                     result.Kinematics.AngularKinematic)
+			, FKinematicComponents(FLinearKinematicCondition(result.Kinematics.LinearKinematic.Position, FVector(0)),
+			                       result.Kinematics.AngularKinematic), normalizedTime);
+	}
 	return result;
 }
 
@@ -168,13 +144,18 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 	if (!controller)
 		return result;
 
-	const float normalizedTime = actionInfos.GetNormalizedTime(ActionPhase_Active);
+	const float normalizedTime = actionInfos.GetNormalizedTime(EActionPhase::Active);
 	const float forceScale = FAlphaBlend::AlphaToBlendOption(1 - normalizedTime, JumpCurve.GetBlendOption(), JumpCurve.GetCustomCurve());
 	const bool pressedBtn = controller->ReadButtonInput(JumpInputCommand, true);
 
 	if (pressedBtn || normalizedTime <= 0.1)
 	{
-		const FVector jumpAcceleration = -controller->GetGravityDirection() * JumpForce * forceScale
+		if (bStopOnAnticipation && result.StatusParams.ActionsModifiers.SquaredLength() > 0)
+		{
+			result.Kinematics.LinearKinematic.Velocity = result.StatusParams.ActionsModifiers;
+			result.StatusParams.ActionsModifiers = FVector(0);
+		}
+		const FVector jumpAcceleration = -controller->GetGravityDirection() * (JumpForce * (1 / actionInfos._startingDurations.Y)) * forceScale
 			+ ((controller->GetGravityDirection() | result.Kinematics.LinearKinematic.Velocity) > 0 && normalizedTime < 0.1
 				   ? -result.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(controller->GetGravityDirection()) / delta
 				   : FVector(0));
@@ -184,10 +165,38 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 		{
 			result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, result.MoveInput, TurnTowardDirectionSpeed * (1 - normalizedTime), delta);
 		}
+
+		//Look for mantling and vaulting
+		if (result.StatusParams.ActionsModifiers.X <= 0)
+		{
+			const FVector lowestPt = controller->GetWorldSpaceCardinalPoint(controller->GetGravityDirection());
+			for (auto item : MantlingAndVaultingMap)
+			{
+				bool breakLoop = false;
+				for (auto surface : result.Kinematics.SurfacesInContact)
+				{
+					if (controller->EvaluateSurfaceConditions(item.Value, surface, result, lowestPt))
+					{
+						breakLoop = true;
+						TArray<FTransform> ptsList;
+						FVector pos = result.Kinematics.LinearKinematic.Position;
+						FVector normal = controller->GetGravityDirection();
+						ptsList.Add(FTransform(FVector::VectorPlaneProject(surface.SurfacePoint - pos, normal).ToOrientationQuat(), surface.SurfacePoint));
+						controller->OnControllerTriggerPathEvent.Broadcast(item.Key, ptsList);
+						break;
+					}
+				}
+				if (breakLoop)
+				{
+					result.StatusParams.ActionsModifiers.X = 1;
+					break;
+				}
+			}
+		}
 	}
 	else
 	{
-		actionInfos.SkipTimeToPhase(ActionPhase_Recovery);
+		actionInfos.SkipTimeToPhase(EActionPhase::Recovery);
 	}
 
 	result.Kinematics.SurfaceBinaryFlag = 0;
@@ -199,6 +208,7 @@ FControllerStatus UJumpActionBase::OnActionProcessRecoveryPhase_Implementation(U
 {
 	FControllerStatus result = startingConditions;
 	result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
+	result.StatusParams.ActionsModifiers = FVector(0);
 	return result;
 }
 

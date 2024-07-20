@@ -10,6 +10,9 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 
 
+#define FLOATING_HEIGHT 5
+
+
 //Check if we are on the ground
 #pragma region Check XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
@@ -18,7 +21,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("CheckSurfaceIndex");
 	if (!controller)
-		return -1;
+		return 0;
 
 	FVector gravityDirection = controller->GetGravityDirection();
 	FVector location = status.Kinematics.LinearKinematic.Position;
@@ -30,7 +33,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 	//Find the best surface
 	int surfaceIndex = -1;
 	float closestSurface = TNumericLimits<float>::Max();
-	float testingClosestSurface = TNumericLimits<float>::Max();
+	float closestCheckSurface = TNumericLimits<float>::Max();
 
 	// Default on bad angles
 	int badAngleIndex = -1;
@@ -43,11 +46,11 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		if (!surface.TrackedComponent.IsValid())
 			continue;
 
-		if (surface.TrackedComponent->GetCollisionResponseToChannel(ChannelGround) != ECR_Block)
+		if (surface.TrackedComponent->GetCollisionResponseToChannel(ChannelGround) != SurfaceParams.CollisionResponse)
 			continue;
 
 		//Only surfaces we can step on
-		if (surface.SurfacePhysicProperties.W <= 0)
+		if (static_cast<bool>(surface.SurfacePhysicProperties.W) != SurfaceParams.bMustBeStepable)
 			continue;
 
 		//Above surface verification
@@ -55,38 +58,27 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		if ((fromCenter | gravityDirection) <= 0)
 			continue;
 
-
-		//Avoid Surfaces too far away when inactive
+		const FVector heightVector = (surface.SurfacePoint - lowestPt).ProjectOnToNormal(-gravityDirection);
+		const float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(asActive ? surface.SurfaceImpactNormal : surface.SurfaceNormal, -gravityDirection)));
 		const FVector farAwayVector = FVector::VectorPlaneProject(surface.SurfacePoint - location, gravityDirection);
 		const FVector shapePtInDir = controller->GetWorldSpaceCardinalPoint(farAwayVector);
 		const FVector inShapeDir = shapePtInDir - location;
-		if (!asActive && inShapeDir.SquaredLength() > 0 && inShapeDir.SquaredLength() * 0.5 < farAwayVector.SquaredLength())
+		if (UToolsLibrary::CheckInRange(SurfaceParams.ImpactAngleRange, angle) && closestCheckSurface > heightVector.Length()
+			&& (inShapeDir.SquaredLength() <= 0 || (inShapeDir.SquaredLength() > 0 && farAwayVector.Length() < inShapeDir.Length() * 0.75)))
 		{
-			continue;
+			closestCheckSurface = heightVector.Length();
 		}
-
-		const FVector heightVector = (surface.SurfacePoint - lowestPt).ProjectOnToNormal(-gravityDirection);
-		if (heightVector.SquaredLength() < testingClosestSurface)
-		{
-			UFunctionLibrary::AddOrReplaceCosmeticVariable(statusParams, GroundDistanceVarName, heightVector.Length());
-			testingClosestSurface = heightVector.SquaredLength();
-		}
-
-		//Avoid surface we are moving sharply away
-		// if (!asActive && (surface.SurfaceImpactNormal | velocity.GetSafeNormal()) > 0.5 && velocity.ProjectOnToNormal(gravityDirection).Length() > controller->GetGravityScale() * inDelta)
-		// 	continue;
 
 		//Step height verification
-		if (heightVector.Length() > (MaxStepHeight + ((heightVector | gravityDirection) > 0 ? 10 : 0)))
+		if (heightVector.Length() > (SurfaceParams.HeightRange.Y + ((heightVector | gravityDirection) > 0 ? 10 : 0)))
 			continue;
 
 		// Avoid too far down surfaces on first detection
-		if (!asActive && heightVector.Length() > 5 && (heightVector | gravityDirection) > 0)
+		if (!asActive && heightVector.Length() > FLOATING_HEIGHT && (heightVector | gravityDirection) > 0)
 			continue;
 
 		//Angle verification
-		const float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, -gravityDirection)));
-		if (angle > MaxSurfaceAngle)
+		if (!UToolsLibrary::CheckInRange(SurfaceParams.ImpactAngleRange, angle))
 		{
 			const float badDistance = heightVector.Length() * ((surface.SurfacePoint - lowestPt).GetSafeNormal() | gravityDirection);
 			if (badDistance >= closestBadAngle)
@@ -99,6 +91,10 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 			continue;
 		}
 
+		//Avoid far distances when not active
+		if (!asActive && inShapeDir.SquaredLength() > 0 && farAwayVector.Length() >= inShapeDir.Length() * 0.75)
+			continue;
+
 		const float distance = heightVector.Length() * ((surface.SurfacePoint - lowestPt).GetSafeNormal() | gravityDirection);
 		if (distance >= closestSurface)
 		{
@@ -107,22 +103,50 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 			continue;
 		}
 
+		//How far from center is the surface point
+		if (inShapeDir.SquaredLength() > 0 && inShapeDir.Length() <= farAwayVector.Length() && (heightVector | gravityDirection) < 0)
+		{
+			// Check if the step is safe
+			if ((closestSurface - distance) >= FLOATING_HEIGHT && controller->UpdatedPrimitive)
+			{
+				const FVector virtualSnap = UFunctionLibrary::GetSnapOnSurfaceVector(lowestPt, surface, gravityDirection);
+				const FVector offset = farAwayVector.GetSafeNormal() * SurfaceParams.DepthRange.X + virtualSnap + virtualSnap.GetSafeNormal() * FLOATING_HEIGHT;
+				const auto shape = controller->UpdatedPrimitive->GetCollisionShape(0);
+				const auto channel = controller->UpdatedPrimitive->GetCollisionObjectType();
+				if (controller->OverlapTest(location + offset, status.Kinematics.AngularKinematic.Orientation, channel, shape, controller->GetOwner()))
+				{
+					if (bDebugState)
+						UFunctionLibrary::DrawDebugCircleOnSurface(surface, 25, FColor::Black, inDelta * 1.5, 1, false, true);
+					continue;
+				}
+			}
+		}
+
 		closestSurface = distance;
 		surfaceIndex = i;
 	}
 
-	//If no surface found, default on best bad angle one
-	if (surfaceIndex < 0 && badAngleIndex >= 0)
-		surfaceIndex = badAngleIndex;
+	UFunctionLibrary::AddOrReplaceCosmeticVariable(statusParams, GroundDistanceVarName, closestSurface < closestCheckSurface ? closestSurface : closestCheckSurface);
+
+	//If we are ascending. do this here because ground distance evaluation
+	if ((velocity | gravityDirection) < -FLOATING_HEIGHT && !asActive)
+		return 0;
+
+	//Compute the flag
+	int flag = UToolsLibrary::BoolArrayToFlag(UToolsLibrary::IndexesToBoolArray(TArray<int>{surfaceIndex, badAngleIndex}));
 
 	//Debug
-	if (bDebugState && status.Kinematics.SurfacesInContact.IsValidIndex(surfaceIndex))
+	if (bDebugState)
 	{
-		UFunctionLibrary::DrawDebugCircleOnSurface(status.Kinematics.SurfacesInContact[surfaceIndex], 25, asActive ? FColor::Blue : FColor::Yellow
-		                                           , inDelta * 1.5, 2, true, true);
+		if (status.Kinematics.SurfacesInContact.IsValidIndex(surfaceIndex))
+			UFunctionLibrary::DrawDebugCircleOnSurface(status.Kinematics.SurfacesInContact[surfaceIndex], 25, asActive ? FColor::Blue : FColor::Yellow
+			                                           , inDelta * 1.5, 2, true, true);
+		if (status.Kinematics.SurfacesInContact.IsValidIndex(badAngleIndex))
+			UFunctionLibrary::DrawDebugCircleOnSurface(status.Kinematics.SurfacesInContact[badAngleIndex], 25, asActive ? FColor::Purple : FColor::Magenta
+			                                           , inDelta * 1.5, 2, true, true);
 	}
 
-	return surfaceIndex;
+	return flag;
 }
 
 
@@ -134,9 +158,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 
 FVector USimpleGroundState::GetMoveVector(const FVector inputVector, const float moveScale, const FSurface Surface, const UModularControllerComponent* controller) const
 {
-	FVector desiredMove = inputVector * MaxSpeed * moveScale;
-	if (controller)
-		desiredMove = controller->GetRootMotionTranslation(RootMotionMode, desiredMove);
+	FVector desiredMove = inputVector;
 	const FVector normal = controller ? -controller->GetGravityDirection() : FVector::UpVector;
 
 	//Slope handling
@@ -164,18 +186,19 @@ FControllerCheckResult USimpleGroundState::CheckState_Implementation(UModularCon
                                                                      const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
 {
 	FControllerCheckResult result = FControllerCheckResult(false, startingConditions);
-	UFunctionLibrary::AddOrReplaceCosmeticVariable(result.ProcessResult.StatusParams, GroundDistanceVarName, TNumericLimits<float>::Max());
+	if (!asLastActiveState)
+		UFunctionLibrary::AddOrReplaceCosmeticVariable(result.ProcessResult.StatusParams, GroundDistanceVarName, TNumericLimits<float>::Max());
 	if (!controller)
 	{
 		return result;
 	}
 
 	//Check
-	const int surfaceIndex = CheckSurfaceIndex(controller, startingConditions, result.ProcessResult.StatusParams, inDelta, asLastActiveState);
-	result.CheckedCondition = surfaceIndex >= 0;
+	const int surfaceFlag = CheckSurfaceIndex(controller, startingConditions, result.ProcessResult.StatusParams, inDelta, asLastActiveState);
+	result.CheckedCondition = surfaceFlag > 0;
 	if (result.CheckedCondition)
 	{
-		result.ProcessResult.Kinematics.SurfaceBinaryFlag = UToolsLibrary::IndexToFlag(surfaceIndex);
+		result.ProcessResult.Kinematics.SurfaceBinaryFlag = surfaceFlag;
 	}
 	else
 	{
@@ -204,13 +227,41 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	FControllerStatus result = startingConditions;
 	if (!controller)
 		return result;
-	const TArray<int> indexes = UToolsLibrary::BoolToIndexesArray(UToolsLibrary::FlagToBoolArray(result.Kinematics.SurfaceBinaryFlag));
-	const int surfaceIndex = indexes.Num() > 0 ? indexes[0] : -1;
-	if (!result.Kinematics.SurfacesInContact.IsValidIndex(surfaceIndex))
-		return result;
-	const auto surface = result.Kinematics.SurfacesInContact[surfaceIndex];
 	const FVector gravityDir = controller->GetGravityDirection();
-	const float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, -gravityDir)));
+	const FVector lowestPt = controller->GetWorldSpaceCardinalPoint(gravityDir);
+	const TArray<int> indexes = UToolsLibrary::BoolToIndexesArray(UToolsLibrary::FlagToBoolArray(result.Kinematics.SurfaceBinaryFlag));
+	int primarySurfaceIndex = UFunctionLibrary::GetSurfaceIndexUnderCondition(result.Kinematics, [gravityDir, this](const FSurface& surface) -> bool
+	{
+		const float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, -gravityDir)));
+		return angle <= SurfaceParams.ImpactAngleRange.Y;
+	});
+	int secondarySurfaceIndex = UFunctionLibrary::GetSurfaceIndexUnderCondition(result.Kinematics, [gravityDir, this](const FSurface& surface) -> bool
+	{
+		const float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, -gravityDir)));
+		return angle > SurfaceParams.ImpactAngleRange.Y;
+	});
+	if (!result.Kinematics.SurfacesInContact.IsValidIndex(primarySurfaceIndex))
+	{
+		if (!result.Kinematics.SurfacesInContact.IsValidIndex(secondarySurfaceIndex))
+		{
+			return result;
+		}
+		else
+		{
+			primarySurfaceIndex = secondarySurfaceIndex;
+		}
+	}
+	const auto primarySurface = result.Kinematics.SurfacesInContact[primarySurfaceIndex];
+	const auto secondarySurface = result.Kinematics.SurfacesInContact.IsValidIndex(secondarySurfaceIndex) ? result.Kinematics.SurfacesInContact[secondarySurfaceIndex] : FSurface();
+	const FVector primaryHeightVector = (primarySurface.SurfacePoint - lowestPt).ProjectOnToNormal(-gravityDir);
+	const float primaryAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(primarySurface.SurfaceImpactNormal, -gravityDir)));
+	float secondaryAngle = 0;
+	FVector secondaryHeightVector = FVector(0);
+	if (secondarySurface.TrackedComponent.IsValid())
+	{
+		secondaryHeightVector = (secondarySurface.SurfacePoint - lowestPt).ProjectOnToNormal(-gravityDir);
+		secondaryAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(secondarySurface.SurfaceImpactNormal, -gravityDir)));
+	}
 
 	//Collect inputs
 	const FVector inputMove = result.MoveInput;
@@ -218,45 +269,53 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	const bool lockedOn = lockOnDirection.SquaredLength() > 0;
 
 	//Parameters from inputs
-	const float turnSpd = TurnSpeed;
 	float moveScale = 1;
 
-	//Rotate
-	FVector lookDir = lockedOn ? lockOnDirection : inputMove;
-	result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, lookDir, turnSpd, delta);
-
 	//Snapping
-	const FVector snapVector = UFunctionLibrary::GetSnapOnSurfaceVector(controller->GetWorldSpaceCardinalPoint(gravityDir) + gravityDir * 5, surface, gravityDir);
+	const FVector snapVector = UFunctionLibrary::GetSnapOnSurfaceVector(
+		controller->GetWorldSpaceCardinalPoint(gravityDir) + gravityDir * FLOATING_HEIGHT * (primaryAngle > SurfaceParams.ImpactAngleRange.Y ? 0 : 1), primarySurface, gravityDir);
 	result.Kinematics.LinearKinematic.SnapDisplacement = snapVector * SnapSpeed;
 
 	//Lerp velocity
-	FVector lastMoveVec = result.StatusParams.StateModifiers;
-	FSurface cloneSurface = surface;
+	FVector lastMoveVec = controller->TimeOnCurrentState <= delta
+		                      ? FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity, gravityDir).GetClampedToMaxSize(MaxSpeed)
+		                      : result.StatusParams.StateModifiers;
+	FSurface cloneSurface = primarySurface;
 	if (result.Kinematics.LastMoveHit.HitResult.ImpactNormal.IsNormalized())
 	{
 		cloneSurface.SurfaceImpactNormal = result.Kinematics.LastMoveHit.HitResult.ImpactNormal;
 		cloneSurface.SurfaceNormal = result.Kinematics.LastMoveHit.HitResult.Normal;
 	}
 	const FVector downSnap = snapVector.ProjectOnToNormal(gravityDir);
-	const FVector targetMoveVec = GetMoveVector(inputMove, moveScale, cloneSurface, controller) * FMath::Clamp(1 - (downSnap.Length() / (MaxStepHeight * 0.5)), 0, 1);
-	FVector moveVec = FMath::Lerp(lastMoveVec, targetMoveVec, Acceleration * delta);
+	const FVector userMove = inputMove * MaxSpeed * moveScale;
+	const FVector originalMoveVec = FMath::Lerp(lastMoveVec, userMove, Acceleration * delta);
+	const FVector postRMMove = controller->GetRootMotionTranslation(RootMotionMode, userMove);
+	FVector moveVec = GetMoveVector(postRMMove, moveScale, cloneSurface, controller) * FMath::Clamp(1 - (downSnap.Length() / (SurfaceParams.HeightRange.Y * 0.5)), 0, 1);
 
 	//Angle verification
 	FVector slideVector = FVector(0);
-	if (angle > MaxSurfaceAngle)
+	if (secondaryAngle > SurfaceParams.ImpactAngleRange.Y && secondaryHeightVector.SquaredLength() > 0 && (primaryHeightVector.Length() - secondaryHeightVector.Length()) > FLOATING_HEIGHT)
 	{
-		slideVector = FVector::VectorPlaneProject(gravityDir, surface.SurfaceImpactNormal).GetSafeNormal() * controller->GetGravityScale();
-		const FVector planedNormal = FVector::VectorPlaneProject(surface.SurfaceImpactNormal, gravityDir).GetSafeNormal();
+		const FVector planedNormal = FVector::VectorPlaneProject(secondarySurface.SurfaceImpactNormal, gravityDir).GetSafeNormal();
 		const FVector planarMoveVec = FVector::VectorPlaneProject(moveVec, planedNormal);
 		const FVector orthogonalMoveVec = moveVec.ProjectOnToNormal(planedNormal) * ((planedNormal | moveVec) >= 0 ? 1 : 0);
 		moveVec = planarMoveVec + orthogonalMoveVec;
 	}
+	if (primaryAngle > SurfaceParams.ImpactAngleRange.Y)
+	{
+		slideVector = FVector::VectorPlaneProject(gravityDir, primarySurface.SurfaceImpactNormal).GetSafeNormal() * controller->GetGravityScale();
+	}
+
+	//Rotate
+	const float turnSpd = primaryAngle > SurfaceParams.ImpactAngleRange.Y && SlideTurnSpeed > 0 ? SlideTurnSpeed : TurnSpeed;
+	FVector lookDir = lockedOn ? lockOnDirection : (slideVector.SquaredLength() > 0 && SlideTurnSpeed > 0 ? slideVector : inputMove);
+	result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, lookDir, turnSpd, delta);
 
 	//
 	if (!controller->ActionInstances.IsValidIndex(result.StatusParams.ActionIndex))
 	{
-		result.StatusParams.StateModifiers = moveVec;
-		UFunctionLibrary::AddOrReplaceCosmeticVector(result.StatusParams, GroundMoveVarName, moveVec);
+		result.StatusParams.StateModifiers = originalMoveVec;
+		UFunctionLibrary::AddOrReplaceCosmeticVector(result.StatusParams, GroundMoveVarName, originalMoveVec);
 	}
 	else
 	{
@@ -278,20 +337,21 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	result.CustomPhysicDrag = 0;
 	if (writeMovement)
 	{
-		if (angle <= MaxSurfaceAngle)
+		if (primaryAngle <= SurfaceParams.ImpactAngleRange.Y)
 		{
-			UFunctionLibrary::AddCompositeMovement(result.Kinematics.LinearKinematic, moveVec, surface.SurfacePhysicProperties.X * (1 / (delta * delta)), 0);
+			UFunctionLibrary::AddCompositeMovement(result.Kinematics.LinearKinematic, moveVec, primarySurface.SurfacePhysicProperties.X * (1 / (delta * delta)), 0);
 		}
 		else
 		{
 			const FVector relVel = FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity - result.Kinematics.LinearKinematic.refVelocity, controller->GetGravityDirection());
-			const FVector planedNormal = FVector::VectorPlaneProject(surface.SurfaceImpactNormal, gravityDir).GetSafeNormal();
+			const FVector planedNormal = FVector::VectorPlaneProject(primarySurface.SurfaceImpactNormal, gravityDir).GetSafeNormal();
 			const FVector orthogonalRelVel = relVel.ProjectOnToNormal(planedNormal) * ((planedNormal | relVel) < 0 ? 1 : 0);
 			result.Kinematics.LinearKinematic.Acceleration = slideVector + moveVec - ((orthogonalRelVel / delta) * 0.25);
 		}
 	}
-	result.CustomSolverCheckDirection = controller->GetGravityDirection() * (MaxStepHeight + 6);
-	UFunctionLibrary::ApplyForceOnSurfaces(result.Kinematics, surface.SurfacePoint, controller->GetGravity() * controller->GetMass(), true, ECR_Block);
+	const FVector scanDir = controller->GetGravityDirection() * (SurfaceParams.HeightRange.Y + FLOATING_HEIGHT + 1);
+	result.CustomSolverCheckParameters = FVector4(scanDir.X, scanDir.Y, scanDir.Z, 0.125);
+	UFunctionLibrary::ApplyForceOnSurfaces(result.Kinematics, primarySurface.SurfacePoint, controller->GetGravity() * controller->GetMass(), true, ECR_Block);
 
 	return result;
 }

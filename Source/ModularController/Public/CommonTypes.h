@@ -26,7 +26,7 @@ public:
 	FInputEntry();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-	TEnumAsByte<EInputEntryNature> Nature = EInputEntryNature::InputEntryNature_Button;
+	EInputEntryNature Nature = EInputEntryNature::Button;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
 	EInputEntryType Type = EInputEntryType::Simple;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
@@ -34,7 +34,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
 	float InputBuffer = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
-	TEnumAsByte<EInputEntryPhase> Phase = EInputEntryPhase::InputEntryPhase_None;
+	EInputEntryPhase Phase = EInputEntryPhase::None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Input")
 	float HeldDuration = 0;
@@ -87,7 +87,7 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
 	FHitResult HitResult;
-	
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
 	FVector CustomTraceVector;
 
@@ -164,6 +164,61 @@ private:
 };
 
 
+// Represent some of the common parameters used when testing a surface.
+USTRUCT(BlueprintType)
+struct FSurfaceCheckParams
+{
+	GENERATED_BODY()
+
+public:
+	FSurfaceCheckParams();
+
+	// The range of the surface point's distance along the checking direction. (cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D HeightRange = FVector2D(-1);
+
+	// The range of depths of the surface (eg: step depth) (cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D DepthRange = FVector2D(-1);
+
+	// The range of normalized distances of the surface hit point compared to the closest point on controller's primitive (cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D OffsetRange = FVector2D(-1);
+
+	// The range of the velocity along the checking direction (cm/s)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D SpeedRange = FVector2D(-1);
+
+	// The range of the surface velocity along the checking direction at impact point (cm/s)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D SurfaceSpeedRange = FVector2D(-1);
+
+	// The angle range from normal (degrees)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D NormalAngleRange = FVector2D(-1);
+
+	// The angle range from impact normal (degrees)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D ImpactAngleRange = FVector2D(-1);
+
+	// The angle range from orientation vector (degrees)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D OrientationAngleRange = FVector2D(-1);
+
+	// Additional cosmetic variables ranges
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	TMap<FName, FVector2D> CosmeticVarRanges;
+
+	//The collision response of the surface
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	TEnumAsByte<ECollisionResponse> CollisionResponse = ECR_Block;
+
+	//The surface can be stept on?
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	bool bMustBeStepable = true;
+};
+
+
 #pragma endregion
 
 
@@ -196,7 +251,7 @@ public:
 
 	// The current action phase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Infos")
-	TEnumAsByte<EActionPhase> CurrentPhase = EActionPhase::ActionPhase_Undetermined;
+	EActionPhase CurrentPhase = EActionPhase::Undetermined;
 
 
 	void Init(FVector timings, float coolDown, int repeatCount = 0);
@@ -206,6 +261,8 @@ public:
 	double GetRemainingCoolDownTime() const;
 
 	double GetNormalizedTime(EActionPhase phase) const;
+
+	double GetPhaseRemainingTime(EActionPhase phase) const;
 
 	void SkipTimeToPhase(EActionPhase phase);
 
@@ -236,6 +293,69 @@ public:
 	/// </summary>
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
 	FName MontageSection = NAME_None;
+
+	/// <summary>
+	/// Use this montage lenght for action duration?
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bUseMontageLenght = false;
+
+	/// <summary>
+	/// Use this montage Sections for action phase repartition?
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bUseMontageSectionsAsPhases = false;
+
+	/// <summary>
+	/// Play montage on the state's linked anim blueprint?
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bPlayOnState = false;
+
+	/// <summary>
+	/// Stop montage with action end
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bStopOnActionEnds = false;
+};
+
+
+// Store an array of action montages
+USTRUCT(BlueprintType)
+struct MODULARCONTROLLER_API FActionMontageLibrary
+{
+	GENERATED_BODY()
+
+public:
+	FActionMontageLibrary();
+
+	// Motion library array
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	TArray<FActionMotionMontage> Library;
+
+	// Override The Animation Montages section to play
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	FName OverrideMontageSection = NAME_None;
+
+	// Override Use this montage lenght for action duration?
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bOverrideUseMontageLenght = false;
+
+	// Override Use this montage Sections for action phase repartition?
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bOverrideUseMontageSectionsAsPhases = false;
+
+	/// <summary>
+	/// Override Play montage on the state's linked anim blueprint?
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bOverridePlayOnState = false;
+
+	/// <summary>
+	/// Override Stop montage with action end
+	/// </summary>
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Types|Montage")
+	bool bOverrideStopOnActionEnds = false;
 };
 
 
@@ -275,7 +395,6 @@ public:
 	// Cosmetic states and actions variables. useful for let say know the distance from the ground while airborne. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
 	TMap<FName, float> StatusCosmeticVariables;
-	
 };
 
 
@@ -293,6 +412,8 @@ struct MODULARCONTROLLER_API FLinearKinematicCondition
 
 public:
 	FLinearKinematicCondition();
+
+	FLinearKinematicCondition(FVector position, FVector velocity = FVector(0), FVector acceleration = FVector(0));
 
 	//The linear acceleration (Cm/s2)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicProperty")
@@ -328,7 +449,6 @@ public:
 
 
 public:
-
 	//Evaluate future movement conditions base on the delta time.
 	FLinearKinematicCondition GetFinalCondition(double deltaTime);
 
@@ -423,9 +543,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
 	FVector MoveInput = FVector(0);
 
-	// The custom direction to find colliding surfaces.
+	// The custom direction to find colliding surfaces. Use W to limit the impact point height detection.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
-	FVector CustomSolverCheckDirection = FVector(0);
+	FVector4 CustomSolverCheckParameters = FVector4(0);
 
 	// The custom zone drag.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
@@ -471,24 +591,24 @@ public:
 	{
 	}
 
-	FORCEINLINE FOverrideRootMotionCommand(ERootMotionType translationMode, ERootMotionType rotationMode, float duration)
+	FORCEINLINE FOverrideRootMotionCommand(ERootMotionType translationMode, ERootMotionType rotationMode)
 	{
 		OverrideTranslationRootMotionMode = translationMode;
 		OverrideRotationRootMotionMode = rotationMode;
-		OverrideRootMotionChrono = duration;
+		bIgnoreCollisionWhenActive = false;
 	}
 
 	//The override translation rootMotion mode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-	TEnumAsByte<ERootMotionType> OverrideTranslationRootMotionMode = ERootMotionType::RootMotionType_No_RootMotion;
+	ERootMotionType OverrideTranslationRootMotionMode = ERootMotionType::NoRootMotion;
 
 	//The override rotation rootMotion mode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-	TEnumAsByte<ERootMotionType> OverrideRotationRootMotionMode = ERootMotionType::RootMotionType_No_RootMotion;
+	ERootMotionType OverrideRotationRootMotionMode = ERootMotionType::NoRootMotion;
 
-	//The chrono to switch back override root motion
+	//Should the controller ignore collision during this Root motion Override?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-	float OverrideRootMotionChrono = 0;
+	bool bIgnoreCollisionWhenActive = false;
 };
 
 

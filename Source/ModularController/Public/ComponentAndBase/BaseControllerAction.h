@@ -47,6 +47,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing|Phasing", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float RecoveryPhaseDuration = 0;
 
+	// Ignore controller collision during those action phases.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing|Phasing")
+	TArray<EActionPhase> NoCollisionPhases;
+	
 	// The action can transition to self on recovery phase?
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|Timing|Phasing")
 	bool bCanTransitionToSelf;
@@ -67,19 +71,19 @@ public:
 
 	// The Action only execute modes.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility")
-	TEnumAsByte<EActionCompatibilityMode> ActionCompatibilityMode;
+	EActionCompatibilityMode ActionCompatibilityMode;
 
 	// The list of compatible states names.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
 		, meta = (EditCondition =
-			"ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnCompatibleStateOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"
+			"ActionCompatibilityMode == EActionCompatibilityMode::OnCompatibleStateOnly || ActionCompatibilityMode == EActionCompatibilityMode::OnBothCompatiblesStateAndAction"
 		))
 	TArray<FName> CompatibleStates;
 
 	// The list of compatible actions names
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
 		, meta = (EditCondition =
-			"ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_WhileCompatibleActionOnly || ActionCompatibilityMode == EActionCompatibilityMode::ActionCompatibilityMode_OnBothCompatiblesStateAndAction"
+			"ActionCompatibilityMode == EActionCompatibilityMode::WhileCompatibleActionOnly || ActionCompatibilityMode == EActionCompatibilityMode::OnBothCompatiblesStateAndAction"
 		))
 	TArray<FName> CompatibleActions;
 
@@ -92,10 +96,10 @@ public:
 
 
 	/// <summary>
-	/// When we enters the action behaviour. Return the action timings Vector: X=Anticipation duration, Y=Active phase duration, Z=Recovery Phase duration
+	/// When we enters the action behaviour. Return the action timings Vector: X=Anticipation duration, Y=Active phase duration, Z=Recovery Phase duration, W= Montage index in library
 	/// </summary>
 	UFUNCTION(BlueprintNativeEvent, Category = "Action|Events")
-	FVector OnActionBegins(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
+	FVector4 OnActionBegins(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
 
 
 	/// <summary>
@@ -138,7 +142,7 @@ public:
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Events|C++ Implementation")
-	virtual FVector OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
+	virtual FVector4 OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const;
 
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Events|C++ Implementation")

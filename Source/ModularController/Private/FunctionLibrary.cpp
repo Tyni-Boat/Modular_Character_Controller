@@ -33,6 +33,14 @@ FVector UFunctionLibrary::GetAxisRelativeDirection(FVector2D input, FTransform t
 }
 
 
+bool UFunctionLibrary::CollisionShapeEquals(const FCollisionShape shapeA, const FCollisionShape shapeB)
+{
+	if (shapeA.ShapeType != shapeB.ShapeType)
+		return false;
+	return shapeA.GetExtent() == shapeB.GetExtent();
+}
+
+
 FVector UFunctionLibrary::GetSurfacePhysicProperties(const FHitResult MyStructRef)
 {
 	if (!MyStructRef.GetActor())
@@ -243,7 +251,6 @@ void UFunctionLibrary::SetReferentialMovement(FLinearKinematicCondition& linearK
 	a.Y = (v.Y - v0.Y) * t;
 	a.Z = (v.Z - v0.Z) * t;
 	linearKinematic.refAcceleration = a;
-	linearKinematic.refVelocity = linearKinematic.refAcceleration * delta + v0;
 }
 
 void UFunctionLibrary::AddCompositeMovement(FLinearKinematicCondition& linearKinematic, const FVector movement, const float acceleration, int index)
@@ -464,6 +471,72 @@ bool UFunctionLibrary::IsValidSurfaces(FKinematicComponents kinematicComponent, 
 	}
 
 	return false;
+}
+
+FActionMotionMontage UFunctionLibrary::GetActionMontageAt(FActionMontageLibrary& structRef, int index, int fallbackIndex, bool tryZeroOnNoFallBack)
+{
+	FActionMotionMontage actionMontage;
+	bool montageSet = false;
+
+	if (structRef.Library.IsValidIndex(index))
+	{
+		actionMontage = structRef.Library[index];
+	}
+	else
+	{
+		if (!structRef.Library.IsValidIndex(fallbackIndex))
+		{
+			if (!tryZeroOnNoFallBack)
+				return FActionMotionMontage();
+			if (!structRef.Library.IsValidIndex(0))
+				return FActionMotionMontage();
+			actionMontage = structRef.Library[0];
+			montageSet = true;
+		}
+		if (!montageSet)
+			actionMontage = structRef.Library[fallbackIndex];
+	}
+
+	if (structRef.OverrideMontageSection != NAME_None)
+		actionMontage.MontageSection = structRef.OverrideMontageSection;
+	if (structRef.bOverrideUseMontageLenght != false)
+		actionMontage.bUseMontageLenght = structRef.bOverrideUseMontageLenght;
+	if (structRef.bOverrideUseMontageSectionsAsPhases != false)
+		actionMontage.bUseMontageSectionsAsPhases = structRef.bOverrideUseMontageSectionsAsPhases;
+	if (structRef.bOverridePlayOnState != false)
+		actionMontage.bPlayOnState = structRef.bOverridePlayOnState;
+	if (structRef.bOverrideStopOnActionEnds != false)
+		actionMontage.bStopOnActionEnds = structRef.bOverrideStopOnActionEnds;
+
+	return actionMontage;
+}
+
+FActionMotionMontage UFunctionLibrary::GetActionMontageInDirection(FActionMontageLibrary& structRef, ESixAxisDirectionType direction, ESixAxisDirectionType fallbackDirection)
+{
+	return GetActionMontageAt(structRef, static_cast<int>(direction), static_cast<int>(fallbackDirection), true);
+}
+
+
+int UFunctionLibrary::GetSurfaceIndexUnderCondition(FKinematicComponents kinematicComponent, std::function<bool(FSurface&)> condition)
+{
+	if (kinematicComponent.SurfacesInContact.Num() <= 0)
+		return -1;
+	const TArray<bool> surfaceCombination = UToolsLibrary::FlagToBoolArray(kinematicComponent.SurfaceBinaryFlag);
+	if (surfaceCombination.Num() <= 0)
+		return -1;
+
+	for (int i = 0; i < kinematicComponent.SurfacesInContact.Num(); i++)
+	{
+		if (!surfaceCombination.IsValidIndex(i) || !surfaceCombination[i])
+			continue;
+		auto surface = kinematicComponent.SurfacesInContact[i];
+		if (!surface.TrackedComponent.IsValid())
+			continue;
+		if (condition(surface))
+			return i;
+	}
+
+	return -1;
 }
 
 

@@ -11,8 +11,8 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 
 
-#pragma region Inputs
 
+#pragma region Inputs
 
 FInputEntry::FInputEntry()
 {
@@ -23,7 +23,7 @@ void FInputEntry::Reset()
 	Axis = FVector(0);
 	HeldDuration = 0;
 	InputBuffer = 0;
-	Phase = EInputEntryPhase::InputEntryPhase_None;
+	Phase = EInputEntryPhase::None;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -35,12 +35,12 @@ bool UInputEntryPool::AddOrReplace(FName key, FInputEntry entry, const bool hold
 
 	if (_inputPool.Contains(key))
 	{
-		entry.Phase = hold ? EInputEntryPhase::InputEntryPhase_Held : EInputEntryPhase::InputEntryPhase_Pressed;
+		entry.Phase = hold ? EInputEntryPhase::Held : EInputEntryPhase::Pressed;
 		_inputPool[key] = entry;
 	}
 	else
 	{
-		entry.Phase = hold ? EInputEntryPhase::InputEntryPhase_Held : EInputEntryPhase::InputEntryPhase_Pressed;
+		entry.Phase = hold ? EInputEntryPhase::Held : EInputEntryPhase::Pressed;
 		_inputPool.Add(key, entry);
 	}
 
@@ -64,9 +64,9 @@ FInputEntry UInputEntryPool::ReadInput(const FName key, bool consume)
 	}
 	else
 	{
-		entry.Nature = EInputEntryNature::InputEntryNature_Button;
+		entry.Nature = EInputEntryNature::Button;
 		entry.Type = EInputEntryType::Simple;
-		entry.Phase = EInputEntryPhase::InputEntryPhase_None;
+		entry.Phase = EInputEntryPhase::None;
 		entry.Axis = FVector(0);
 	}
 
@@ -99,7 +99,7 @@ void UInputEntryPool::UpdateInputs(float delta, const bool debug, UObject* world
 		{
 			auto input = entry.Value;
 			_inputPool_last[entry.Key].Phase = input.Phase;
-			_inputPool_last[entry.Key].HeldDuration = input.Phase == InputEntryPhase_Held
+			_inputPool_last[entry.Key].HeldDuration = input.Phase == EInputEntryPhase::Held
 				                                          ? delta + _inputPool_last[entry.Key].HeldDuration
 				                                          : 0;
 			_inputPool_last[entry.Key].Axis = entry.Value.Axis;
@@ -112,23 +112,23 @@ void UInputEntryPool::UpdateInputs(float delta, const bool debug, UObject* world
 	{
 		if (!_inputPool.Contains(entry.Key))
 		{
-			if (entry.Value.Phase == InputEntryPhase_Released)
+			if (entry.Value.Phase == EInputEntryPhase::Released)
 			{
 				_inputPool_last[entry.Key].Reset();
 			}
-			else if (entry.Value.Phase != InputEntryPhase_None)
+			else if (entry.Value.Phase != EInputEntryPhase::None)
 			{
 				if (_inputPool_last[entry.Key].Type == EInputEntryType::Buffered)
 				{
 					if (entry.Value.InputBuffer <= 0)
-						_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Released;
+						_inputPool_last[entry.Key].Phase = EInputEntryPhase::Released;
 					else
-						_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Pressed;
+						_inputPool_last[entry.Key].Phase = EInputEntryPhase::Pressed;
 					_inputPool_last[entry.Key].HeldDuration = 0;
 				}
 				else
 				{
-					_inputPool_last[entry.Key].Phase = EInputEntryPhase::InputEntryPhase_Released;
+					_inputPool_last[entry.Key].Phase = EInputEntryPhase::Released;
 					_inputPool_last[entry.Key].HeldDuration = 0;
 				}
 			}
@@ -144,24 +144,22 @@ void UInputEntryPool::UpdateInputs(float delta, const bool debug, UObject* world
 				default:
 					debugColor = FColor::White;
 					break;
-				case InputEntryNature_Axis:
+				case EInputEntryNature::Axis:
 					debugColor = FColor::Cyan;
 					break;
-				case InputEntryNature_Value:
+				case EInputEntryNature::Value:
 					debugColor = FColor::Blue;
 					break;
 			}
-			if (_inputPool_last[entry.Key].Phase == EInputEntryPhase::InputEntryPhase_None)
+			if (_inputPool_last[entry.Key].Phase == EInputEntryPhase::None)
 			{
 				debugColor = FColor::Black;
 			}
 			UKismetSystemLibrary::PrintString(worldContext, FString::Printf(
 				                                  TEXT("Input: (%s), Nature: (%s), Phase: (%s), buffer: %f, Held: %f"),
 				                                  *entry.Key.ToString(),
-				                                  *UEnum::GetValueAsName<
-					                                  EInputEntryNature>(_inputPool_last[entry.Key].Nature).ToString(),
-				                                  *UEnum::GetValueAsName<EInputEntryPhase>(
-					                                  _inputPool_last[entry.Key].Phase).ToString(), bufferChrono
+				                                  *UEnum::GetValueAsString(_inputPool_last[entry.Key].Nature),
+				                                  *UEnum::GetValueAsString(_inputPool_last[entry.Key].Phase), bufferChrono
 				                                  , activeDuration), true, true, debugColor, 0, entry.Key);
 		}
 	}
@@ -306,11 +304,17 @@ FVector FSurface::GetVelocityAt(const FVector point, const float deltaTime) cons
 	return linearPart + rotVel + centripetal;
 }
 
+//------------------------------------------------------------------------------------------------------------------------
+
+FSurfaceCheckParams::FSurfaceCheckParams()
+{
+}
 
 #pragma endregion
 
 
 #pragma region States and Actions
+
 
 
 FActionInfos::FActionInfos()
@@ -339,19 +343,35 @@ double FActionInfos::GetNormalizedTime(EActionPhase phase) const
 {
 	switch (phase)
 	{
-		case ActionPhase_Undetermined: return 0;
-		case ActionPhase_Anticipation:
+		case EActionPhase::Undetermined: return 0;
+		case EActionPhase::Anticipation:
 			if (_remainingActivationTimer >= (_startingDurations.Y + _startingDurations.Z))
 				return 1 - ((_remainingActivationTimer - (_startingDurations.Y + _startingDurations.Z)) / _startingDurations
 					.X);
 			return 0;
-		case ActionPhase_Active:
+		case EActionPhase::Active:
 			if (_remainingActivationTimer < _startingDurations.Z) return 0;
 			if (_remainingActivationTimer > (_startingDurations.Y + _startingDurations.Z)) return 1;
 			return 1 - ((_remainingActivationTimer - _startingDurations.Z) / _startingDurations.Y);
-		case ActionPhase_Recovery:
+		case EActionPhase::Recovery:
 			if (_remainingActivationTimer > _startingDurations.Z) return 1;
 			return 1 - _remainingActivationTimer / _startingDurations.Z;
+	}
+	return 0;
+}
+
+double FActionInfos::GetPhaseRemainingTime(EActionPhase phase) const
+{
+	const double normalizedTime = GetNormalizedTime(phase); 
+	switch (phase)
+	{
+		case EActionPhase::Undetermined: return 0;
+		case EActionPhase::Anticipation:
+			return (1 - normalizedTime) * _startingDurations.X;
+		case EActionPhase::Active:
+			return (1 - normalizedTime) * _startingDurations.Y;
+		case EActionPhase::Recovery:
+			return (1 - normalizedTime) * _startingDurations.Z;
 	}
 	return 0;
 }
@@ -360,13 +380,13 @@ void FActionInfos::SkipTimeToPhase(EActionPhase phase)
 {
 	switch (phase)
 	{
-		case ActionPhase_Anticipation:
+		case EActionPhase::Anticipation:
 			_remainingActivationTimer = _startingDurations.X + _startingDurations.Y + _startingDurations.Z;
 			break;
-		case ActionPhase_Active:
+		case EActionPhase::Active:
 			_remainingActivationTimer = _startingDurations.Y + _startingDurations.Z;
 			break;
-		case ActionPhase_Recovery:
+		case EActionPhase::Recovery:
 			_remainingActivationTimer = _startingDurations.Z;
 			break;
 		default:
@@ -382,30 +402,30 @@ void FActionInfos::Update(float deltaTime, bool allowCooldownDecrease)
 
 		if (_remainingActivationTimer > (_startingDurations.Y + _startingDurations.Z))
 		{
-			if (CurrentPhase != ActionPhase_Anticipation)
+			if (CurrentPhase != EActionPhase::Anticipation)
 			{
-				CurrentPhase = ActionPhase_Anticipation;
+				CurrentPhase = EActionPhase::Anticipation;
 			}
 		}
 		else if (_remainingActivationTimer > _startingDurations.Z && _remainingActivationTimer <= (_startingDurations.Y
 			+ _startingDurations.Z))
 		{
-			if (CurrentPhase != ActionPhase_Active)
+			if (CurrentPhase != EActionPhase::Active)
 			{
-				CurrentPhase = ActionPhase_Active;
+				CurrentPhase = EActionPhase::Active;
 			}
 		}
 		else
 		{
-			if (CurrentPhase != ActionPhase_Recovery)
+			if (CurrentPhase != EActionPhase::Recovery)
 			{
-				CurrentPhase = ActionPhase_Recovery;
+				CurrentPhase = EActionPhase::Recovery;
 			}
 		}
 	}
 	else
 	{
-		CurrentPhase = EActionPhase::ActionPhase_Undetermined;
+		CurrentPhase = EActionPhase::Undetermined;
 		if (_cooldownTimer > 0 && allowCooldownDecrease)
 		{
 			_cooldownTimer -= deltaTime;
@@ -418,7 +438,7 @@ void FActionInfos::Reset(float coolDown)
 	_cooldownTimer = coolDown;
 	_remainingActivationTimer = 0;
 	_repeatCount = 0;
-	CurrentPhase = EActionPhase::ActionPhase_Undetermined;
+	CurrentPhase = EActionPhase::Undetermined;
 }
 
 
@@ -426,6 +446,13 @@ void FActionInfos::Reset(float coolDown)
 
 
 FActionMotionMontage::FActionMotionMontage()
+{
+}
+
+
+//------------------------------------------------------------------------------------------------------------------------
+
+FActionMontageLibrary::FActionMontageLibrary()
 {
 }
 
@@ -454,6 +481,13 @@ bool FStatusParameters::HasChanged(FStatusParameters otherStatus) const
 
 FLinearKinematicCondition::FLinearKinematicCondition()
 {
+}
+
+FLinearKinematicCondition::FLinearKinematicCondition(FVector position, FVector velocity, FVector acceleration)
+{
+	Position = position;
+	Velocity = velocity;
+	Acceleration = acceleration;
 }
 
 
@@ -523,6 +557,7 @@ FLinearKinematicCondition FLinearKinematicCondition::GetFinalFromPosition(FVecto
 void FLinearKinematicCondition::ComputeCompositeMovement(const float delta)
 {
 	//Referential
+	refVelocity = refAcceleration * delta + refVelocity;
 	const FVector relativeVelocity = Velocity - refVelocity;
 	Acceleration += refAcceleration;
 

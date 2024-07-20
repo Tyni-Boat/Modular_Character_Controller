@@ -22,6 +22,10 @@ public:
 	static FVector GetAxisRelativeDirection(FVector2D input, FTransform transformRelative, FVector planeNormal = FVector(0));
 
 
+	// Compare 2 collision shapes and return true if they are of same type and size.
+	static bool CollisionShapeEquals(const FCollisionShape shapeA, const FCollisionShape shapeB);
+
+
 	// Get surface friction (X), surface bounciness (Y)
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Surface | Physic")
 	static FVector GetSurfacePhysicProperties(const FHitResult MyStructRef);
@@ -90,34 +94,47 @@ public:
 	//Remove a composite movement at index.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics | Linear")
 	static bool RemoveCompositeMovement(FLinearKinematicCondition& linearKinematic, int index);
-	
+
 	// Get the linear velocity relative to the surfaces affecting his move.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
 	static FVector GetRelativeVelocity(FKinematicComponents kinematicComponent, const float deltaTime, ECollisionResponse channelFilter = ECR_MAX);
 
 	// Apply force on the set of surfaces in contact defined by SurfaceBinaryFlag.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
-	static void ApplyForceOnSurfaces(FKinematicComponents& kinematicComponent,const FVector point, const FVector force, bool reactionForce = false, ECollisionResponse channelFilter = ECR_MAX);
+	static void ApplyForceOnSurfaces(FKinematicComponents& kinematicComponent, const FVector point, const FVector force, bool reactionForce = false,
+	                                 ECollisionResponse channelFilter = ECR_MAX);
 
 	// Get the velocity along surfaces in contact defined by SurfaceBinaryFlag.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
-	static FVector GetVelocityFromReaction(FKinematicComponents kinematicComponent,const FVector velocity, const bool useImpactNormal = false, ECollisionResponse channelFilter = ECR_MAX);
+	static FVector GetVelocityFromReaction(FKinematicComponents kinematicComponent, const FVector velocity, const bool useImpactNormal = false, ECollisionResponse channelFilter = ECR_MAX);
 
 	// Get the average surface velocity from a the set of surfaces in contact defined by SurfaceBinaryFlag
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
-	static FVector GetAverageSurfaceVelocityAt(FKinematicComponents kinematicComponent,const FVector point, const float deltaTime = 0, ECollisionResponse channelFilter = ECR_MAX);
+	static FVector GetAverageSurfaceVelocityAt(FKinematicComponents kinematicComponent, const FVector point, const float deltaTime = 0, ECollisionResponse channelFilter = ECR_MAX);
 
 	// Get the rotation diff as Axis, angle (Deg/sec) from the set of surfaces in contact defined by SurfaceBinaryFlag
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
-	static FVector GetAverageSurfaceAngularSpeed(FKinematicComponents kinematicComponent,ECollisionResponse channelFilter = ECR_MAX);
+	static FVector GetAverageSurfaceAngularSpeed(FKinematicComponents kinematicComponent, ECollisionResponse channelFilter = ECR_MAX);
 
 	// Get the combine properties (Max friction, Max bounciness, Blockiest response type) from the set of surfaces in contact defined by SurfaceBinaryFlag
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
-	static FVector GetMaxSurfacePhysicProperties(FKinematicComponents kinematicComponent,ECollisionResponse channelFilter = ECR_MAX);
+	static FVector GetMaxSurfacePhysicProperties(FKinematicComponents kinematicComponent, ECollisionResponse channelFilter = ECR_MAX);
 
 	// Check if at least one of the surfaces defined in SurfaceBinaryFlag is valid.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
-	static bool IsValidSurfaces(FKinematicComponents kinematicComponent,ECollisionResponse channelFilter = ECR_MAX);
+	static bool IsValidSurfaces(FKinematicComponents kinematicComponent, ECollisionResponse channelFilter = ECR_MAX);
+
+	// Get an action montage at index in montage library
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Actions")
+	static FActionMotionMontage GetActionMontageAt(FActionMontageLibrary& structRef, int index, int fallbackIndex = 0, bool tryZeroOnNoFallBack = false);
+
+	// Get an action montage by sixaxis direction in montage library
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Actions")
+	static FActionMotionMontage GetActionMontageInDirection(FActionMontageLibrary& structRef, ESixAxisDirectionType direction,
+	                                                        ESixAxisDirectionType fallbackDirection = ESixAxisDirectionType::Forward);
+	
+	// Get the index of the first surface matching condition
+	static int GetSurfaceIndexUnderCondition(FKinematicComponents kinematicComponent, std::function<bool(FSurface&)> condition);
 
 
 	// Compute the final velocities of two colliding objects A and B, and return true if the operation succeeded.

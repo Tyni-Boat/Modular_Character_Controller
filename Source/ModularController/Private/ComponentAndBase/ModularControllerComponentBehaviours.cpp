@@ -15,7 +15,12 @@
 
 void UModularControllerComponent::SetOverrideRootMotionMode(USkeletalMeshComponent* caller, const ERootMotionType translationMode, const ERootMotionType rotationMode)
 {
-	_overrideRootMotionCommand = FOverrideRootMotionCommand(translationMode, rotationMode, 0.15f);
+	_overrideRootMotionCommand = FOverrideRootMotionCommand(translationMode, rotationMode);
+}
+
+void UModularControllerComponent::SetOverrideRootMotion(USkeletalMeshComponent* caller, const FOverrideRootMotionCommand rootMotionParams)
+{
+	_overrideRootMotionCommand = rootMotionParams;
 }
 
 #pragma endregion
@@ -266,6 +271,7 @@ FControllerCheckResult UModularControllerComponent::TryChangeControllerState(FCo
 		return result;
 	}
 
+	ToStateStatus.StatusParams.StateModifiers = FVector(0);
 	result = FControllerCheckResult(true, ToStateStatus);
 	return result;
 }
@@ -294,7 +300,10 @@ void UModularControllerComponent::ChangeControllerState(FControllerStatus ToStat
 
 	//Landing
 	StatesInstances[toIndex]->OnEnterState(this, ToStateStatus.Kinematics, ToStateStatus.MoveInput, inDelta);
-	LinkAnimBlueprint(GetSkeletalMesh(), "State", StatesInstances[toIndex]->StateBlueprintClass);
+	const auto linkClass = StatesOverrideAnimInstances.Contains(StatesInstances[toIndex]->GetDescriptionName())
+		                       ? StatesOverrideAnimInstances[StatesInstances[toIndex]->GetDescriptionName()]
+		                       : StatesInstances[toIndex]->StateFallbackBlueprintClass;
+	LinkAnimBlueprint(GetSkeletalMesh(), "State", linkClass);
 
 	//Reset the time spend on state
 	TimeOnCurrentState = 0;
@@ -315,10 +324,11 @@ FControllerStatus UModularControllerComponent::ProcessControllerState(const FCon
 		TimeOnCurrentState += inDelta;
 		processMotion = StatesInstances[index]->ProcessState(this, initialState, inDelta);
 
-		if(DebugType == ControllerDebugType_StatusDebug)
+		if (DebugType == EControllerDebugType::StatusDebug)
 		{
 			UKismetSystemLibrary::PrintString(
-				GetWorld(), FString::Printf(TEXT("State (%s) is Being Processed. Index: %d. Time In: %f"), *StatesInstances[index]->DebugString(), index, TimeOnCurrentState), true, false, FColor::White,
+				GetWorld(), FString::Printf(TEXT("State (%s) is Being Processed. Index: %d. Time In: %f"), *StatesInstances[index]->DebugString(), index, TimeOnCurrentState), true, false,
+				FColor::White,
 				5
 				, "ProcessControllerState");
 		}
@@ -502,7 +512,7 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 	selectedActionIndex = endStatus.StatusParams.ActionIndex;
 	if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid() && ActionInfos.Contains(ActionInstances[selectedActionIndex]))
 	{
-		if (ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase == ActionPhase_Recovery
+		if (ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase == EActionPhase::Recovery
 			&& ActionInstances[selectedActionIndex]->bCanTransitionToSelf
 			&& CheckActionCompatibility(ActionInstances[selectedActionIndex], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
 		{
@@ -540,7 +550,7 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 					continue;
 				if (ActionInstances[i]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
 					&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
-					&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != ActionPhase_Recovery)
+					&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
 				{
 					continue;
 				}
@@ -548,9 +558,9 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 		}
 
 		const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
-		if (currentPhase == ActionPhase_Anticipation || currentPhase == ActionPhase_Active)
+		if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
 			continue;
-		if (currentPhase == ActionPhase_Recovery && !ActionInstances[i]->bCanTransitionToSelf)
+		if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
 			continue;
 		if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
 			continue;
@@ -564,7 +574,7 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 				selectedActionIndex = i;
 				selectedStatus = chkResult.ProcessResult;
 
-				if (DebugType == ControllerDebugType_StatusDebug)
+				if (DebugType == EControllerDebugType::StatusDebug)
 				{
 					UKismetSystemLibrary::PrintString(
 						GetWorld(), FString::Printf(TEXT("Action (%s) was checked as active. Remaining Time: %f"), *ActionInstances[i]->DebugString(),
@@ -575,7 +585,7 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 		}
 	}
 
-	if (DebugType == ControllerDebugType_StatusDebug)
+	if (DebugType == EControllerDebugType::StatusDebug)
 	{
 		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Action Phase: %d"), selectedActionIndex), true, false, FColor::Silver, 0
 		                                  , TEXT("CheckControllerActions"));
@@ -621,7 +631,7 @@ FControllerStatus UModularControllerComponent::CosmeticCheckActions(FControllerS
 					continue;
 				if (ActionInstances[i]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
 					&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
-					&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != ActionPhase_Recovery)
+					&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
 				{
 					continue;
 				}
@@ -629,9 +639,9 @@ FControllerStatus UModularControllerComponent::CosmeticCheckActions(FControllerS
 		}
 
 		const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
-		if (currentPhase == ActionPhase_Anticipation || currentPhase == ActionPhase_Active)
+		if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
 			continue;
-		if (currentPhase == ActionPhase_Recovery && !ActionInstances[i]->bCanTransitionToSelf)
+		if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
 			continue;
 		if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
 			continue;
@@ -657,7 +667,7 @@ bool UModularControllerComponent::CheckActionCompatibility(const TSoftObjectPtr<
 	{
 		default:
 			break;
-		case ActionCompatibilityMode_WhileCompatibleActionOnly:
+		case EActionCompatibilityMode::WhileCompatibleActionOnly:
 			{
 				incompatible = true;
 				if (actionInstance->CompatibleActions.Num() > 0)
@@ -673,7 +683,7 @@ bool UModularControllerComponent::CheckActionCompatibility(const TSoftObjectPtr<
 				}
 			}
 			break;
-		case ActionCompatibilityMode_OnCompatibleStateOnly:
+		case EActionCompatibilityMode::OnCompatibleStateOnly:
 			{
 				incompatible = true;
 				if (StatesInstances.IsValidIndex(stateIndex) && actionInstance->CompatibleStates.Num() > 0 && StatesInstances[stateIndex].IsValid())
@@ -686,7 +696,7 @@ bool UModularControllerComponent::CheckActionCompatibility(const TSoftObjectPtr<
 				}
 			}
 			break;
-		case ActionCompatibilityMode_OnBothCompatiblesStateAndAction:
+		case EActionCompatibilityMode::OnBothCompatiblesStateAndAction:
 			{
 				int compatibilityCount = 0;
 				//State
@@ -735,6 +745,7 @@ FControllerCheckResult UModularControllerComponent::TryChangeControllerAction(FC
 	}
 
 	result.CheckedCondition = true;
+	toActionStatus.StatusParams.ActionsModifiers = FVector(0);
 	result.ProcessResult = toActionStatus;
 	return result;
 }
@@ -756,7 +767,7 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 				ActionInstances.IsValidIndex(fromActionIndex) && ActionInstances[fromActionIndex].IsValid() && ActionInfos.Contains(ActionInstances[fromActionIndex]))
 			{
 				if (ActionInfos[ActionInstances[fromActionIndex]].GetRemainingActivationTime() < inDelta
-					&& ActionInfos[ActionInstances[fromActionIndex]].CurrentPhase == ActionPhase_Recovery
+					&& ActionInfos[ActionInstances[fromActionIndex]].CurrentPhase == EActionPhase::Recovery
 					&& ActionInstances[fromActionIndex]->bCanTransitionToSelf)
 				{
 					repeatAuto = true;
@@ -767,7 +778,7 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 		}
 	}
 
-	if (DebugType == ControllerDebugType_StatusDebug)
+	if (DebugType == EControllerDebugType::StatusDebug)
 	{
 		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Trying to change action from: %d to: %d"), fromActionIndex, toActionIndex), true, false
 		                                  , FColor::White, 5, "TryChangeControllerActions_1");
@@ -777,9 +788,24 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 	if (ActionInstances.IsValidIndex(fromActionIndex) && ActionInstances[fromActionIndex].IsValid())
 	{
 		ActionInstances[fromActionIndex]->OnActionEnds(this, toActionStatus.Kinematics, toActionStatus.MoveInput, inDelta);
+		//Stop action montage
+		if (ActionMontageLibraryMap.Contains(ActionInstances[fromActionIndex]->GetDescriptionName()))
+		{
+			for (const auto entry : ActionMontageLibraryMap)
+			{
+				for (const auto actionMontage : entry.Value.Library)
+				{
+					if (!entry.Value.bOverrideStopOnActionEnds)
+						if (!actionMontage.bStopOnActionEnds)
+							continue;
+					StopMontage(actionMontage, entry.Value.bOverridePlayOnState ? true : actionMontage.bPlayOnState);
+				}
+			}
+		}
+
 		if (ActionInfos.Contains(ActionInstances[fromActionIndex]))
 			ActionInfos[ActionInstances[fromActionIndex]].Reset(ActionInstances[fromActionIndex]->CoolDownDelay);
-		if (DebugType == ControllerDebugType_StatusDebug)
+		if (DebugType == EControllerDebugType::StatusDebug)
 		{
 			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Action (%s) is Being Disabled"), *ActionInstances[fromActionIndex]->DebugString()), true, false, FColor::Red,
 			                                  5,
@@ -790,11 +816,38 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 	//Activate action
 	if (ActionInstances.IsValidIndex(toActionIndex) && ActionInstances[toActionIndex].IsValid())
 	{
-		const FVector actTimings = ActionInstances[toActionIndex]->OnActionBegins(this, toActionStatus.Kinematics, toActionStatus.MoveInput, inDelta);
+		FVector4 actTimings = ActionInstances[toActionIndex]->OnActionBegins(this, toActionStatus.Kinematics, toActionStatus.MoveInput, inDelta);
+		//Play Montage
+		if (ActionMontageLibraryMap.Contains(ActionInstances[toActionIndex]->GetDescriptionName()))
+		{
+			const auto actionMontage = UFunctionLibrary::GetActionMontageAt(ActionMontageLibraryMap[ActionInstances[toActionIndex]->GetDescriptionName()], static_cast<int>(actTimings.W));
+			if (actionMontage.bUseMontageLenght)
+			{
+				actTimings = ActionInstances[toActionIndex]->RemapDurationByMontageSections(actionMontage.Montage, actTimings);
+			}
+
+			//Play montage
+			float montageDuration = 0;
+			if (actionMontage.bPlayOnState)
+			{
+				if (const auto currentState = GetCurrentControllerState())
+					montageDuration = PlayAnimationMontageOnState_Internal(actionMontage, currentState->GetDescriptionName(), -1);
+			}
+			else
+			{
+				montageDuration = PlayAnimationMontage_Internal(actionMontage, -1);
+			}
+
+			if (actionMontage.bUseMontageLenght && montageDuration > 0)
+			{
+				actTimings = ActionInstances[toActionIndex]->RemapDuration(montageDuration, actTimings);
+			}
+		}
+
 		if (ActionInfos.Contains(ActionInstances[toActionIndex]))
 			ActionInfos[ActionInstances[toActionIndex]].Init(actTimings, ActionInstances[toActionIndex]->CoolDownDelay,
 			                                                 transitionToSelf ? (ActionInfos[ActionInstances[toActionIndex]]._repeatCount + 1) : 0);
-		if (DebugType == ControllerDebugType_StatusDebug)
+		if (DebugType == EControllerDebugType::StatusDebug)
 		{
 			UKismetSystemLibrary::PrintString(
 				GetWorld(), FString::Printf(TEXT("Action (%s) is Being Activated. Remaining Time: %f"), *ActionInstances[toActionIndex]->DebugString(),
@@ -810,7 +863,7 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 	OnControllerActionChangedEvent.Broadcast(ActionInstances.IsValidIndex(toActionIndex) ? ActionInstances[toActionIndex].Get() : nullptr
 	                                         , ActionInstances.IsValidIndex(fromActionIndex) ? ActionInstances[fromActionIndex].Get() : nullptr);
 
-	if (DebugType == ControllerDebugType_StatusDebug)
+	if (DebugType == EControllerDebugType::StatusDebug)
 	{
 		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Changed actions from: %d  to: %d"), fromActionIndex, toActionIndex), true, false
 		                                  , FColor::Yellow, 5, TEXT("TryChangeControllerActions_4"));
@@ -827,7 +880,7 @@ FControllerStatus UModularControllerComponent::ProcessControllerAction(const FCo
 	{
 		processMotion = ProcessSingleAction(ActionInstances[index], processMotion, inDelta);
 
-		if (DebugType == ControllerDebugType_StatusDebug)
+		if (DebugType == EControllerDebugType::StatusDebug)
 		{
 			UKismetSystemLibrary::PrintString(
 				GetWorld(), FString::Printf(TEXT("Action (%s) is Being Processed. Remaining Time: %f"), *ActionInstances[index]->DebugString(),
@@ -849,13 +902,13 @@ FControllerStatus UModularControllerComponent::ProcessSingleAction(TSoftObjectPt
 	FControllerStatus processMotion = initialState;
 	switch (ActionInfos[actionInstance].CurrentPhase)
 	{
-		case ActionPhase_Anticipation:
+		case EActionPhase::Anticipation:
 			processMotion = actionInstance->OnActionProcessAnticipationPhase(this, processMotion, ActionInfos[actionInstance], inDelta);
 			break;
-		case ActionPhase_Active:
+		case EActionPhase::Active:
 			processMotion = actionInstance->OnActionProcessActivePhase(this, processMotion, ActionInfos[actionInstance], inDelta);
 			break;
-		case ActionPhase_Recovery:
+		case EActionPhase::Recovery:
 			processMotion = actionInstance->OnActionProcessRecoveryPhase(this, processMotion, ActionInfos[actionInstance], inDelta);
 			break;
 		default: break;

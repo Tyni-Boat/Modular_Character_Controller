@@ -39,8 +39,7 @@ FControllerCheckResult UFreeFallState::CheckState_Implementation(UModularControl
                                                                  const FControllerStatus startingConditions, const float inDelta, bool asLastActiveState) const
 {
 	auto result = startingConditions;
-	if (controller)
-		UFunctionLibrary::AddOrReplaceCosmeticVariable(result.StatusParams, AirTimeVarName, asLastActiveState ? controller->TimeOnCurrentState : 0);
+	UFunctionLibrary::AddOrReplaceCosmeticVariable(result.StatusParams, AirTimeVarName, result.StatusParams.StateModifiers.X);
 	return FControllerCheckResult(true, result);
 }
 
@@ -79,7 +78,8 @@ FControllerStatus UFreeFallState::ProcessState_Implementation(UModularController
 	//Rotation
 	processResult.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(startingConditions.Kinematics.AngularKinematic, inputAxis, AirControlRotationSpeed, delta);
 
-	processResult.CustomSolverCheckDirection = Gravity.GetSafeNormal() * MaxCheckSurfaceDistance;
+	processResult.StatusParams.StateModifiers.X += delta;
+	processResult.CustomSolverCheckParameters = Gravity.GetSafeNormal() * MaxCheckSurfaceDistance;
 	processResult.Kinematics.SurfaceBinaryFlag = 0;
 	return processResult;
 }

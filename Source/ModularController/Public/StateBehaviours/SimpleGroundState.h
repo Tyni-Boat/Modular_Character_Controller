@@ -17,13 +17,10 @@ class MODULARCONTROLLER_API USimpleGroundState : public UBaseControllerState
 
 #pragma region Check XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
-	// The maximum step height
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
-	float MaxStepHeight = 35;
 	
-	// The maximum surface angle from plane defined by gravity vector
+	// The surface conditions
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
-	float MaxSurfaceAngle = 40;
+	FSurfaceCheckParams SurfaceParams;
 
 	// The speed used to "snap" the controller ton the surface.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main", meta=(ClampMin = 0, ClampMax = 1))
@@ -35,7 +32,7 @@ protected:
 
 	// The State's Root motion Mode
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Main")
-	TEnumAsByte<ERootMotionType> RootMotionMode;
+	ERootMotionType RootMotionMode;
 
 	// The name of the ground distance additional variable
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
@@ -50,7 +47,7 @@ protected:
 
 
 public:
-	//Check for a valid surface and return it's index
+	//Check for a valid surfaces and return the flag corresponding to their indexes. the first surface is the main one, the second is the bad angle one.
 	virtual int CheckSurfaceIndex(UModularControllerComponent* controller, const FControllerStatus status, FStatusParameters& statusParams, const float inDelta, bool asActive = false) const;
 
 #pragma endregion
@@ -95,6 +92,10 @@ protected:
 	// The speed used to rotate toward movement direction
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
 	float TurnSpeed = 15;
+
+	// The speed used to rotate toward sliding direction
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
+	float SlideTurnSpeed = 5;
 
 #pragma endregion
 

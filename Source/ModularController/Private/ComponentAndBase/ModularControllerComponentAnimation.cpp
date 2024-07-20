@@ -110,9 +110,9 @@ UAnimInstance* UModularControllerComponent::GetAnimInstance(FName stateName)
 			const UBaseControllerState* state = GetControllerStateByName(stateName);
 			if (state == nullptr)
 				return nullptr;
-			if (state->StateBlueprintClass == nullptr)
+			if (state->StateFallbackBlueprintClass == nullptr)
 				return nullptr;
-			return GetSkeletalMesh()->GetLinkedAnimLayerInstanceByClass(state->StateBlueprintClass);
+			return GetSkeletalMesh()->GetLinkedAnimLayerInstanceByClass(state->StateFallbackBlueprintClass);
 		}
 		return GetSkeletalMesh()->GetAnimInstance();
 	}
@@ -154,7 +154,7 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 
 		//link
 		skeletalMeshReference->LinkAnimClassLayers(animClass);
-		if (DebugType == ControllerDebugType_AnimationDebug)
+		if (DebugType == EControllerDebugType::AnimationDebug)
 		{
 			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to new %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
 		}
@@ -191,7 +191,7 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 
 		//link
 		skeletalMeshReference->LinkAnimClassLayers(animClass);
-		if (DebugType == ControllerDebugType_AnimationDebug)
+		if (DebugType == EControllerDebugType::AnimationDebug)
 		{
 			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked new %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
 		}
@@ -215,7 +215,7 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 		//link
 		skeletalMeshReference->LinkAnimClassLayers(animClass);
 		_linkedAnimClasses[skeletalMeshReference][key] = skeletalMeshReference->GetLinkedAnimLayerInstanceByClass(animClass);
-		if (DebugType == ControllerDebugType_AnimationDebug)
+		if (DebugType == EControllerDebugType::AnimationDebug)
 		{
 			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
 		}
@@ -279,9 +279,9 @@ double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animIns
 }
 
 
-void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematics, const FVector velocity, const ERootMotionType rootMotionMode, float surfaceFriction) const
+void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematics, const FVector fallbackVelocity, const ERootMotionType rootMotionMode, float surfaceFriction) const
 {
-	if (rootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
+	if (rootMotionMode != ERootMotionType::NoRootMotion)
 	{
 		//Rotation
 		kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
@@ -290,12 +290,12 @@ void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematic
 	//Translation
 	switch (rootMotionMode)
 	{
-		case RootMotionType_No_RootMotion:
-			UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, velocity, -surfaceFriction, 0);
+		case ERootMotionType::NoRootMotion:
+			UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, fallbackVelocity, -surfaceFriction, 0);
 			break;
 		default:
 			{
-				const FVector translation = GetRootMotionTranslation(rootMotionMode, velocity);
+				const FVector translation = GetRootMotionTranslation(rootMotionMode, fallbackVelocity);
 				UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, translation, -surfaceFriction, 0);
 			}
 			break;
@@ -307,12 +307,12 @@ FVector UModularControllerComponent::GetRootMotionTranslation(const ERootMotionT
 {
 	switch (rootMotionMode)
 	{
-		case RootMotionType_Additive:
+		case ERootMotionType::Additive:
 			{
 				return GetRootMotionVector() + currentVelocity;
 			}
 			break;
-		case RootMotionType_Override:
+		case ERootMotionType::Override:
 			{
 				return GetRootMotionVector();
 			}
@@ -346,38 +346,27 @@ FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const 
 	//Handle Root Motion Override
 	{
 		//Rotation
-		if (_overrideRootMotionCommand.OverrideRotationRootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
+		if (_overrideRootMotionCommand.OverrideRotationRootMotionMode != ERootMotionType::NoRootMotion)
 		{
 			//Rotation
 			result.Kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
 		}
 
 		//Translation
-		if (_overrideRootMotionCommand.OverrideTranslationRootMotionMode != ERootMotionType::RootMotionType_No_RootMotion)
+		if (_overrideRootMotionCommand.OverrideTranslationRootMotionMode != ERootMotionType::NoRootMotion)
 		{
 			switch (_overrideRootMotionCommand.OverrideTranslationRootMotionMode)
 			{
-				case RootMotionType_Additive:
+				case ERootMotionType::Additive:
 					{
 						result.Kinematics.LinearKinematic.Velocity += GetRootMotionVector();
 					}
 					break;
-				case RootMotionType_Override:
+				case ERootMotionType::Override:
 					{
 						result.Kinematics.LinearKinematic.Velocity = GetRootMotionVector();
 					}
 					break;
-			}
-		}
-
-		//Auto restore
-		if (_overrideRootMotionCommand.OverrideRootMotionChrono > 0)
-		{
-			_overrideRootMotionCommand.OverrideRootMotionChrono -= inDelta;
-			if (_overrideRootMotionCommand.OverrideRootMotionChrono <= 0)
-			{
-				_overrideRootMotionCommand.OverrideRootMotionChrono = ERootMotionType::RootMotionType_No_RootMotion;
-				_overrideRootMotionCommand.OverrideRootMotionChrono = ERootMotionType::RootMotionType_No_RootMotion;
 			}
 		}
 	}

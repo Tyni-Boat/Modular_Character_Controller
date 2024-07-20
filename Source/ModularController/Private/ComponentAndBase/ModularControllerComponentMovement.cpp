@@ -126,7 +126,7 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 			//Stuck protection
 			if (sweepMoveHit.bStartPenetrating && UpdatedPrimitive && initialLocation.Equals(endLocation, 0.35) && displacement.SquaredLength() > 0)
 			{
-				if (DebugType == ControllerDebugType_MovementDebug)
+				if (DebugType == EControllerDebugType::MovementDebug)
 				{
 					UKismetSystemLibrary::PrintString(
 						this, FString::Printf(TEXT("I'm stuck: initial location: (%s). End location: (%s)"), *initialLocation.ToCompactString(), *endLocation.ToCompactString())
@@ -157,7 +157,7 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 			}
 
 			//Debug Movement
-			if (DebugType == ControllerDebugType_MovementDebug)
+			if (DebugType == EControllerDebugType::MovementDebug)
 			{
 				UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Move Amount Done: (%f) percent. Initial overlap? (%d)"), sweepMoveHit.Time * 100
 				                                                        , sweepMoveHit.bStartPenetrating), true, false, FColor::Red, delta, "hitTime");
@@ -183,7 +183,7 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 		}
 
 		//Debug the move
-		if (DebugType == ControllerDebugType_MovementDebug)
+		if (DebugType == EControllerDebugType::MovementDebug)
 		{
 			UKismetSystemLibrary::DrawDebugArrow(this, initialLocation, endLocation, 15
 			                                     , blockingHit ? FColor::Orange : FColor::Green, delta * 2);
@@ -192,7 +192,7 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 
 
 	//Analytic Debug
-	if (DebugType == ControllerDebugType_MovementDebug)
+	if (DebugType == EControllerDebugType::MovementDebug)
 	{
 		const FVector relativeVel = finalKcomp.LinearKinematic.Velocity - finalKcomp.LinearKinematic.refVelocity;
 		const FVector relativeAcc = finalKcomp.LinearKinematic.Acceleration - finalKcomp.LinearKinematic.refAcceleration;
@@ -251,7 +251,7 @@ FControllerStatus UModularControllerComponent::ConsumeLastKinematicMove(FVector 
 	initialState.CustomPhysicDrag = -1;
 	initialState.StatusParams.PrimaryActionFlag = 0;
 	initialState.Kinematics.SurfaceBinaryFlag = -1;
-	initialState.CustomSolverCheckDirection = FVector(0);
+	initialState.CustomSolverCheckParameters = FVector(0);
 	if (initialState.Kinematics.LastMoveHit.HitResult.IsValidBlockingHit())
 	{
 		const FVector normal = initialState.Kinematics.LastMoveHit.HitResult.Normal;
@@ -312,7 +312,7 @@ FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(
 		}
 		if (!virtualRightDir.Normalize())
 		{
-			if (DebugType == ControllerDebugType_MovementDebug)
+			if (DebugType == EControllerDebugType::MovementDebug)
 			{
 				UKismetSystemLibrary::PrintString(
 					this, FString::Printf(TEXT("Cannot normalize right vector: up = %s, fwd= %s"), *gravityUp.ToCompactString(), *virtualFwdDir.ToCompactString()), true,
@@ -335,7 +335,7 @@ FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(
 
 	//Debug
 	{
-		if (DebugType == ControllerDebugType_MovementDebug)
+		if (DebugType == EControllerDebugType::MovementDebug)
 		{
 			auto acc = outputCondition.AngularAcceleration;
 
@@ -373,13 +373,19 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 	FVector originalMove = attemptedMove;
 	FCollisionQueryParams queryParams;
 	queryParams.AddIgnoredActor(GetOwner());
-	const float offsetter = 1;//FMath::Abs(hullInflation);
+	const float offsetter = 0.6;//FMath::Abs(hullInflation);
 	const float inflatter = FMath::Abs(hullInflation);
+
+	//We're moving away from the surface
+	if((attemptedMove | Hit.Normal) > 0)
+	{
+		return initialLocation + attemptedMove;
+	}
 
 	//Compute slide vector
 	FVector slideMove = ComputeSlideVector(originalMove, 1 - Hit.Time, Hit.Normal, Hit);
 
-	if (DebugType == ControllerDebugType_MovementDebug)
+	if (DebugType == EControllerDebugType::MovementDebug)
 	{
 		UFunctionLibrary::DrawDebugCircleOnHit(Hit, false, 43 + depth * 5, FColor::Green, deltaTime * 2, 1, false);
 		UKismetSystemLibrary::DrawDebugArrow(this, Hit.ImpactPoint, Hit.ImpactPoint + slideMove / deltaTime, 50, FColor::Green, deltaTime * 1.2);
@@ -400,7 +406,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 			FVector twoWallAdjust = originalMove;// * (1 - Hit.Time);
 			TwoWallAdjust(twoWallAdjust, primaryHit, Hit.Normal);
 
-			if (DebugType == ControllerDebugType_MovementDebug)
+			if (DebugType == EControllerDebugType::MovementDebug)
 			{
 				UFunctionLibrary::DrawDebugCircleOnHit(primaryHit, false, 38 + depth * 5, primaryHit.bStartPenetrating ? FColor::Red : FColor::Yellow, deltaTime * 1.2, 1, false);
 				UKismetSystemLibrary::DrawDebugArrow(this, primaryHit.ImpactPoint, primaryHit.ImpactPoint + twoWallAdjust / deltaTime, 50,
@@ -419,7 +425,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 				if (ComponentTraceCastSingle_Internal(secondaryMove, firstHitLocation + secondaryOffset, twoWallAdjust + twoWallAdjust.GetSafeNormal() * 2 * inflatter, rotation,
 				                                      hullInflation - 2 * inflatter, bUseComplexCollision, queryParams))
 				{
-					if (DebugType == ControllerDebugType_MovementDebug)
+					if (DebugType == EControllerDebugType::MovementDebug)
 					{
 						UFunctionLibrary::DrawDebugCircleOnHit(secondaryMove, false, 33 + depth * 5, secondaryMove.bStartPenetrating ? FColor::Black : FColor::Purple, deltaTime * 1.2, 1,
 						                                       false);
@@ -436,9 +442,9 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 					{
 						endLocation = secondaryMove.Location - secondaryOffset - secondaryMove.Normal * 2 * inflatter;
 
-						if (DebugType == ControllerDebugType_MovementDebug)
+						if (DebugType == EControllerDebugType::MovementDebug)
 						{
-							if (DebugType == ControllerDebugType_MovementDebug)
+							if (DebugType == EControllerDebugType::MovementDebug)
 							{
 								FVector midPoint = primaryHit.ImpactPoint + (Hit.ImpactPoint - primaryHit.ImpactPoint) * 0.5;
 								midPoint = midPoint + (secondaryMove.ImpactPoint - midPoint) * 0.5;
@@ -453,7 +459,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 				else
 				{
 					endLocation = firstHitLocation - primaryOffset + twoWallAdjust;
-					if (DebugType == ControllerDebugType_MovementDebug)
+					if (DebugType == EControllerDebugType::MovementDebug)
 					{
 						FVector midPoint = primaryHit.ImpactPoint + (Hit.ImpactPoint - primaryHit.ImpactPoint) * 0.5;
 						UKismetSystemLibrary::DrawDebugArrow(this, midPoint, midPoint + twoWallAdjust / deltaTime, 50, FColor::Orange, deltaTime * 1.2);

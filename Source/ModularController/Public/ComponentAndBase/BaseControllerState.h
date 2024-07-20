@@ -42,9 +42,9 @@ public:
 	int StatePriority = 0;
 
 
-	// The linked animation blueprint class that will be used while this state is active.
+	// The fallback linked animation blueprint class that will be used if nothing found on the controller for this state.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Base|Basic State Parameters")
-	TSubclassOf<UAnimInstance> StateBlueprintClass;
+	TSubclassOf<UAnimInstance> StateFallbackBlueprintClass;
 
 
 	// The state's flag, often used as binary. to relay this State's state over the network.

@@ -39,7 +39,7 @@ void UModularControllerComponent::ListenButtonInput(const FName key, const float
 	if (!key.IsValid())
 		return;
 	FInputEntry entry;
-	entry.Nature = EInputEntryNature::InputEntryNature_Button;
+	entry.Nature = EInputEntryNature::Button;
 	entry.Type = buttonBufferTime > 0 ? EInputEntryType::Buffered : EInputEntryType::Simple;
 	entry.InputBuffer = buttonBufferTime;
 	ListenInput(key, entry, hold);
@@ -50,7 +50,7 @@ void UModularControllerComponent::ListenValueInput(const FName key, const float 
 	if (!key.IsValid())
 		return;
 	FInputEntry entry;
-	entry.Nature = EInputEntryNature::InputEntryNature_Value;
+	entry.Nature = EInputEntryNature::Value;
 	entry.Axis.X = value;
 	ListenInput(key, entry);
 }
@@ -60,7 +60,7 @@ void UModularControllerComponent::ListenAxisInput(const FName key, const FVector
 	if (!key.IsValid())
 		return;
 	FInputEntry entry;
-	entry.Nature = EInputEntryNature::InputEntryNature_Axis;
+	entry.Nature = EInputEntryNature::Axis;
 	entry.Axis = axis;
 	ListenInput(key, entry);
 }
@@ -72,7 +72,7 @@ FVector UModularControllerComponent::ConsumeMovementInput()
 		return FVector(0);
 	const FVector move = _userMoveDirectionHistory[0];
 	_userMoveDirectionHistory.RemoveAt(0);
-	if (DebugType == ControllerDebugType_MovementDebug)
+	if (DebugType == EControllerDebugType::MovementDebug)
 	{
 		FVector lookDir = move;
 		if (lookDir.Normalize())
@@ -80,7 +80,7 @@ FVector UModularControllerComponent::ConsumeMovementInput()
 			UKismetSystemLibrary::DrawDebugArrow(this, GetLocation(), GetLocation() + lookDir * 100, 50, FColor::Silver, 0.017, 2);
 		}
 	}
-	if (DebugType == ControllerDebugType_InputDebug)
+	if (DebugType == EControllerDebugType::InputDebug)
 	{
 		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Consumed Move Input: %s"), *move.ToCompactString()), true, false, FColor::Silver, 0, "MoveInput_");
 	}
@@ -97,7 +97,7 @@ FInputEntry UModularControllerComponent::ReadInput(const FName key, bool consume
 bool UModularControllerComponent::ReadButtonInput(const FName key, bool consume)
 {
 	const FInputEntry entry = ReadInput(key, consume);
-	return entry.Phase == EInputEntryPhase::InputEntryPhase_Held || entry.Phase == EInputEntryPhase::InputEntryPhase_Pressed;
+	return entry.Phase == EInputEntryPhase::Held || entry.Phase == EInputEntryPhase::Pressed;
 }
 
 float UModularControllerComponent::ReadValueInput(const FName key)

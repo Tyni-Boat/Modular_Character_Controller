@@ -154,7 +154,7 @@ void UModularControllerComponent::MovementTickComponent(float delta)
 
 	//Update Inputs
 	if (_inputPool)
-		_inputPool->UpdateInputs(delta, DebugType == ControllerDebugType_InputDebug, this);
+		_inputPool->UpdateInputs(delta, DebugType == EControllerDebugType::InputDebug, this);
 
 	//Update Action infos
 	for (auto& infos : ActionInfos)
@@ -183,6 +183,9 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComputeTickComponent");
 
+	//Check for any change on the shape
+	TrackShapeChanges();
+
 	//Extract Root motion
 	EvaluateRootMotions(delta);
 
@@ -191,7 +194,7 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 
 	//Solve collisions
 	int maxDepth = 64;
-	OverlapSolver(maxDepth, delta, &_contactHits, ApplyedControllerStatus.CustomSolverCheckDirection);
+	OverlapSolver(maxDepth, delta, &_contactHits, ApplyedControllerStatus.CustomSolverCheckParameters);
 
 	//Handle tracked surfaces
 	HandleTrackedSurface(ApplyedControllerStatus, delta);
@@ -243,7 +246,7 @@ FControllerStatus UModularControllerComponent::StandAloneEvaluateStatus(FControl
 	processState.Kinematics.AngularKinematic = HandleKinematicRotation(processState.Kinematics, delta);
 
 	//Evaluate
-	processState.Kinematics = KinematicMoveEvaluation(processState, noCollision || bDisableCollision, delta);
+	processState.Kinematics = KinematicMoveEvaluation(processState, noCollision || IsIgnoringCollision(), delta);
 	return processState;
 }
 
@@ -263,7 +266,7 @@ FControllerStatus UModularControllerComponent::StandAloneCosmeticStatus(FControl
 	FControllerStatus processState = CosmeticUpdateStatusParams(state, delta);
 	processState = ProcessStatus(processState, delta);
 
-	endState.CustomSolverCheckDirection = processState.CustomSolverCheckDirection;
+	endState.CustomSolverCheckParameters = processState.CustomSolverCheckParameters;
 	endState.StatusParams.StatusCosmeticVariables = processState.StatusParams.StatusCosmeticVariables;
 	endState.Kinematics.SurfaceBinaryFlag = processState.Kinematics.SurfaceBinaryFlag;
 

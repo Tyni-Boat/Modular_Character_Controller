@@ -86,7 +86,7 @@ void UModularControllerComponent::MultiCastKinematics_Implementation(FNetKinemat
 		return;
 	netKinematic.RestoreOnToStatus(lastUpdatedControllerStatus);
 	lastUpdatedControllerStatus.Kinematics.LinearKinematic = lastUpdatedControllerStatus.Kinematics.LinearKinematic.GetFinalCondition(GetNetLatency() * LatencyCompensationScale);
-	if (DebugType == ControllerDebugType_NetworkDebug)
+	if (DebugType == EControllerDebugType::NetworkDebug)
 	{
 		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[DOWN] - Simulated Client { Received Kinematics with %fs latency}"), GetNetLatency()), true, true, FColor::Cyan, 1, "SimClientReceiveCommand_kin");
 	}
@@ -98,7 +98,7 @@ void UModularControllerComponent::MultiCastStatusParams_Implementation(FNetStatu
 	if (role != ROLE_SimulatedProxy)
 		return;
 	netStatusParam.RestoreOnToStatus(lastUpdatedControllerStatus);
-	if (DebugType == ControllerDebugType_NetworkDebug)
+	if (DebugType == EControllerDebugType::NetworkDebug)
 	{
 		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[DOWN] - Simulated Client { Received Status Param with %fs latency}"), GetNetLatency()), true, true, FColor::Cyan, 1, "SimClientReceiveCommand_statusP");
 	}
@@ -161,7 +161,7 @@ void UModularControllerComponent::AuthorityComputeComponent(float delta, bool as
 		netStatusParams.ExtractFromStatus(status);
 		MultiCastStatusParams(netStatusParams);
 
-		if (DebugType == ControllerDebugType_NetworkDebug)
+		if (DebugType == EControllerDebugType::NetworkDebug)
 		{
 			int dataSize = sizeof(netKinematic) + sizeof(netStatusParams) + sizeof(_timeElapsed);
 			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[UP] - Listen Server { Send Command at TimeStamp: %f. sizeof = %d bytes}"), _timeElapsed, dataSize), true, true, FColor::White, 1, "ListenServerSendCommand");
@@ -216,7 +216,7 @@ void UModularControllerComponent::DedicatedServerUpdateComponent(float delta)
 		netStatusParams.ExtractFromStatus(initialState);
 		MultiCastStatusParams(netStatusParams);
 	
-		if (DebugType == ControllerDebugType_NetworkDebug)
+		if (DebugType == EControllerDebugType::NetworkDebug)
 		{
 			int dataSize = sizeof(netKinematic) + sizeof(netStatusParams) + sizeof(_timeElapsed);
 			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[UP] - Dedicated Server { Send Command at TimeStamp: %f. sizeof = %d bytes}"), _timeElapsed, dataSize), true, true, FColor::Silver, 1, "DedicatedServerSendCommand");
@@ -239,7 +239,7 @@ void UModularControllerComponent::ServerControllerStatus_Implementation(double t
 {
 	if(waitingClientCorrectionACK >= 0 && waitingClientCorrectionACK != timeStamp)
 	{
-		if (DebugType == ControllerDebugType_NetworkDebug)
+		if (DebugType == EControllerDebugType::NetworkDebug)
 		{
 			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[DOWN] - Dedicated Server { Ignoring Recived Status: Waiting client correction acknowledgement}"))
 				, true, true, FColor::Red, 1, "DedicatedServerReceiveCommand");
@@ -254,7 +254,7 @@ void UModularControllerComponent::ServerControllerStatus_Implementation(double t
 	cloneLastStatus.Kinematics.LinearKinematic = cloneLastStatus.Kinematics.LinearKinematic.GetFinalCondition(GetNetLatency() * LatencyCompensationScale);
 	_clientRequestReceptionQueue.Add(TTuple<double, FControllerStatus>(timeStamp, cloneLastStatus));
 
-	if (DebugType == ControllerDebugType_NetworkDebug)
+	if (DebugType == EControllerDebugType::NetworkDebug)
 	{
 		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[DOWN] - Dedicated Server { Received Status with %fs latency}"), GetNetLatency()), true, true, FColor::Silver, 1, "DedicatedServerReceiveCommand");
 	}
@@ -288,7 +288,7 @@ void UModularControllerComponent::AutonomousProxyUpdateComponent(float delta)
 		netStatusParams.ExtractFromStatus(status);
 		ServerControllerStatus(_timeElapsed, netKinematic, netStatusParams);
 	
-		if (DebugType == ControllerDebugType_NetworkDebug)
+		if (DebugType == EControllerDebugType::NetworkDebug)
 		{
 			int dataSize = sizeof(netKinematic) + sizeof(netStatusParams) + sizeof(_timeElapsed);
 			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[UP] - Autonomous { Send Command at TimeStamp: %f. sizeof = %d bytes}"), _timeElapsed, dataSize), true, true, FColor::Orange, 1, "AutonomousSendCommand");

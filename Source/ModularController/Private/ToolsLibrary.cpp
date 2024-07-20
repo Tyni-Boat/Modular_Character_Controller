@@ -47,7 +47,7 @@ TArray<int> UToolsLibrary::BoolToIndexesArray(const TArray<bool> array)
 	for (int i = 0; i < array.Num(); i++)
 		if (array[i])
 			indexArray.Add(i);
-	//return int[]
+
 	return indexArray;
 }
 
@@ -55,10 +55,14 @@ TArray<int> UToolsLibrary::BoolToIndexesArray(const TArray<bool> array)
 TArray<bool> UToolsLibrary::IndexesToBoolArray(const TArray<int> array)
 {
 	//Get the highest index
-	int length = array.Max();
+	int length = -1;
+	for (int i = 0; i < array.Num(); i++)
+		if (array[i] > length)
+			length = array[i];
+
 	//set the bool[] size
-	TArray<bool> bools;
-	for (int i = 0; i < length; i++)
+	TArray<bool> bools = TArray<bool>();
+	for (int i = 0; i < (length + 1); i++)
 		bools.Add(false);
 	//loop the array and true at bool[x], where x = arr[i]
 	for (int i = 0; i < array.Num(); i++)
@@ -68,14 +72,13 @@ TArray<bool> UToolsLibrary::IndexesToBoolArray(const TArray<int> array)
 		bools[array[i]] = true;
 	}
 
-	//return bool[]
 	return bools;
 }
 
 
 int UToolsLibrary::IndexToFlag(const int index)
 {
-	if(index < 0)
+	if (index < 0)
 		return 0;
 	return TwoPowX(index);
 }
@@ -105,6 +108,65 @@ double UToolsLibrary::TwoPowX(const int exponent)
 	return result;
 }
 
+
+FVector UToolsLibrary::VectorCone(const FVector inVector, const FVector normal, const float alphaAngle)
+{
+	FVector n = normal;
+	if (!n.Normalize())
+		return inVector;
+	const float angle = FMath::Clamp(alphaAngle, 0, 180);
+	if (angle == 90)
+	{
+		if ((inVector | n) <= 0)
+			return FVector::VectorPlaneProject(inVector, n);
+		return inVector;
+	}
+	FVector v = inVector;
+	if (!v.Normalize())
+		return inVector;
+	const float vectorLenght = inVector.Length();
+	const float cosine = FMath::Cos(FMath::DegreesToRadians(angle));
+	const float sine = FMath::Sin(FMath::DegreesToRadians(angle));
+	FVector cosineVector = v.ProjectOnToNormal(n);
+	FVector sineVector = FVector::VectorPlaneProject(v, n);
+	if (angle < 90)
+	{
+		cosineVector = cosineVector.GetSafeNormal() * FMath::Clamp(cosineVector.Length(), FMath::Abs(cosine), 1);
+		sineVector = sineVector.GetSafeNormal() * FMath::Clamp(sineVector.Length(), 0, FMath::Abs(sine));
+	}
+	else
+	{
+		cosineVector = cosineVector.GetSafeNormal() * FMath::Clamp(cosineVector.Length(), 0, FMath::Abs(cosine));
+		sineVector = sineVector.GetSafeNormal() * FMath::Clamp(sineVector.Length(), FMath::Abs(sine), 1);
+	}
+
+	return (sineVector + cosineVector).GetSafeNormal() * vectorLenght;
+}
+
+bool UToolsLibrary::IsVectorCone(const FVector inVector, const FVector normal, const float alphaAngle)
+{
+	FVector n = normal;
+	if (!n.Normalize())
+		return false;
+	const float angle = FMath::Clamp(alphaAngle, 0, 180);
+	const float cosine = (inVector.GetSafeNormal() | n);
+	if (FMath::RadiansToDegrees(FMath::Acos(cosine)) <= angle)
+		return true;
+	return false;
+}
+
+
+bool UToolsLibrary::CheckInRange(const FVector2D range, const float value, bool nanIsTrue)
+{
+	if (range.X >= range.Y || !FMath::IsFinite(value))
+	{
+		return nanIsTrue;
+	}
+	if(range.X <= value && value < range.Y)
+		return true;
+	return false;
+}
+
 FString UToolsLibrary::DebugBoolArray(TArray<bool> array)
 {
 	FString result = FString::Printf(TEXT("{"));
@@ -117,7 +179,7 @@ FString UToolsLibrary::DebugBoolArray(TArray<bool> array)
 	}
 
 	result.Append(FString::Printf(TEXT("}")));
-	return  result;
+	return result;
 }
 
 double UToolsLibrary::GetFPS(double deltaTime)
@@ -126,7 +188,8 @@ double UToolsLibrary::GetFPS(double deltaTime)
 }
 
 
-template<typename InElementType> void UToolsLibrary::MatchArraySizesToLargest(TArray<InElementType>& arrayA, TArray<InElementType>& arrayB)
+template <typename InElementType>
+void UToolsLibrary::MatchArraySizesToLargest(TArray<InElementType>& arrayA, TArray<InElementType>& arrayB)
 {
 	if (arrayA.Num() == arrayB.Num())
 		return;
@@ -145,4 +208,3 @@ template<typename InElementType> void UToolsLibrary::MatchArraySizesToLargest(TA
 		}
 	}
 }
-

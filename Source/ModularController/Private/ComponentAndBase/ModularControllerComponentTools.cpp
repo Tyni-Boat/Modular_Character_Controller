@@ -11,6 +11,7 @@
 #include "Engine/EngineTypes.h"
 #include "Engine/OverlapResult.h"
 #include "CollisionQueryParams.h"
+#include "ToolsLibrary.h"
 
 
 #pragma region Tools & Utils
@@ -55,7 +56,7 @@ bool UModularControllerComponent::ComponentTraceCastSingleUntil(FHitResult& outH
 
 
 bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation, bool traceComplex,
-                                                                   FCollisionQueryParams& queryParams) const
+                                                                   FCollisionQueryParams& queryParams, double counterDirectionMaxOffset) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComponentTraceCastMulti");
 
@@ -80,16 +81,31 @@ bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitRe
 		const bool result = GetWorld()->SweepMultiByChannel(loopHits, position, position + direction, rotation, channel, shape, loopQueryParams);
 		for (int j = 0; j < loopHits.Num(); j++)
 		{
-			if (result && OverlapInflation > 0 && j == loopHits.Num() - 1)
+			if (result && OverlapInflation > 0 && loopHits[j].bBlockingHit)
 			{
 				FHitResult zeroHitResult;
-				const FVector pt = loopHits[j].ImpactPoint - direction.GetSafeNormal() + FVector::VectorPlaneProject(loopHits[j].ImpactPoint - position, direction.GetSafeNormal()) * 0.1;
-				const FVector dir = direction * 2 + direction.GetSafeNormal() * shapeHalfLenght;
+				double offset = counterDirectionMaxOffset;
+				double beforePenetratingCompYLenght = 0;
+				FVector ptDisplacementCompX = FVector::VectorPlaneProject(loopHits[j].ImpactPoint - position, direction.GetSafeNormal());
+				FVector ptDisplacementCompY = (loopHits[j].ImpactPoint - position).ProjectOnToNormal(direction.GetSafeNormal());
+				if (loopHits[j].bStartPenetrating)
+				{
+					beforePenetratingCompYLenght = ptDisplacementCompY.Length();
+					ptDisplacementCompY = FVector(0);
+				}
+				if ((ptDisplacementCompY | direction) < 0)
+					ptDisplacementCompY = offset >= 0
+						                      ? ptDisplacementCompY.GetClampedToMaxSize(offset)
+						                      : -ptDisplacementCompY.GetClampedToMaxSize(FMath::Abs(offset));
+				const FVector pt = (position + ptDisplacementCompX + ptDisplacementCompY) - direction.GetSafeNormal() + ptDisplacementCompX.GetSafeNormal() * 0.125;
+				const FVector dir = direction * 2 + direction.GetSafeNormal() * (shapeHalfLenght + beforePenetratingCompYLenght);
 				const auto respParam = FCollisionResponseParams::DefaultResponseParam;
 				const auto objParam = FCollisionObjectQueryParams::DefaultObjectQueryParam;
 				if (loopHits[j].GetComponent()->LineTraceComponent(zeroHitResult, pt, pt + dir, channel, loopQueryParams, respParam, objParam))
 				{
 					loopHits[j].ImpactPoint = zeroHitResult.ImpactPoint;
+					loopHits[j].Normal = zeroHitResult.Normal;
+					loopHits[j].ImpactNormal = zeroHitResult.ImpactNormal;
 				}
 			}
 			outHits.Add(loopHits[j]);
@@ -269,7 +285,7 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, F
 				if (overlap.Component->GetOwner() == this->GetOwner())
 					continue;
 
-				if (DebugType == ControllerDebugType_MovementDebug)
+				if (DebugType == EControllerDebugType::MovementDebug)
 				{
 					FVector thisClosestPt;
 					FVector compClosestPt;
@@ -286,7 +302,7 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, F
 
 				if (overlap.Component->ComputePenetration(depenetrationInfos, primitive->GetCollisionShape(hullInflation), atPosition, withOrientation))
 				{
-					if (DebugType == ControllerDebugType_MovementDebug)
+					if (DebugType == EControllerDebugType::MovementDebug)
 					{
 						if (overlap.GetActor())
 						{
@@ -298,7 +314,7 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, F
 					const FVector depForce = depenetrationInfos.Direction * depenetrationInfos.Distance;
 					FVector hullPt = PointOnShape(-depenetrationInfos.Direction, atPosition);
 
-					if (DebugType == ControllerDebugType_MovementDebug)
+					if (DebugType == EControllerDebugType::MovementDebug)
 					{
 						UKismetSystemLibrary::DrawDebugArrow(this, hullPt, hullPt + depForce * 10, 100, FColor::White, 0.018, 0.5);
 					}
@@ -330,7 +346,7 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, F
 							showDebug = true;
 						}
 
-						if (showDebug && DebugType == ControllerDebugType_MovementDebug)
+						if (showDebug && DebugType == EControllerDebugType::MovementDebug)
 						{
 							UKismetSystemLibrary::DrawDebugArrow(this, hullPt, hullPt + overlapObjectForce, 100, FColor::Silver, 0.018, 1);
 						}
@@ -377,6 +393,90 @@ FVector UModularControllerComponent::PointOnShape(FVector direction, const FVect
 	UpdatedPrimitive->GetClosestPointOnCollision(outterBoundPt, onColliderPt);
 
 	return onColliderPt + offset + direction * hullInflation;
+}
+
+
+bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurface surface, FControllerStatus status, FVector customLocation, FVector customOrientation, FVector customDirection)
+{
+	if (!UpdatedPrimitive)
+		return false;
+
+	// Conditions are never valid on invalid surface
+	if (!surface.TrackedComponent.IsValid())
+		return false;
+	const FVector direction = (customDirection.SquaredLength() <= 0 ? -GetGravityDirection() : customDirection).GetSafeNormal();
+	const FVector orientation = (customOrientation.SquaredLength() <= 0 ? status.Kinematics.AngularKinematic.Orientation.Vector() : customOrientation).GetSafeNormal();
+	const FVector location = status.Kinematics.LinearKinematic.Position;
+	const FVector offsetLocation = customLocation.SquaredLength() <= 0 && (location - customLocation).SquaredLength() >= UpdatedPrimitive->Bounds.SphereRadius ? location : customLocation;
+
+	//Collision response test
+	if (conditions.CollisionResponse != ECR_MAX && static_cast<ECollisionResponse>(surface.SurfacePhysicProperties.Z) != conditions.CollisionResponse)
+		return false;
+	
+	//Stepability test
+	if (conditions.bMustBeStepable != static_cast<bool>(surface.SurfacePhysicProperties.W))
+		return false;
+	
+	//Heigth Test
+	const FVector heightVector = (surface.SurfacePoint - offsetLocation).ProjectOnToNormal(direction);
+	const float directionalHeightScale = heightVector.Length() * ((heightVector | direction) > 0 ? 1 : -1);
+	if (!UToolsLibrary::CheckInRange(conditions.HeightRange, directionalHeightScale, true))
+		return false;
+	
+	//Angle Test (N)
+	const float normalAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceNormal, direction)));
+	if (!UToolsLibrary::CheckInRange(conditions.NormalAngleRange, normalAngle, true))
+		return false;
+	
+	//Angle Test (I)
+	const float impactAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, direction)));
+	if (!UToolsLibrary::CheckInRange(conditions.ImpactAngleRange, impactAngle, true))
+		return false;
+	
+	//Offset test
+	const FVector farAwayVector = FVector::VectorPlaneProject(surface.SurfacePoint - location, direction);
+	const FVector shapePtInDir = GetWorldSpaceCardinalPoint(farAwayVector);
+	const FVector inShapeDir = shapePtInDir - location;
+	if (inShapeDir.SquaredLength() > 0 && !UToolsLibrary::CheckInRange(conditions.OffsetRange, farAwayVector.SquaredLength() / inShapeDir.SquaredLength(), true))
+		return false;
+	
+	//Angle Test (orientation)
+	const float orientationAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(farAwayVector.GetSafeNormal(), orientation)));
+	if (!UToolsLibrary::CheckInRange(conditions.OrientationAngleRange, orientationAngle, true))
+		return false;
+	
+	//Depth test
+	const FVector virtualSnap = UFunctionLibrary::GetSnapOnSurfaceVector(offsetLocation, surface, direction);
+	const FVector offset = farAwayVector.GetSafeNormal() * conditions.DepthRange.Y;
+	FHitResult hit;
+	FVector pt = location + virtualSnap + virtualSnap.GetSafeNormal() * 0.1;
+	if(!ComponentTraceCastSingle(hit, pt, offset, status.Kinematics.AngularKinematic.Orientation, 0))
+		hit.Distance = conditions.DepthRange.Y;
+	if (!UToolsLibrary::CheckInRange(conditions.DepthRange, hit.Distance - 0.001, true))
+		return false;
+	
+	//Speed test
+	const FVector speedVector = status.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(direction);
+	const float directionalSpeedScale = speedVector.Length() * ((speedVector | direction) > 0 ? 1 : -1);
+	if (!UToolsLibrary::CheckInRange(conditions.SpeedRange, directionalSpeedScale, true))
+		return false;
+	
+	//Surface speed Test
+	const FVector surfaceSpeedVector = surface.GetVelocityAt(surface.SurfacePoint).ProjectOnToNormal(direction);
+	const float dirSurfaceSpeedScale = surfaceSpeedVector.Length() * ((surfaceSpeedVector | direction) > 0 ? 1 : -1);
+	if (!UToolsLibrary::CheckInRange(conditions.SurfaceSpeedRange, dirSurfaceSpeedScale, true))
+		return false;
+
+	//Cosmetic vars test
+	for (auto entry : conditions.CosmeticVarRanges)
+	{
+		if(!status.StatusParams.StatusCosmeticVariables.Contains(entry.Key))
+			continue;
+		if (!UToolsLibrary::CheckInRange(entry.Value, status.StatusParams.StatusCosmeticVariables[entry.Key], true))
+			return false;
+	}
+
+	return true;
 }
 
 

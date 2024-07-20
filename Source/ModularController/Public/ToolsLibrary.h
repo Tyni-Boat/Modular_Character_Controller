@@ -43,6 +43,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools", meta = (CompactNodeTitle = "2powX"))
 	static double TwoPowX(const int exponent);
 
+	// Restrict a vector inside a cone defined by normal and angle in degrees.
+	UFUNCTION(BlueprintPure, Category = "Function Library | Tools")
+	static FVector VectorCone(const FVector inVector, const FVector normal, const float alphaAngle = 90);
+
+	// Check if a vector is inside a cone defined by normal and angle in degrees.
+	UFUNCTION(BlueprintPure, Category = "Function Library | Tools")
+	static bool IsVectorCone(const FVector inVector, const FVector normal, const float alphaAngle = 90);
+	
+	// Check a vector range against a value and return true if it's in range (Min <= Val < Max). nanIsTrue define the result when either the range or the value is NAN
+	UFUNCTION(BlueprintPure, Category = "Function Library | Tools")
+	static bool CheckInRange(const FVector2D range, const float value, bool nanIsTrue = false);
+
 	// Debug a boolean array
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Tools")
 	static FString DebugBoolArray(TArray<bool> array);
