@@ -37,6 +37,7 @@ TSoftObjectPtr<USkeletalMeshComponent> UModularControllerComponent::GetSkeletalM
 	return _skeletalMesh;
 }
 
+
 double UModularControllerComponent::PlayAnimationMontage_Internal(FActionMotionMontage Montage, float customAnimStartTime
                                                                   , bool useMontageEndCallback, FOnMontageEnded endCallBack)
 {
@@ -117,6 +118,32 @@ UAnimInstance* UModularControllerComponent::GetAnimInstance(FName stateName)
 		return GetSkeletalMesh()->GetAnimInstance();
 	}
 	return nullptr;
+}
+
+
+void UModularControllerComponent::AddOrUpdateMotionWarp(FName warpKey, const FTransform inTransform)
+{
+	if (_motionWarpTransforms.Contains(warpKey))
+		_motionWarpTransforms[warpKey] = inTransform;
+	else
+		_motionWarpTransforms.Add(warpKey, inTransform);
+}
+
+void UModularControllerComponent::RemoveMotionWarp(FName warpKey)
+{
+	if (_motionWarpTransforms.Contains(warpKey))
+		_motionWarpTransforms.Remove(warpKey);
+}
+
+bool UModularControllerComponent::TryGetMotionWarpTransform(FName warpKey, FTransform& outTransform)
+{
+	bool result = false;
+	if (_motionWarpTransforms.Contains(warpKey))
+	{
+		result = true;
+		outTransform = _motionWarpTransforms[warpKey];
+	}
+	return result;
 }
 
 
@@ -350,21 +377,34 @@ FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const 
 		{
 			//Rotation
 			result.Kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
+			if (_overrideRootMotionCommand.bIsMotionWarping)
+				result.Kinematics.AngularKinematic.Orientation = _overrideRootMotionCommand.WarpTransform.GetRotation();
 		}
 
 		//Translation
 		if (_overrideRootMotionCommand.OverrideTranslationRootMotionMode != ERootMotionType::NoRootMotion)
 		{
+			const FVector matchingMove = _overrideRootMotionCommand.WarpTransform.GetLocation() - result.Kinematics.LinearKinematic.Position;
 			switch (_overrideRootMotionCommand.OverrideTranslationRootMotionMode)
 			{
 				case ERootMotionType::Additive:
 					{
 						result.Kinematics.LinearKinematic.Velocity += GetRootMotionVector();
+						if (_overrideRootMotionCommand.bIsMotionWarping)
+							result.Kinematics.LinearKinematic.Velocity += matchingMove;
 					}
 					break;
 				case ERootMotionType::Override:
 					{
 						result.Kinematics.LinearKinematic.Velocity = GetRootMotionVector();
+						if (_overrideRootMotionCommand.bIsMotionWarping)
+						{
+							//result.Kinematics.LinearKinematic.Position = _overrideRootMotionCommand.WarpTransform.GetLocation();
+							result.Kinematics.LinearKinematic.Velocity = matchingMove / inDelta;
+							//UFunctionLibrary::AddCompositeMovement(result.Kinematics.LinearKinematic, matchingMove / inDelta, -1, 0);
+							result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
+							//result.Kinematics.LinearKinematic.SnapDisplacement = matchingMove;
+						}
 					}
 					break;
 			}

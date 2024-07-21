@@ -175,13 +175,23 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 				bool breakLoop = false;
 				for (auto surface : result.Kinematics.SurfacesInContact)
 				{
-					if (controller->EvaluateSurfaceConditions(item.Value, surface, result, lowestPt))
+					FSurfaceCheckResponse response;
+					if (controller->EvaluateSurfaceConditions(item.Value, response, surface, result, lowestPt))
 					{
 						breakLoop = true;
 						TArray<FTransform> ptsList;
-						FVector pos = result.Kinematics.LinearKinematic.Position;
-						FVector normal = controller->GetGravityDirection();
-						ptsList.Add(FTransform(FVector::VectorPlaneProject(surface.SurfacePoint - pos, normal).ToOrientationQuat(), surface.SurfacePoint));
+						ptsList.Empty();
+						if (item.Value.DepthRange.Z > 0)
+						{
+							FVector pos = result.Kinematics.LinearKinematic.Position;
+							FVector normal = controller->GetGravityDirection();
+							const FVector snapvector = UFunctionLibrary::GetSnapOnSurfaceVector(lowestPt, surface, normal);
+							const FVector ledgeLocation = surface.SurfacePoint + snapvector + snapvector.GetSafeNormal() * 5;
+							const FQuat lookDir = FVector::VectorPlaneProject(surface.SurfacePoint - pos, normal).ToOrientationQuat();
+							ptsList.Add(FTransform(lookDir, ledgeLocation));
+							if (!response.VaultDepthVector.ContainsNaN())
+								ptsList.Add(FTransform(lookDir, ledgeLocation + response.VaultDepthVector));
+						}
 						controller->OnControllerTriggerPathEvent.Broadcast(item.Key, ptsList);
 						break;
 					}

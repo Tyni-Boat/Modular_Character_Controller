@@ -177,9 +177,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FVector2D HeightRange = FVector2D(-1);
 
-	// The range of depths of the surface (eg: step depth) (cm)
+	// The range of depths of the surface (X: Min step depth, Y: Min Vault fall height, Z: MaxDepthCheckDistance) (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
-	FVector2D DepthRange = FVector2D(-1);
+	FVector DepthRange = FVector(-1, -1, 1);
 
 	// The range of normalized distances of the surface hit point compared to the closest point on controller's primitive (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
@@ -218,6 +218,19 @@ public:
 	bool bMustBeStepable = true;
 };
 
+
+// Response when checking surface params
+USTRUCT(BlueprintType)
+struct FSurfaceCheckResponse
+{
+	GENERATED_BODY()
+
+	FSurfaceCheckResponse();
+
+	// The vault depth vector (cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector VaultDepthVector = FVector(NAN);
+};
 
 #pragma endregion
 
@@ -598,6 +611,13 @@ public:
 		bIgnoreCollisionWhenActive = false;
 	}
 
+	FORCEINLINE FOverrideRootMotionCommand(ERootMotionType allMode)
+	{
+		OverrideTranslationRootMotionMode = allMode;
+		OverrideRotationRootMotionMode = allMode;
+		bIgnoreCollisionWhenActive = false;
+	}
+
 	//The override translation rootMotion mode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
 	ERootMotionType OverrideTranslationRootMotionMode = ERootMotionType::NoRootMotion;
@@ -609,6 +629,18 @@ public:
 	//Should the controller ignore collision during this Root motion Override?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
 	bool bIgnoreCollisionWhenActive = false;
+
+	// The command priority
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
+	int CommandPriority = -1;
+
+	// The Warp transform
+	UPROPERTY()
+	FTransform WarpTransform;
+
+	// is active when trying to Motion Warp to a location
+	UPROPERTY()
+	bool bIsMotionWarping = false;
 };
 
 
@@ -671,5 +703,11 @@ public:
 	// Restore Net Status onto the controller status
 	void RestoreOnToStatus(FControllerStatus& status) const;
 };
+
+#pragma endregion
+
+
+#pragma region Animation
+
 
 #pragma endregion

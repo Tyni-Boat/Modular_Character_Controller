@@ -142,6 +142,9 @@ void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick Tick
 		// Evaluate next frame movements here
 		ComputeTickComponent(DeltaTime);
 
+		//Reset override Root Motion		
+		_overrideRootMotionCommand = FOverrideRootMotionCommand(ERootMotionType::NoRootMotion);
+
 		//Reset external forces
 		_externalForces = FVector(0);
 	}

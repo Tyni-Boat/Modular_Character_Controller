@@ -838,6 +838,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
 	UAnimInstance* GetAnimInstance(FName stateName = NAME_None);
 
+	//Try get the motion warp transform at key
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
+	void AddOrUpdateMotionWarp(FName warpKey, const FTransform inTransform);
+
+	//Remove Warp transform
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
+	void RemoveMotionWarp(FName warpKey);
+
+	//Try get the motion warp transform at key
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
+	bool TryGetMotionWarpTransform(FName warpKey, FTransform& outTransform);
+
 	///Play an animation montage on the controller globally. returns the duration
 	double PlayAnimationMontage_Internal(FActionMotionMontage Montage, float customAnimStartTime = -1
 	                                     , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = {});
@@ -863,6 +875,9 @@ private:
 
 	//the cached skeletal mesh reference
 	TSoftObjectPtr<USkeletalMeshComponent> _skeletalMesh;
+
+	// Motion warp transform registered
+	TMap<FName,FTransform> _motionWarpTransforms;
 
 protected:
 	/// Link anim blueprint on a skeletal mesh, with a key. the use of different key result in the link of several anim blueprints.
@@ -1017,7 +1032,7 @@ public:
 
 	// Evaluate all conditions of a surface against this controller
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	bool EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurface surface, FControllerStatus status, FVector customLocation = FVector(0), FVector customOrientation = FVector(0),
+	bool EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FSurface surface, FControllerStatus status, FVector customLocation = FVector(0), FVector customOrientation = FVector(0),
 	                               FVector customDirection = FVector(0));
 
 

@@ -15,12 +15,17 @@
 
 void UModularControllerComponent::SetOverrideRootMotionMode(USkeletalMeshComponent* caller, const ERootMotionType translationMode, const ERootMotionType rotationMode)
 {
-	_overrideRootMotionCommand = FOverrideRootMotionCommand(translationMode, rotationMode);
+	SetOverrideRootMotion(caller, FOverrideRootMotionCommand(translationMode, rotationMode));
 }
 
 void UModularControllerComponent::SetOverrideRootMotion(USkeletalMeshComponent* caller, const FOverrideRootMotionCommand rootMotionParams)
 {
-	_overrideRootMotionCommand = rootMotionParams;
+	const int priority = rootMotionParams.bIsMotionWarping? TNumericLimits<int>::Max() : rootMotionParams.CommandPriority;
+	if(priority > _overrideRootMotionCommand.CommandPriority)
+	{
+		_overrideRootMotionCommand = rootMotionParams;
+		_overrideRootMotionCommand.CommandPriority = priority;
+	}
 }
 
 #pragma endregion

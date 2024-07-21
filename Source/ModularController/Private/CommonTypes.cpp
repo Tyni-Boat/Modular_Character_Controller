@@ -310,6 +310,10 @@ FSurfaceCheckParams::FSurfaceCheckParams()
 {
 }
 
+FSurfaceCheckResponse::FSurfaceCheckResponse()
+{
+}
+
 #pragma endregion
 
 

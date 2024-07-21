@@ -48,8 +48,8 @@ UENUM(BlueprintType)
 enum class ERootMotionType: uint8
 {
 	NoRootMotion,
-	Override,
 	Additive,
+	Override,
 };
 
 

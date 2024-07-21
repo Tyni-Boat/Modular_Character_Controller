@@ -396,7 +396,9 @@ FVector UModularControllerComponent::PointOnShape(FVector direction, const FVect
 }
 
 
-bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurface surface, FControllerStatus status, FVector customLocation, FVector customOrientation, FVector customDirection)
+bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FSurface surface, FControllerStatus status,
+                                                            FVector customLocation, FVector customOrientation,
+                                                            FVector customDirection)
 {
 	if (!UpdatedPrimitive)
 		return false;
@@ -404,7 +406,7 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 	// Conditions are never valid on invalid surface
 	if (!surface.TrackedComponent.IsValid())
 		return false;
-	const FVector direction = (customDirection.SquaredLength() <= 0 ? -GetGravityDirection() : customDirection).GetSafeNormal();
+	const FVector chkSurfaceDirection = (customDirection.SquaredLength() <= 0 ? -GetGravityDirection() : customDirection).GetSafeNormal();
 	const FVector orientation = (customOrientation.SquaredLength() <= 0 ? status.Kinematics.AngularKinematic.Orientation.Vector() : customOrientation).GetSafeNormal();
 	const FVector location = status.Kinematics.LinearKinematic.Position;
 	const FVector offsetLocation = customLocation.SquaredLength() <= 0 && (location - customLocation).SquaredLength() >= UpdatedPrimitive->Bounds.SphereRadius ? location : customLocation;
@@ -412,65 +414,82 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 	//Collision response test
 	if (conditions.CollisionResponse != ECR_MAX && static_cast<ECollisionResponse>(surface.SurfacePhysicProperties.Z) != conditions.CollisionResponse)
 		return false;
-	
+
 	//Stepability test
 	if (conditions.bMustBeStepable != static_cast<bool>(surface.SurfacePhysicProperties.W))
 		return false;
-	
+
 	//Heigth Test
-	const FVector heightVector = (surface.SurfacePoint - offsetLocation).ProjectOnToNormal(direction);
-	const float directionalHeightScale = heightVector.Length() * ((heightVector | direction) > 0 ? 1 : -1);
+	const FVector heightVector = (surface.SurfacePoint - offsetLocation).ProjectOnToNormal(chkSurfaceDirection);
+	const float directionalHeightScale = heightVector.Length() * ((heightVector | chkSurfaceDirection) > 0 ? 1 : -1);
 	if (!UToolsLibrary::CheckInRange(conditions.HeightRange, directionalHeightScale, true))
 		return false;
-	
+
 	//Angle Test (N)
-	const float normalAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceNormal, direction)));
+	const float normalAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceNormal, chkSurfaceDirection)));
 	if (!UToolsLibrary::CheckInRange(conditions.NormalAngleRange, normalAngle, true))
 		return false;
-	
+
 	//Angle Test (I)
-	const float impactAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, direction)));
+	const float impactAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, chkSurfaceDirection)));
 	if (!UToolsLibrary::CheckInRange(conditions.ImpactAngleRange, impactAngle, true))
 		return false;
-	
+
 	//Offset test
-	const FVector farAwayVector = FVector::VectorPlaneProject(surface.SurfacePoint - location, direction);
+	const FVector farAwayVector = FVector::VectorPlaneProject(surface.SurfacePoint - location, chkSurfaceDirection);
 	const FVector shapePtInDir = GetWorldSpaceCardinalPoint(farAwayVector);
 	const FVector inShapeDir = shapePtInDir - location;
 	if (inShapeDir.SquaredLength() > 0 && !UToolsLibrary::CheckInRange(conditions.OffsetRange, farAwayVector.SquaredLength() / inShapeDir.SquaredLength(), true))
 		return false;
-	
+
 	//Angle Test (orientation)
 	const float orientationAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(farAwayVector.GetSafeNormal(), orientation)));
 	if (!UToolsLibrary::CheckInRange(conditions.OrientationAngleRange, orientationAngle, true))
 		return false;
-	
+
 	//Depth test
-	const FVector virtualSnap = UFunctionLibrary::GetSnapOnSurfaceVector(offsetLocation, surface, direction);
-	const FVector offset = farAwayVector.GetSafeNormal() * conditions.DepthRange.Y;
-	FHitResult hit;
-	FVector pt = location + virtualSnap + virtualSnap.GetSafeNormal() * 0.1;
-	if(!ComponentTraceCastSingle(hit, pt, offset, status.Kinematics.AngularKinematic.Orientation, 0))
-		hit.Distance = conditions.DepthRange.Y;
-	if (!UToolsLibrary::CheckInRange(conditions.DepthRange, hit.Distance - 0.001, true))
-		return false;
-	
+	if (conditions.DepthRange.Z > 0 && conditions.DepthRange.X > 0)
+	{
+		const FVector virtualSnap = UFunctionLibrary::GetSnapOnSurfaceVector(offsetLocation, surface, chkSurfaceDirection);
+		FVector offset = farAwayVector.GetSafeNormal() * conditions.DepthRange.Z;
+		FHitResult hitMantle;
+		FVector pt = location + virtualSnap + virtualSnap.GetSafeNormal() * 0.1;
+		if (!ComponentTraceCastSingle(hitMantle, pt, offset, status.Kinematics.AngularKinematic.Orientation, 0))
+			hitMantle.Distance = offset.Length();
+		if (!UToolsLibrary::CheckInRange(FVector2D(conditions.DepthRange.X, conditions.DepthRange.Z + 0.125), hitMantle.Distance, true))
+			return false;
+		if (conditions.DepthRange.Y >= 0)
+		{
+			offset = offset.GetSafeNormal() * hitMantle.Distance;
+			FHitResult hitBackWall;
+			if (!surface.TrackedComponent->LineTraceComponent(hitBackWall, location + offset, location, FCollisionQueryParams::DefaultQueryParam))
+				return false;
+			if(hitBackWall.bStartPenetrating)
+				return false;
+			FHitResult hitVault;
+			pt = hitBackWall.ImpactPoint + offset.GetSafeNormal() * inShapeDir.Length() + virtualSnap + virtualSnap.GetSafeNormal() * 0.1;
+			if (ComponentTraceCastSingle(hitVault, pt, chkSurfaceDirection.GetSafeNormal() * conditions.DepthRange.Y, status.Kinematics.AngularKinematic.Orientation, 0))
+				return false;
+			response.VaultDepthVector = FVector::VectorPlaneProject(hitBackWall.ImpactPoint - surface.SurfacePoint, chkSurfaceDirection);
+		}
+	}
+
 	//Speed test
-	const FVector speedVector = status.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(direction);
-	const float directionalSpeedScale = speedVector.Length() * ((speedVector | direction) > 0 ? 1 : -1);
+	const FVector speedVector = status.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(chkSurfaceDirection);
+	const float directionalSpeedScale = speedVector.Length() * ((speedVector | chkSurfaceDirection) > 0 ? 1 : -1);
 	if (!UToolsLibrary::CheckInRange(conditions.SpeedRange, directionalSpeedScale, true))
 		return false;
-	
+
 	//Surface speed Test
-	const FVector surfaceSpeedVector = surface.GetVelocityAt(surface.SurfacePoint).ProjectOnToNormal(direction);
-	const float dirSurfaceSpeedScale = surfaceSpeedVector.Length() * ((surfaceSpeedVector | direction) > 0 ? 1 : -1);
+	const FVector surfaceSpeedVector = surface.GetVelocityAt(surface.SurfacePoint).ProjectOnToNormal(chkSurfaceDirection);
+	const float dirSurfaceSpeedScale = surfaceSpeedVector.Length() * ((surfaceSpeedVector | chkSurfaceDirection) > 0 ? 1 : -1);
 	if (!UToolsLibrary::CheckInRange(conditions.SurfaceSpeedRange, dirSurfaceSpeedScale, true))
 		return false;
 
 	//Cosmetic vars test
 	for (auto entry : conditions.CosmeticVarRanges)
 	{
-		if(!status.StatusParams.StatusCosmeticVariables.Contains(entry.Key))
+		if (!status.StatusParams.StatusCosmeticVariables.Contains(entry.Key))
 			continue;
 		if (!UToolsLibrary::CheckInRange(entry.Value, status.StatusParams.StatusCosmeticVariables[entry.Key], true))
 			return false;

@@ -132,7 +132,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Actions")
 	static FActionMotionMontage GetActionMontageInDirection(FActionMontageLibrary& structRef, ESixAxisDirectionType direction,
 	                                                        ESixAxisDirectionType fallbackDirection = ESixAxisDirectionType::Forward);
-	
+
 	// Get the index of the first surface matching condition
 	static int GetSurfaceIndexUnderCondition(FKinematicComponents kinematicComponent, std::function<bool(FSurface&)> condition);
 
@@ -143,4 +143,15 @@ public:
 
 	//Get the Mass of the component upon hit
 	static double GetHitComponentMass(FHitResult hit);
+
+
+	// Animation Utilities ///////////////////////////////////////////////////////////////////////
+
+	static void ExtractLocalSpacePose(const UAnimSequenceBase* Animation, const FBoneContainer& BoneContainer, float Time, bool bExtractRootMotion, FCompactPose& OutPose);
+
+	static void ExtractComponentSpacePose(const UAnimSequenceBase* Animation, const FBoneContainer& BoneContainer, float Time, bool bExtractRootMotion, FCSPose<FCompactPose>& OutPose);
+
+	static FTransform ExtractRootMotionFromAnimation(const UAnimSequenceBase* Animation, float StartTime, float EndTime);
+
+	static FTransform ExtractRootTransformFromAnimation(const UAnimSequenceBase* Animation, float Time);
 };
