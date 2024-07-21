@@ -371,43 +371,48 @@ FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const 
 	FControllerStatus result = inStatus;
 
 	//Handle Root Motion Override
+	FOverrideRootMotionCommand command;
+	if (!_noCollisionOverrideRootMotionCommands.Dequeue(command))
+		if (!_overrideRootMotionCommands.Dequeue(command))
+			return result;
+
+	//Rotation
+	if (command.OverrideRotationRootMotionMode != ERootMotionType::NoRootMotion)
 	{
 		//Rotation
-		if (_overrideRootMotionCommand.OverrideRotationRootMotionMode != ERootMotionType::NoRootMotion)
-		{
-			//Rotation
-			result.Kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
-			if (_overrideRootMotionCommand.bIsMotionWarping)
-				result.Kinematics.AngularKinematic.Orientation = _overrideRootMotionCommand.WarpTransform.GetRotation();
-		}
+		result.Kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
+		if (command.bIsMotionWarping)
+			result.Kinematics.AngularKinematic.Orientation = command.WarpTransform.GetRotation();
+	}
 
-		//Translation
-		if (_overrideRootMotionCommand.OverrideTranslationRootMotionMode != ERootMotionType::NoRootMotion)
+	//Translation
+	if (command.OverrideTranslationRootMotionMode != ERootMotionType::NoRootMotion)
+	{
+		const FVector matchingMove = command.WarpTransform.GetLocation() - result.Kinematics.LinearKinematic.Position;
+		switch (command.OverrideTranslationRootMotionMode)
 		{
-			const FVector matchingMove = _overrideRootMotionCommand.WarpTransform.GetLocation() - result.Kinematics.LinearKinematic.Position;
-			switch (_overrideRootMotionCommand.OverrideTranslationRootMotionMode)
-			{
-				case ERootMotionType::Additive:
+			case ERootMotionType::Additive:
+				{
+					result.Kinematics.LinearKinematic.Velocity += GetRootMotionVector();
+					if (command.bIsMotionWarping)
+						result.Kinematics.LinearKinematic.Velocity += matchingMove;
+				}
+				break;
+			case ERootMotionType::Override:
+				{
+					result.Kinematics.LinearKinematic.Velocity = GetRootMotionVector();
+					if (command.bIsMotionWarping)
 					{
-						result.Kinematics.LinearKinematic.Velocity += GetRootMotionVector();
-						if (_overrideRootMotionCommand.bIsMotionWarping)
-							result.Kinematics.LinearKinematic.Velocity += matchingMove;
+						//result.Kinematics.LinearKinematic.Position = command.WarpTransform.GetLocation();
+						result.Kinematics.LinearKinematic.Velocity = matchingMove / inDelta;
+						//UFunctionLibrary::AddCompositeMovement(result.Kinematics.LinearKinematic, matchingMove / inDelta, -1, 0);
+						result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
+						//result.Kinematics.LinearKinematic.SnapDisplacement = matchingMove;
 					}
-					break;
-				case ERootMotionType::Override:
-					{
-						result.Kinematics.LinearKinematic.Velocity = GetRootMotionVector();
-						if (_overrideRootMotionCommand.bIsMotionWarping)
-						{
-							//result.Kinematics.LinearKinematic.Position = _overrideRootMotionCommand.WarpTransform.GetLocation();
-							result.Kinematics.LinearKinematic.Velocity = matchingMove / inDelta;
-							//UFunctionLibrary::AddCompositeMovement(result.Kinematics.LinearKinematic, matchingMove / inDelta, -1, 0);
-							result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
-							//result.Kinematics.LinearKinematic.SnapDisplacement = matchingMove;
-						}
-					}
-					break;
-			}
+				}
+				break;
+			default:
+				break;
 		}
 	}
 

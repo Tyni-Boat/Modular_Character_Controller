@@ -168,7 +168,6 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 			finalKcomp.LastMoveHit = sweepMoveHit;
 			finalKcomp.LastMoveHit.HitResult.Location = endLocation;
 			finalKcomp.LastMoveHit.HitResult.TraceStart = initialLocation;
-			finalKcomp.LastMoveHit.CustomTraceVector = displacement;
 
 			//Handle collision with other components
 			if (sweepMoveHit.GetActor())
@@ -387,7 +386,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 
 	if (DebugType == EControllerDebugType::MovementDebug)
 	{
-		UFunctionLibrary::DrawDebugCircleOnHit(Hit, false, 43 + depth * 5, FColor::Green, deltaTime * 2, 1, false);
+		UFunctionLibrary::DrawDebugCircleOnHit(Hit, 43 + depth * 5, FColor::Green, deltaTime * 2, 1, false);
 		UKismetSystemLibrary::DrawDebugArrow(this, Hit.ImpactPoint, Hit.ImpactPoint + slideMove / deltaTime, 50, FColor::Green, deltaTime * 1.2);
 	}
 
@@ -408,7 +407,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 
 			if (DebugType == EControllerDebugType::MovementDebug)
 			{
-				UFunctionLibrary::DrawDebugCircleOnHit(primaryHit, false, 38 + depth * 5, primaryHit.bStartPenetrating ? FColor::Red : FColor::Yellow, deltaTime * 1.2, 1, false);
+				UFunctionLibrary::DrawDebugCircleOnHit(primaryHit, 38 + depth * 5, primaryHit.bStartPenetrating ? FColor::Red : FColor::Yellow, deltaTime * 1.2, 1, false);
 				UKismetSystemLibrary::DrawDebugArrow(this, primaryHit.ImpactPoint, primaryHit.ImpactPoint + twoWallAdjust / deltaTime, 50,
 				                                     primaryHit.bStartPenetrating ? FColor::Red : FColor::Yellow, deltaTime * 1.2, 5);
 			}
@@ -427,7 +426,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 				{
 					if (DebugType == EControllerDebugType::MovementDebug)
 					{
-						UFunctionLibrary::DrawDebugCircleOnHit(secondaryMove, false, 33 + depth * 5, secondaryMove.bStartPenetrating ? FColor::Black : FColor::Purple, deltaTime * 1.2, 1,
+						UFunctionLibrary::DrawDebugCircleOnHit(secondaryMove, 33 + depth * 5, secondaryMove.bStartPenetrating ? FColor::Black : FColor::Purple, deltaTime * 1.2, 1,
 						                                       false);
 					}
 

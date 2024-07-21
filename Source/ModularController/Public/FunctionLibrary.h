@@ -36,14 +36,12 @@ public:
 
 
 	// Draw a debug circle at the hit point on a surface.
-	UFUNCTION(BlueprintCallable, Category = "Function Library | Surface | Debug")
-	static void DrawDebugCircleOnHit(const FHitResult MyStructRef, bool useImpact = false, float radius = 40, FColor color = FColor::White, float duration = 0, float thickness = 1,
-	                                 bool showAxis = false);
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Surface | Debug", meta=(AdvancedDisplay=1))
+	static void DrawDebugCircleOnHit(const FHitResult MyStructRef, float radius = 40, FLinearColor color = FLinearColor::White, float duration = 0, float thickness = 1, bool showImpactAxis = false);
 
 
-	UFUNCTION(BlueprintCallable, Category = "Function Library | Surface | Debug")
-	static void DrawDebugCircleOnSurface(const FSurface MyStructRef, float radius = 40, FColor color = FColor::White, float duration = 0, float thickness = 1, bool showAxis = false,
-	                                     bool useImpact = false);
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Surface | Debug", meta=(AdvancedDisplay=1))
+	static void DrawDebugCircleOnSurface(const FSurface MyStructRef, float radius = 40, FLinearColor color = FLinearColor::White, float duration = 0, float thickness = 1, bool showImpactAxis = false);
 
 
 	// Get the point to the object T from a soft object pointer.

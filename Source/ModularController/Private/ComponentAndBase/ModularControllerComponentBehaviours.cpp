@@ -20,11 +20,16 @@ void UModularControllerComponent::SetOverrideRootMotionMode(USkeletalMeshCompone
 
 void UModularControllerComponent::SetOverrideRootMotion(USkeletalMeshComponent* caller, const FOverrideRootMotionCommand rootMotionParams)
 {
-	const int priority = rootMotionParams.bIsMotionWarping? TNumericLimits<int>::Max() : rootMotionParams.CommandPriority;
-	if(priority > _overrideRootMotionCommand.CommandPriority)
+	FOverrideRootMotionCommand garbage;
+	if (rootMotionParams.bIgnoreCollisionWhenActive)
 	{
-		_overrideRootMotionCommand = rootMotionParams;
-		_overrideRootMotionCommand.CommandPriority = priority;
+		_noCollisionOverrideRootMotionCommands.Dequeue(garbage);
+		_noCollisionOverrideRootMotionCommands.Enqueue(rootMotionParams);
+	}
+	else
+	{
+		_overrideRootMotionCommands.Dequeue(garbage);
+		_overrideRootMotionCommands.Enqueue(rootMotionParams);
 	}
 }
 

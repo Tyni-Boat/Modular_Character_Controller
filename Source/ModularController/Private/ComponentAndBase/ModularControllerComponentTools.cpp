@@ -55,7 +55,8 @@ bool UModularControllerComponent::ComponentTraceCastSingleUntil(FHitResult& outH
 }
 
 
-bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation, bool traceComplex,
+bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitResultExpanded>& outHits, FVector position, FVector direction, FQuat rotation, double inflation,
+                                                                   bool traceComplex,
                                                                    FCollisionQueryParams& queryParams, double counterDirectionMaxOffset) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComponentTraceCastMulti");
@@ -81,34 +82,46 @@ bool UModularControllerComponent::ComponentTraceCastMulti_internal(TArray<FHitRe
 		const bool result = GetWorld()->SweepMultiByChannel(loopHits, position, position + direction, rotation, channel, shape, loopQueryParams);
 		for (int j = 0; j < loopHits.Num(); j++)
 		{
-			if (result && OverlapInflation > 0 && loopHits[j].bBlockingHit)
+			auto queryType = loopHits[j].Component->GetCollisionResponseToChannel(UpdatedPrimitive->GetCollisionObjectType());
+			outHits.Add(FHitResultExpanded(loopHits[j], 0, queryType));
+			if (queryType == ECR_Block && direction.SquaredLength() > 0)
 			{
-				FHitResult zeroHitResult;
-				double offset = counterDirectionMaxOffset;
-				double beforePenetratingCompYLenght = 0;
-				FVector ptDisplacementCompX = FVector::VectorPlaneProject(loopHits[j].ImpactPoint - position, direction.GetSafeNormal());
-				FVector ptDisplacementCompY = (loopHits[j].ImpactPoint - position).ProjectOnToNormal(direction.GetSafeNormal());
-				if (loopHits[j].bStartPenetrating)
-				{
-					beforePenetratingCompYLenght = ptDisplacementCompY.Length();
-					ptDisplacementCompY = FVector(0);
-				}
-				if ((ptDisplacementCompY | direction) < 0)
-					ptDisplacementCompY = offset >= 0
-						                      ? ptDisplacementCompY.GetClampedToMaxSize(offset)
-						                      : -ptDisplacementCompY.GetClampedToMaxSize(FMath::Abs(offset));
-				const FVector pt = (position + ptDisplacementCompX + ptDisplacementCompY) - direction.GetSafeNormal() + ptDisplacementCompX.GetSafeNormal() * 0.125;
-				const FVector dir = direction * 2 + direction.GetSafeNormal() * (shapeHalfLenght + beforePenetratingCompYLenght);
+				int hitIndex = 1;
+				int maxSubSurfaceHit = 5;
 				const auto respParam = FCollisionResponseParams::DefaultResponseParam;
 				const auto objParam = FCollisionObjectQueryParams::DefaultObjectQueryParam;
-				if (loopHits[j].GetComponent()->LineTraceComponent(zeroHitResult, pt, pt + dir, channel, loopQueryParams, respParam, objParam))
+
+				FHitResult zeroHitResult;
+				const FVector chkDir = direction + direction.GetSafeNormal() * (shapeHalfLenght * 3);
+				const FVector penetrationVector = direction.GetSafeNormal() * 3;
+				
+				FVector awayOffset = FVector::VectorPlaneProject(loopHits[j].ImpactPoint - position, direction.GetSafeNormal());
+				FVector pt = loopHits[j].ImpactPoint + penetrationVector + awayOffset.GetSafeNormal() * 0.125;
+				if (DebugType == EControllerDebugType::PhysicDebug)
+					UKismetSystemLibrary::DrawDebugArrow(this, pt, pt + chkDir, 50, FColor::Silver, 0.01);
+				while (loopHits[j].GetComponent()->LineTraceComponent(zeroHitResult, pt, pt + chkDir, channel, loopQueryParams, respParam, objParam))
 				{
-					loopHits[j].ImpactPoint = zeroHitResult.ImpactPoint;
-					loopHits[j].Normal = zeroHitResult.Normal;
-					loopHits[j].ImpactNormal = zeroHitResult.ImpactNormal;
+					if (zeroHitResult.Distance < 3)
+						break;
+					FHitResult innerHit;
+					FVector innerPt = zeroHitResult.ImpactPoint - chkDir.GetSafeNormal() * (shapeHalfLenght + OverlapInflation + 0.125);
+					if (loopHits[j].GetComponent()->SweepComponent(innerHit, innerPt, innerPt + chkDir, rotation, shape, traceComplex))
+					{
+						if (innerHit.bStartPenetrating)
+						{
+							innerHit.ImpactPoint = zeroHitResult.ImpactPoint;
+							innerHit.Normal = zeroHitResult.Normal;
+							innerHit.ImpactNormal = zeroHitResult.ImpactNormal;
+						}
+						outHits.Add(FHitResultExpanded(innerHit, hitIndex, queryType));
+						hitIndex++;
+					}
+					pt = zeroHitResult.ImpactPoint + penetrationVector;
+					maxSubSurfaceHit--;
+					if(maxSubSurfaceHit <= 0)
+						break;
 				}
 			}
-			outHits.Add(loopHits[j]);
 			loopQueryParams.AddIgnoredComponent(loopHits[j].GetComponent());
 		}
 
@@ -464,7 +477,7 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 			FHitResult hitBackWall;
 			if (!surface.TrackedComponent->LineTraceComponent(hitBackWall, location + offset, location, FCollisionQueryParams::DefaultQueryParam))
 				return false;
-			if(hitBackWall.bStartPenetrating)
+			if (hitBackWall.bStartPenetrating)
 				return false;
 			FHitResult hitVault;
 			pt = hitBackWall.ImpactPoint + offset.GetSafeNormal() * inShapeDir.Length() + virtualSnap + virtualSnap.GetSafeNormal() * 0.1;

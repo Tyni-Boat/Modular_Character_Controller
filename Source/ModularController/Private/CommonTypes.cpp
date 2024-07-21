@@ -11,7 +11,6 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 
 
-
 #pragma region Inputs
 
 FInputEntry::FInputEntry()
@@ -177,9 +176,11 @@ FHitResultExpanded::FHitResultExpanded()
 {
 }
 
-FHitResultExpanded::FHitResultExpanded(FHitResult hit, ECollisionResponse queryType)
+FHitResultExpanded::FHitResultExpanded(FHitResult hit, int index, ECollisionResponse queryType)
 {
 	HitResult = hit;
+	HitIndex = index;
+	ObjectType = hit.Component.IsValid()? UCollisionProfile::Get()->ConvertToObjectType(hit.GetComponent()->GetCollisionObjectType()) : EObjectTypeQuery::ObjectTypeQuery_MAX;
 	QueryResponse = queryType != ECR_MAX ? queryType : (hit.bBlockingHit ? ECR_Block : ECR_Ignore);
 }
 
@@ -238,7 +239,7 @@ void FSurface::UpdateHit(FHitResultExpanded hit, bool canStepOn)
 	SurfacePoint = hit.HitResult.ImpactPoint;
 	SurfaceNormal = hit.HitResult.Normal;
 	SurfaceImpactNormal = hit.HitResult.ImpactNormal;
-	if (TrackedComponentBoneName != hit.HitResult.BoneName)
+	if (TrackedComponentBoneName != hit.HitResult.BoneName || TrackedComponentIndex != hit.HitIndex)
 	{
 		_lastPosition = FVector(NAN);
 		_lastRotation = FQuat(NAN,NAN,NAN,NAN);
@@ -246,9 +247,10 @@ void FSurface::UpdateHit(FHitResultExpanded hit, bool canStepOn)
 		AngularVelocity = FVector(0);
 	}
 	TrackedComponentBoneName = hit.HitResult.BoneName;
+	TrackedComponentIndex = hit.HitIndex;
 	SurfacePhysicProperties = hit.HitResult.PhysMaterial.IsValid()
-		                          ? FVector4f(hit.HitResult.PhysMaterial->Friction, hit.HitResult.PhysMaterial->Restitution, hit.QueryResponse, canStepOn? 1 : 0)
-		                          : FVector4f(1, 0, hit.QueryResponse, canStepOn? 1 : 0);
+		                          ? FVector4f(hit.HitResult.PhysMaterial->Friction, hit.HitResult.PhysMaterial->Restitution, hit.QueryResponse, canStepOn ? 1 : 0)
+		                          : FVector4f(1, 0, hit.QueryResponse, canStepOn ? 1 : 0);
 }
 
 
@@ -298,7 +300,7 @@ FVector FSurface::GetVelocityAt(const FVector point, const float deltaTime) cons
 	const double radius = FVector::VectorPlaneProject(point - TrackedComponent->GetSocketLocation(TrackedComponentBoneName), rotationAxis).Length();
 	const double angle = FMath::DegreesToRadians(AngularVelocity.Length());
 	const FVector rotVel = radius * angle * tangentialDirection;
-	const FVector centripetal = -radiusDirection * (angle * angle) * radius * deltaTime * deltaTime * 1.5;//(1 + deltaTime);
+	const FVector centripetal = -radiusDirection * (angle * angle) * radius * deltaTime * deltaTime * 1.5; //(1 + deltaTime);
 
 	//Finally
 	return linearPart + rotVel + centripetal;
@@ -318,7 +320,6 @@ FSurfaceCheckResponse::FSurfaceCheckResponse()
 
 
 #pragma region States and Actions
-
 
 
 FActionInfos::FActionInfos()
@@ -366,7 +367,7 @@ double FActionInfos::GetNormalizedTime(EActionPhase phase) const
 
 double FActionInfos::GetPhaseRemainingTime(EActionPhase phase) const
 {
-	const double normalizedTime = GetNormalizedTime(phase); 
+	const double normalizedTime = GetNormalizedTime(phase);
 	switch (phase)
 	{
 		case EActionPhase::Undetermined: return 0;
@@ -653,7 +654,7 @@ bool FKinematicComponents::ForEachSurface(std::function<void(FSurface)> doAction
 
 	for (int i = 0; i < SurfacesInContact.Num(); i++)
 	{
-		if(onlyValidOnes)
+		if (onlyValidOnes)
 		{
 			if (!surfaceCombination.IsValidIndex(i) || !surfaceCombination[i])
 				continue;

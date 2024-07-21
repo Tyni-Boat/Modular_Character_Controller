@@ -85,6 +85,8 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 			{
 				continue;
 			}
+			if(!asActive && (surface.SurfaceNormal | surface.SurfaceImpactNormal) < 0.9)
+				continue;
 
 			badAngleIndex = i;
 			closestBadAngle = badDistance;
@@ -99,7 +101,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		if (distance >= closestSurface)
 		{
 			if (bDebugState)
-				UFunctionLibrary::DrawDebugCircleOnSurface(surface, 25, FColor::Silver, inDelta * 1.5, 1, false, true);
+				UFunctionLibrary::DrawDebugCircleOnSurface(surface, 25, FColor::Silver, inDelta * 1.5, 1, false);
 			continue;
 		}
 
@@ -116,7 +118,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 				if (controller->OverlapTest(location + offset, status.Kinematics.AngularKinematic.Orientation, channel, shape, controller->GetOwner()))
 				{
 					if (bDebugState)
-						UFunctionLibrary::DrawDebugCircleOnSurface(surface, 25, FColor::Black, inDelta * 1.5, 1, false, true);
+						UFunctionLibrary::DrawDebugCircleOnSurface(surface, 25, FColor::Black, inDelta * 1.5, 1, false);
 					continue;
 				}
 			}
@@ -140,10 +142,10 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 	{
 		if (status.Kinematics.SurfacesInContact.IsValidIndex(surfaceIndex))
 			UFunctionLibrary::DrawDebugCircleOnSurface(status.Kinematics.SurfacesInContact[surfaceIndex], 25, asActive ? FColor::Blue : FColor::Yellow
-			                                           , inDelta * 1.5, 2, true, true);
+			                                           , inDelta * 1.5, 2, true);
 		if (status.Kinematics.SurfacesInContact.IsValidIndex(badAngleIndex))
 			UFunctionLibrary::DrawDebugCircleOnSurface(status.Kinematics.SurfacesInContact[badAngleIndex], 25, asActive ? FColor::Purple : FColor::Magenta
-			                                           , inDelta * 1.5, 2, true, true);
+			                                           , inDelta * 1.5, 2, true);
 	}
 
 	return flag;

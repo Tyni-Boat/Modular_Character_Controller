@@ -60,6 +60,9 @@ DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerTriggerPathEventS
 DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_OneParam(FControllerUniqueEventSignature, UModularControllerComponent,
                                                    OnControllerUniqueEvent, FName, LaunchID);
 
+//The inflation used when detecting main surfaces
+#define OVERLAP_INFLATION 5
+
 
 // Modular pawn controller, handle the logic to move the pawn based on any movement state.
 UCLASS(ClassGroup = "Controllers",
@@ -372,6 +375,7 @@ protected:
 
 #pragma region Physic
 public:
+	
 	// The Mass of the object. use negative values to auto calculate.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	float Mass = 80;
@@ -412,7 +416,7 @@ public:
 	TArray<FHitResultExpanded> _contactHits;
 
 	//The cached array of hits during OverlapSolving
-	TArray<FHitResult> _tempOverlapSolverHits;
+	TArray<FHitResultExpanded> _tempOverlapSolverHits;
 
 	// The list of local space cardinal points;
 	TArray<FVector> _localSpaceCardinalPoints;
@@ -424,12 +428,12 @@ public:
 	FCollisionShape _shapeDatas;
 
 
-	UFUNCTION(BlueprintGetter, Category="Controllers|Physic")
+	UFUNCTION(BlueprintPure, Category="Controllers|Physic")
 	bool IsIgnoringCollision() const;
 
 
 	// Get the controller Gravity
-	UFUNCTION(BlueprintGetter, Category = "Controllers|Physic")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
 	FORCEINLINE FVector GetGravity() const
 	{
 		return _gravityVector;
@@ -445,7 +449,7 @@ public:
 
 
 	// Get the controller Gravity's Direction
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
 	FORCEINLINE FVector GetGravityDirection() const
 	{
 		return _gravityVector.GetSafeNormal();
@@ -453,7 +457,7 @@ public:
 
 
 	// Get the controller Gravity's Scale
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
 	FORCEINLINE float GetGravityScale() const
 	{
 		return _gravityVector.Length();
@@ -461,7 +465,7 @@ public:
 
 
 	// Get the controller Mass
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
 	FORCEINLINE float GetMass() const
 	{
 		return (Mass < 0 && UpdatedPrimitive != nullptr && UpdatedPrimitive->IsSimulatingPhysics()) ? UpdatedPrimitive->GetMass() : FMath::Clamp(Mass, 1, TNumericLimits<double>().Max());
@@ -479,7 +483,7 @@ public:
 
 
 	// Get the closest cardinal point on the shape matching the worldSpaceDirection. return NAN if an error happened.
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
 	FVector GetWorldSpaceCardinalPoint(const FVector worldSpaceDirection) const;
 
 
@@ -506,8 +510,11 @@ public:
 #pragma region All Behaviours
 
 protected:
-	// The map of override root motion commands per simulation tag
-	FOverrideRootMotionCommand _overrideRootMotionCommand;
+	// The queue of override root motion commands
+	TQueue<FOverrideRootMotionCommand> _overrideRootMotionCommands;
+
+	// The queue of override root motion commands with no collision
+	TQueue<FOverrideRootMotionCommand> _noCollisionOverrideRootMotionCommands;
 
 
 public:
@@ -567,21 +574,21 @@ public:
 
 public:
 	// Get the current state behaviour instance
-	UFUNCTION(BlueprintGetter, Category = "Controllers|Controller State", meta=(CompactNodeTitle="CurrentState"))
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller State", meta=(CompactNodeTitle="CurrentState"))
 	UBaseControllerState* GetCurrentControllerState() const;
 
 
 	/// Check if we have a state behaviour by type
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller State")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller State")
 	bool CheckControllerStateByType(TSubclassOf<UBaseControllerState> moduleType) const;
 
 
 	/// Check if we have a state behaviour. by name
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller State")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller State")
 	bool CheckControllerStateByName(FName moduleName) const;
 
 	/// Check if we have a state behaviour. by priority
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller State")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller State")
 	bool CheckControllerStateByPriority(int modulePriority) const;
 
 	// Sort states array.
@@ -689,24 +696,24 @@ public:
 
 public:
 	/// Get the current action behaviour instance
-	UFUNCTION(BlueprintGetter, Category = "Controllers|Controller Action", meta = (CompactNodeTitle = "CurrentAction"))
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action", meta = (CompactNodeTitle = "CurrentAction"))
 	UBaseControllerAction* GetCurrentControllerAction() const;
 
 	/// Get the current action Infos
-	UFUNCTION(BlueprintGetter, Category = "Controllers|Controller Action", meta = (CompactNodeTitle = "CurrentActionInfos"))
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action", meta = (CompactNodeTitle = "CurrentActionInfos"))
 	FActionInfos GetCurrentControllerActionInfos() const;
 
 
 	/// Check if we have an action behaviour by type
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action")
 	bool CheckActionBehaviourByType(TSubclassOf<UBaseControllerAction> moduleType) const;
 
 	/// Check if we have an action behaviour by name
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action")
 	bool CheckActionBehaviourByName(FName moduleName) const;
 
 	/// Check if we have an action behaviour by priority
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action")
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action")
 	bool CheckActionBehaviourByPriority(int modulePriority) const;
 
 	// Sort Actions instances Array
@@ -877,7 +884,7 @@ private:
 	TSoftObjectPtr<USkeletalMeshComponent> _skeletalMesh;
 
 	// Motion warp transform registered
-	TMap<FName,FTransform> _motionWarpTransforms;
+	TMap<FName, FTransform> _motionWarpTransforms;
 
 protected:
 	/// Link anim blueprint on a skeletal mesh, with a key. the use of different key result in the link of several anim blueprints.
@@ -959,13 +966,13 @@ public:
 
 	/// Check for all collisions at a position and rotation in a direction as overlaps. return true if any collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	FORCEINLINE bool ComponentTraceCastMulti(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
+	FORCEINLINE bool ComponentTraceCastMulti(TArray<FHitResultExpanded>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
 	{
 		return ComponentTraceCastMulti_internal(outHits, position, direction, rotation, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
 	}
 
 
-	bool ComponentTraceCastMulti_internal(TArray<FHitResult>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false,
+	bool ComponentTraceCastMulti_internal(TArray<FHitResultExpanded>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false,
 	                                      FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam,
 	                                      double counterDirectionMaxOffset = TNumericLimits<float>::Max()) const;
 
@@ -1032,7 +1039,8 @@ public:
 
 	// Evaluate all conditions of a surface against this controller
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	bool EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FSurface surface, FControllerStatus status, FVector customLocation = FVector(0), FVector customOrientation = FVector(0),
+	bool EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FSurface surface, FControllerStatus status, FVector customLocation = FVector(0),
+	                               FVector customOrientation = FVector(0),
 	                               FVector customDirection = FVector(0));
 
 

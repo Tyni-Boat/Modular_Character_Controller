@@ -86,46 +86,39 @@ FVector UFunctionLibrary::GetMixedPhysicProperties(const FHitResult MyStructRef,
 }
 
 
-void UFunctionLibrary::DrawDebugCircleOnHit(const FHitResult MyStructRef, bool useImpact, float radius, FColor color, float duration, float thickness, bool showAxis)
+void UFunctionLibrary::DrawDebugCircleOnHit(const FHitResult MyStructRef, float radius, FLinearColor color, float duration, float thickness, bool showImpactAxis)
 {
 	if (!MyStructRef.Component.IsValid())
 		return;
-	FVector up = useImpact ? MyStructRef.ImpactNormal : MyStructRef.Normal;
+	FVector up = MyStructRef.Normal;
+	FVector axisUp = MyStructRef.ImpactNormal;
 	if (!up.Normalize())
 		return;
-	FVector right = up.Rotation().Quaternion().GetAxisY();
-	FVector forward = FVector::CrossProduct(right, up);
-	FVector::CreateOrthonormalBasis(forward, right, up);
-	FVector hitPoint = MyStructRef.ImpactPoint + up * 0.01;
-	if (showAxis)
+	const FVector hitPoint = MyStructRef.ImpactPoint + up * 0.01;
+	FVector right = axisUp.Rotation().Quaternion().GetAxisY();
+	FVector forward = FVector::CrossProduct(right, axisUp);
+	if (showImpactAxis && axisUp.Normalize())
 	{
-		UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetComponent(), hitPoint, hitPoint + up * radius, (radius * 0.25), FColor::Blue, duration, thickness);
+		FVector::CreateOrthonormalBasis(forward, right, axisUp);
+		UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetComponent(), hitPoint, hitPoint + axisUp * radius, (radius * 0.25), FColor::Blue, duration, thickness);
 		UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetComponent(), hitPoint, hitPoint + forward * (radius * 0.5), (radius * 0.25), FColor::Red, duration, thickness);
 		UKismetSystemLibrary::DrawDebugArrow(MyStructRef.GetComponent(), hitPoint, hitPoint + right * (radius * 0.5), (radius * 0.25), FColor::Green, duration, thickness);
 	}
+	right = up.Rotation().Quaternion().GetAxisY();
+	forward = FVector::CrossProduct(right, up);
+	FVector::CreateOrthonormalBasis(forward, right, up);
 	UKismetSystemLibrary::DrawDebugCircle(MyStructRef.GetComponent(), hitPoint, radius, 32,
 	                                      color, duration, thickness, right, forward);
 }
 
-void UFunctionLibrary::DrawDebugCircleOnSurface(const FSurface MyStructRef, float radius, FColor color, float duration, float thickness, bool showAxis, bool useImpact)
+void UFunctionLibrary::DrawDebugCircleOnSurface(const FSurface MyStructRef, float radius, FLinearColor color, float duration, float thickness, bool showImpactAxis)
 {
-	if (!MyStructRef.TrackedComponent.IsValid())
-		return;
-	FVector up = useImpact ? MyStructRef.SurfaceImpactNormal : MyStructRef.SurfaceNormal;
-	if (!up.Normalize())
-		return;
-	FVector right = up.Rotation().Quaternion().GetAxisY();
-	FVector forward = FVector::CrossProduct(right, up);
-	FVector::CreateOrthonormalBasis(forward, right, up);
-	FVector hitPoint = MyStructRef.SurfacePoint + up * 0.01;
-	if (showAxis)
-	{
-		UKismetSystemLibrary::DrawDebugArrow(MyStructRef.TrackedComponent.Get(), hitPoint, hitPoint + up * radius, (radius * 0.25), FColor::Blue, duration, thickness);
-		UKismetSystemLibrary::DrawDebugArrow(MyStructRef.TrackedComponent.Get(), hitPoint, hitPoint + forward * (radius * 0.5), (radius * 0.25), FColor::Red, duration, thickness);
-		UKismetSystemLibrary::DrawDebugArrow(MyStructRef.TrackedComponent.Get(), hitPoint, hitPoint + right * (radius * 0.5), (radius * 0.25), FColor::Green, duration, thickness);
-	}
-	UKismetSystemLibrary::DrawDebugCircle(MyStructRef.TrackedComponent.Get(), hitPoint, radius, 32,
-	                                      color, duration, thickness, right, forward);
+	FHitResult hit;
+	hit.Component = MyStructRef.TrackedComponent;
+	hit.Normal = MyStructRef.SurfaceNormal;
+	hit.ImpactNormal = MyStructRef.SurfaceImpactNormal;
+	hit.ImpactPoint = MyStructRef.SurfacePoint;
+	DrawDebugCircleOnHit(hit, radius, color, duration, thickness, showImpactAxis);
 }
 
 

@@ -83,16 +83,23 @@ struct MODULARCONTROLLER_API FHitResultExpanded
 public:
 	FHitResultExpanded();
 
-	FHitResultExpanded(FHitResult hit, ECollisionResponse queryType = ECR_MAX);
+	FHitResultExpanded(FHitResult hit, int index = 0, ECollisionResponse queryType = ECR_MAX);
 
+	// Hit result
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
 	FHitResult HitResult;
 
+	// The hit index of how many time the same component is hit
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
-	FVector CustomTraceVector;
+	int HitIndex = 0;
 
+	// The query response.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
 	TEnumAsByte<ECollisionResponse> QueryResponse = ECollisionResponse::ECR_MAX;
+
+	// The hit object's type.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hit Expansion")
+	TEnumAsByte<EObjectTypeQuery> ObjectType = ObjectTypeQuery_MAX;
 };
 
 
@@ -113,6 +120,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Tracking")
 	FName TrackedComponentBoneName = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Tracking")
+	int TrackedComponentIndex = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	FVector SurfacePoint = FVector(0);
@@ -629,10 +639,6 @@ public:
 	//Should the controller ignore collision during this Root motion Override?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
 	bool bIgnoreCollisionWhenActive = false;
-
-	// The command priority
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-	int CommandPriority = -1;
 
 	// The Warp transform
 	UPROPERTY()

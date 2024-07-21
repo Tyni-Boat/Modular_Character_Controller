@@ -58,7 +58,7 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 	if (!UpdatedPrimitive || !GetWorld())
 		return;
 	const auto world = GetWorld();
-	constexpr float detectionInflation = 5;
+	constexpr float detectionInflation = OVERLAP_INFLATION;
 	const FVector location = GetLocation();
 	const FQuat rotation = UpdatedPrimitive->GetComponentQuat();
 	FComponentQueryParams comQueryParams;
@@ -73,36 +73,36 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 	if (offset.SquaredLength() > 0)
 	{
 		FHitResult hit;
-		FCollisionQueryParams queryParams = FCollisionQueryParams::DefaultQueryParam;
-		FCollisionResponseParams response = FCollisionResponseParams::DefaultResponseParam;
-		response.CollisionResponse.SetAllChannels(ECR_Block);
-		queryParams.AddIgnoredActor(GetOwner());
-		queryParams.bTraceComplex = bUseComplexCollision;
-		queryParams.bReturnPhysicalMaterial = true;
-		const auto newShape = UpdatedPrimitive->GetCollisionShape(-2);
-
-		if (GetWorld()->SweepSingleByChannel(hit, location, location - offset, rotation, channel, newShape, queryParams, response))
+		// FCollisionQueryParams queryParams = FCollisionQueryParams::DefaultQueryParam;
+		// FCollisionResponseParams response = FCollisionResponseParams::DefaultResponseParam;
+		// response.CollisionResponse.SetAllChannels(ECR_Block);
+		// queryParams.AddIgnoredActor(GetOwner());
+		// queryParams.bTraceComplex = bUseComplexCollision;
+		// queryParams.bReturnPhysicalMaterial = true;
+		// const auto newShape = UpdatedPrimitive->GetCollisionShape(-2);
+		//
+		// if (GetWorld()->SweepSingleByChannel(hit, location, location - offset, rotation, channel, newShape, queryParams, response))
+		// {
+		// 	if (DebugType != EControllerDebugType::None)
+		// 	{
+		// 		UFunctionLibrary::DrawDebugCircleOnHit(hit, false, 45, hit.bStartPenetrating ? FColor::Yellow : FColor::Magenta, DeltaTime * 1.2, 0.5);
+		// 	}
+		// 	FVector vector = UFunctionLibrary::GetSnapOnSurfaceVector(cardinalPoint, FSurface(hit), scanDirection.GetSafeNormal());
+		// 	const FVector offsetDir = -vector;
+		// 	const FVector counterDir = vector.GetSafeNormal() * (5 + detectionInflation + 0.125);
+		// 	offset = offsetDir + counterDir.GetClampedToMaxSize(offsetDir.Length());
+		// }
+		// else
+		// {
+		if (DebugType != EControllerDebugType::None)
 		{
-			if (DebugType != EControllerDebugType::None)
-			{
-				UFunctionLibrary::DrawDebugCircleOnHit(hit, false, 45, hit.bStartPenetrating ? FColor::Yellow : FColor::Magenta, DeltaTime * 1.2, 0.5);
-			}
-			FVector vector = UFunctionLibrary::GetSnapOnSurfaceVector(cardinalPoint, FSurface(hit), scanDirection.GetSafeNormal());
-			const FVector offsetDir = -vector;
-			const FVector counterDir = vector.GetSafeNormal() * (5 + detectionInflation + 0.125);
-			offset = offsetDir + counterDir.GetClampedToMaxSize(offsetDir.Length());
+			hit.Normal = offset.GetSafeNormal();
+			hit.ImpactNormal = offset.GetSafeNormal();
+			hit.ImpactPoint = location - offset;
+			hit.Component = UpdatedPrimitive;
+			UFunctionLibrary::DrawDebugCircleOnHit(hit, false, FColor::White, DeltaTime * 1.2, 0.5);
 		}
-		else
-		{
-			if (DebugType != EControllerDebugType::None)
-			{
-				hit.Normal = offset.GetSafeNormal();
-				hit.ImpactNormal = offset.GetSafeNormal();
-				hit.ImpactPoint = location - offset;
-				hit.Component = UpdatedPrimitive;
-				UFunctionLibrary::DrawDebugCircleOnHit(hit, false, 45, FColor::White, DeltaTime * 1.2, 0.5);
-			}
-		}
+		// }
 	}
 	if (ComponentTraceCastMulti_internal(_tempOverlapSolverHits, location - offset, scanDirection + offset, rotation, detectionInflation, bUseComplexCollision,
 	                                     FCollisionQueryParams::DefaultQueryParam, scanMaxOffset))
@@ -113,31 +113,21 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 		{
 			auto& overlapHit = _tempOverlapSolverHits[i];
 
-			// Remove offset hits
-			if (offset.SquaredLength() > 0)
-			{
-				const FVector toHitVector = overlapHit.ImpactPoint - location;
-				const FVector toCardinalVector = (cardinalPoint - location) + (cardinalPoint - location).GetSafeNormal() * (detectionInflation + 0.001);
-				// if ((toHitVector | scanDirection) < 0 && toHitVector.SquaredLength() > toCardinalVector.SquaredLength())
-				// 	continue;
-			}
-
-			const ECollisionResponse collisionResponse = overlapHit.Component->GetCollisionResponseToChannel(UpdatedPrimitive->GetCollisionObjectType());
-			const bool isBlocking = collisionResponse == ECollisionResponse::ECR_Block;
+			const bool isBlocking = overlapHit.QueryResponse == ECollisionResponse::ECR_Block;
 			if (touchedHits)
-				touchedHits->Add(FHitResultExpanded(overlapHit, collisionResponse));
+				touchedHits->Add(overlapHit);
 
 			if (!isBlocking || IsIgnoringCollision())
 				continue;
-			if (overlapHit.Component.IsValid() && overlapHit.Component->ComputePenetration(penetrationInfos, shape, location, rotation))
+			if (overlapHit.HitResult.Component.IsValid() && overlapHit.HitResult.Component->ComputePenetration(penetrationInfos, shape, location, rotation))
 			{
-				comQueryParams.AddIgnoredComponent(overlapHit.GetComponent());
+				comQueryParams.AddIgnoredComponent(overlapHit.HitResult.GetComponent());
 				const FVector depForce = penetrationInfos.Direction * penetrationInfos.Distance;
 
 				//Handle physic objects collision
-				if (overlapHit.Component->IsSimulatingPhysics())
+				if (overlapHit.HitResult.Component->IsSimulatingPhysics())
 				{
-					overlapHit.Component->AddForce(-depForce * GetMass() / DeltaTime);
+					overlapHit.HitResult.Component->AddForce(-depForce * GetMass() / DeltaTime);
 				}
 
 				displacement += depForce;
@@ -199,7 +189,7 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 						break;
 					default: break;
 				}
-				if(debugFlagArray.IsValidIndex(i) && debugFlagArray[i])
+				if (debugFlagArray.IsValidIndex(i) && debugFlagArray[i])
 					debugCol = FColor::Cyan;
 				UFunctionLibrary::DrawDebugCircleOnSurface(fromStatus.Kinematics.SurfacesInContact[i], 15, debugCol, delta * 1.1, 1, true);
 			}
@@ -210,7 +200,10 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 				continue;
 			}
 			const auto surface = fromStatus.Kinematics.SurfacesInContact[i];
-			const int indexOf = _contactHits.IndexOfByPredicate([surface](FHitResultExpanded innerHit)-> bool { return innerHit.HitResult.Component == surface.TrackedComponent; });
+			const int indexOf = _contactHits.IndexOfByPredicate([surface](FHitResultExpanded innerHit)-> bool
+			{
+				return innerHit.HitResult.Component == surface.TrackedComponent && innerHit.HitIndex == surface.TrackedComponentIndex;
+			});
 			if (indexOf == INDEX_NONE)
 				fromStatus.Kinematics.SurfacesInContact.RemoveAt(i);
 		}
@@ -220,7 +213,10 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 		{
 			const auto hit = _contactHits[j];
 			bool canStepOn = true;
-			const int indexOf = fromStatus.Kinematics.SurfacesInContact.IndexOfByPredicate([hit](const FSurface& item) -> bool { return item.TrackedComponent == hit.HitResult.Component; });
+			const int indexOf = fromStatus.Kinematics.SurfacesInContact.IndexOfByPredicate([hit](const FSurface& item) -> bool
+			{
+				return item.TrackedComponent == hit.HitResult.Component && item.TrackedComponentIndex == hit.HitIndex;
+			});
 			if (indexOf != INDEX_NONE)
 			{
 				canStepOn = fromStatus.Kinematics.SurfacesInContact[indexOf].SurfacePhysicProperties.W > 0;
@@ -258,9 +254,9 @@ bool UModularControllerComponent::IsIgnoringCollision() const
 				ignore = curAction->NoCollisionPhases.Contains(curActionInfos.CurrentPhase);
 		}
 
-		if (!ignore)
+		if (!ignore && !_noCollisionOverrideRootMotionCommands.IsEmpty())
 		{
-			ignore = _overrideRootMotionCommand.bIgnoreCollisionWhenActive;
+			ignore = true;
 		}
 	}
 	return ignore;
