@@ -16,6 +16,23 @@ class MODULARCONTROLLER_API UFunctionLibrary : public UObject
 public:
 	UFunctionLibrary();
 
+	// Animation Utilities ///////////////////////////////////////////////////////////////////////
+
+	static void ExtractLocalSpacePose(const UAnimSequenceBase* Animation, const FBoneContainer& BoneContainer, float Time, bool bExtractRootMotion, FCompactPose& OutPose);
+
+	static void ExtractComponentSpacePose(const UAnimSequenceBase* Animation, const FBoneContainer& BoneContainer, float Time, bool bExtractRootMotion, FCSPose<FCompactPose>& OutPose);
+
+	static FTransform ExtractRootMotionFromAnimation(const UAnimSequenceBase* Animation, float StartTime, float EndTime);
+
+	static FTransform ExtractRootTransformFromAnimation(const UAnimSequenceBase* Animation, float Time);
+
+	// Get the weight of the montage specified or of the active montage if NULL Montage.
+	UFUNCTION(BlueprintPure, Category = "Function Library | Animation")
+	static double GetMontageCurrentWeight(const UAnimInstance* AnimInstance, const UAnimMontage* Montage);
+
+
+	//-///////////////////////////////////////////////////////////////////////////////////////
+
 
 	// Get the relative 3D direction from a 2D vector.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Inputs")
@@ -37,11 +54,13 @@ public:
 
 	// Draw a debug circle at the hit point on a surface.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Surface | Debug", meta=(AdvancedDisplay=1))
-	static void DrawDebugCircleOnHit(const FHitResult MyStructRef, float radius = 40, FLinearColor color = FLinearColor::White, float duration = 0, float thickness = 1, bool showImpactAxis = false);
+	static void DrawDebugCircleOnHit(const FHitResult MyStructRef, float radius = 40, FLinearColor color = FLinearColor::White, float duration = 0, float thickness = 1,
+	                                 bool showImpactAxis = false);
 
 
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Surface | Debug", meta=(AdvancedDisplay=1))
-	static void DrawDebugCircleOnSurface(const FSurface MyStructRef, float radius = 40, FLinearColor color = FLinearColor::White, float duration = 0, float thickness = 1, bool showImpactAxis = false);
+	static void DrawDebugCircleOnSurface(const FSurface MyStructRef, float radius = 40, FLinearColor color = FLinearColor::White, float duration = 0, float thickness = 1,
+	                                     bool showImpactAxis = false);
 
 
 	// Get the point to the object T from a soft object pointer.
@@ -131,6 +150,10 @@ public:
 	static FActionMotionMontage GetActionMontageInDirection(FActionMontageLibrary& structRef, ESixAxisDirectionType direction,
 	                                                        ESixAxisDirectionType fallbackDirection = ESixAxisDirectionType::Forward);
 
+	// Get the max weight of montages in the library
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Actions")
+	static double GetActionLibraryMontageMaxWeight(FActionMontageLibrary& structRef, const UAnimInstance* AnimInstance);
+
 	// Get the index of the first surface matching condition
 	static int GetSurfaceIndexUnderCondition(FKinematicComponents kinematicComponent, std::function<bool(FSurface&)> condition);
 
@@ -141,15 +164,4 @@ public:
 
 	//Get the Mass of the component upon hit
 	static double GetHitComponentMass(FHitResult hit);
-
-
-	// Animation Utilities ///////////////////////////////////////////////////////////////////////
-
-	static void ExtractLocalSpacePose(const UAnimSequenceBase* Animation, const FBoneContainer& BoneContainer, float Time, bool bExtractRootMotion, FCompactPose& OutPose);
-
-	static void ExtractComponentSpacePose(const UAnimSequenceBase* Animation, const FBoneContainer& BoneContainer, float Time, bool bExtractRootMotion, FCSPose<FCompactPose>& OutPose);
-
-	static FTransform ExtractRootMotionFromAnimation(const UAnimSequenceBase* Animation, float StartTime, float EndTime);
-
-	static FTransform ExtractRootTransformFromAnimation(const UAnimSequenceBase* Animation, float Time);
 };

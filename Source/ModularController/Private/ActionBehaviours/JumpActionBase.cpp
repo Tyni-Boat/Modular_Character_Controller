@@ -122,11 +122,9 @@ FControllerStatus UJumpActionBase::OnActionProcessAnticipationPhase_Implementati
 	result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
 	if (bStopOnAnticipation)
 	{
-		if (result.StatusParams.ActionsModifiers.SquaredLength() <= 0)
-			result.StatusParams.ActionsModifiers = result.Kinematics.LinearKinematic.Velocity;
 		const float normalizedTime = actionInfos.GetNormalizedTime(EActionPhase::Anticipation);
 		result.Kinematics = UFunctionLibrary::LerpKinematic(
-			FKinematicComponents(FLinearKinematicCondition(result.Kinematics.LinearKinematic.Position, result.StatusParams.ActionsModifiers),
+			FKinematicComponents(FLinearKinematicCondition(result.Kinematics.LinearKinematic.Position, result.Kinematics.LinearKinematic.Velocity),
 			                     result.Kinematics.AngularKinematic)
 			, FKinematicComponents(FLinearKinematicCondition(result.Kinematics.LinearKinematic.Position, FVector(0)),
 			                       result.Kinematics.AngularKinematic), normalizedTime);
@@ -150,11 +148,6 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 
 	if (pressedBtn || normalizedTime <= 0.1)
 	{
-		if (bStopOnAnticipation && result.StatusParams.ActionsModifiers.SquaredLength() > 0)
-		{
-			result.Kinematics.LinearKinematic.Velocity = result.StatusParams.ActionsModifiers;
-			result.StatusParams.ActionsModifiers = FVector(0);
-		}
 		const FVector jumpAcceleration = -controller->GetGravityDirection() * (JumpForce * (1 / actionInfos._startingDurations.Y)) * forceScale
 			+ ((controller->GetGravityDirection() | result.Kinematics.LinearKinematic.Velocity) > 0 && normalizedTime < 0.1
 				   ? -result.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(controller->GetGravityDirection()) / delta
@@ -167,38 +160,28 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 		}
 
 		//Look for mantling and vaulting
-		if (result.StatusParams.ActionsModifiers.X <= 0)
+		const FVector lowestPt = controller->GetWorldSpaceCardinalPoint(controller->GetGravityDirection());
+		for (auto item : MantlingAndVaultingMap)
 		{
-			const FVector lowestPt = controller->GetWorldSpaceCardinalPoint(controller->GetGravityDirection());
-			for (auto item : MantlingAndVaultingMap)
+			for (auto surface : result.Kinematics.SurfacesInContact)
 			{
-				bool breakLoop = false;
-				for (auto surface : result.Kinematics.SurfacesInContact)
+				FSurfaceCheckResponse response;
+				if (controller->EvaluateSurfaceConditions(item.Value, response, surface, result, lowestPt))
 				{
-					FSurfaceCheckResponse response;
-					if (controller->EvaluateSurfaceConditions(item.Value, response, surface, result, lowestPt))
+					TArray<FTransform> ptsList;
+					ptsList.Empty();
+					if (item.Value.DepthRange.Z > 0)
 					{
-						breakLoop = true;
-						TArray<FTransform> ptsList;
-						ptsList.Empty();
-						if (item.Value.DepthRange.Z > 0)
-						{
-							FVector pos = result.Kinematics.LinearKinematic.Position;
-							FVector normal = controller->GetGravityDirection();
-							const FVector snapvector = UFunctionLibrary::GetSnapOnSurfaceVector(lowestPt, surface, normal);
-							const FVector ledgeLocation = surface.SurfacePoint + snapvector + snapvector.GetSafeNormal() * 5;
-							const FQuat lookDir = FVector::VectorPlaneProject(surface.SurfacePoint - pos, normal).ToOrientationQuat();
-							ptsList.Add(FTransform(lookDir, ledgeLocation));
-							if (!response.VaultDepthVector.ContainsNaN())
-								ptsList.Add(FTransform(lookDir, ledgeLocation + response.VaultDepthVector));
-						}
-						controller->OnControllerTriggerPathEvent.Broadcast(item.Key, ptsList);
-						break;
+						FVector pos = result.Kinematics.LinearKinematic.Position;
+						FVector normal = controller->GetGravityDirection();
+						const FVector snapvector = UFunctionLibrary::GetSnapOnSurfaceVector(lowestPt, surface, normal);
+						const FVector ledgeLocation = surface.SurfacePoint + snapvector - snapvector.GetSafeNormal() * 2 * OVERLAP_INFLATION;
+						const FQuat lookDir = FVector::VectorPlaneProject(surface.SurfacePoint - pos, normal).ToOrientationQuat();
+						ptsList.Add(FTransform(lookDir, ledgeLocation));
+						if (!response.VaultDepthVector.ContainsNaN())
+							ptsList.Add(FTransform(lookDir, ledgeLocation + response.VaultDepthVector));
 					}
-				}
-				if (breakLoop)
-				{
-					result.StatusParams.ActionsModifiers.X = 1;
+					controller->OnControllerTriggerPathEvent.Broadcast(item.Key, ptsList);
 					break;
 				}
 			}
@@ -218,7 +201,6 @@ FControllerStatus UJumpActionBase::OnActionProcessRecoveryPhase_Implementation(U
 {
 	FControllerStatus result = startingConditions;
 	result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
-	result.StatusParams.ActionsModifiers = FVector(0);
 	return result;
 }
 

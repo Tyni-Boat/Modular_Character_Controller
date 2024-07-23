@@ -13,23 +13,15 @@
 #pragma region All Behaviours
 
 
-void UModularControllerComponent::SetOverrideRootMotionMode(USkeletalMeshComponent* caller, const ERootMotionType translationMode, const ERootMotionType rotationMode)
+void UModularControllerComponent::SetOverrideRootMotion(const FOverrideRootMotionCommand rootMotionParams, bool IgnoreCollision)
 {
-	SetOverrideRootMotion(caller, FOverrideRootMotionCommand(translationMode, rotationMode));
-}
-
-void UModularControllerComponent::SetOverrideRootMotion(USkeletalMeshComponent* caller, const FOverrideRootMotionCommand rootMotionParams)
-{
-	FOverrideRootMotionCommand garbage;
-	if (rootMotionParams.bIgnoreCollisionWhenActive)
+	if (IgnoreCollision)
 	{
-		_noCollisionOverrideRootMotionCommands.Dequeue(garbage);
-		_noCollisionOverrideRootMotionCommands.Enqueue(rootMotionParams);
+		_noCollisionOverrideRootMotionCommand = rootMotionParams;
 	}
 	else
 	{
-		_overrideRootMotionCommands.Dequeue(garbage);
-		_overrideRootMotionCommands.Enqueue(rootMotionParams);
+		_overrideRootMotionCommand = rootMotionParams;
 	}
 }
 
@@ -414,10 +406,17 @@ void UModularControllerComponent::SortActions()
 {
 	if (ActionInstances.Num() > 1)
 	{
-		ActionInstances.Sort([](const TSoftObjectPtr<UBaseControllerAction>& a, const TSoftObjectPtr<UBaseControllerAction>& b)
+		//Save action montage
+		const auto actionMontage = ActionInstances[0];
+		ActionInstances.RemoveAt(0);
+		if (ActionInstances.Num() > 1)
 		{
-			return a.IsValid() && b.IsValid() && a->GetPriority() > b->GetPriority();
-		});
+			ActionInstances.Sort([](const TSoftObjectPtr<UBaseControllerAction>& a, const TSoftObjectPtr<UBaseControllerAction>& b)
+			{
+				return a.IsValid() && b.IsValid() && a->GetPriority() > b->GetPriority();
+			});
+		}
+		ActionInstances.Insert(actionMontage, 0);
 	}
 
 	//Remove null references
@@ -509,6 +508,23 @@ void UModularControllerComponent::RemoveActionBehaviourByPriority_Implementation
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+FActionMotionMontage UModularControllerComponent::GetActionCurrentMotionMontage(const UBaseControllerAction* actionInst) const
+{
+	if (!actionInst)
+		return FActionMotionMontage();
+	FActionMontageLibrary actionMontageLibrary = ActionMontageLibraryMap.Contains(actionInst->GetDescriptionName())
+		                                             ? ActionMontageLibraryMap[actionInst->GetDescriptionName()]
+		                                             : FActionMontageLibrary();
+	if (!ActionInfos.Contains(actionInst))
+		return FActionMotionMontage();
+
+	if (!actionMontageLibrary.Library.IsValidIndex(ActionInfos[actionInst]._montageLibraryIndex))
+		return FActionMotionMontage();
+
+	return actionMontageLibrary.Library[ActionInfos[actionInst]._montageLibraryIndex];
+}
 
 
 FControllerStatus UModularControllerComponent::CheckControllerActions(FControllerStatus currentControllerStatus, const float inDelta)
@@ -739,6 +755,22 @@ bool UModularControllerComponent::CheckActionCompatibility(const TSoftObjectPtr<
 }
 
 
+bool UModularControllerComponent::PlayActionMontage(FActionMotionMontage Montage, int priority)
+{
+	if (ActionInstances.Num() <= 0)
+		return false;
+	UActionMontage* action = Cast<UActionMontage>(ActionInstances[0].Get());
+	if (!action)
+		return false;
+	if (!ActionInfos.Contains(action))
+		return false;
+	auto infos = ActionInfos[action];
+	if (infos.GetRemainingActivationTime() >= 0)
+		return false;
+	return action->SetActionParams(this, Montage, priority);
+}
+
+
 FControllerCheckResult UModularControllerComponent::TryChangeControllerAction(FControllerStatus toActionStatus, FControllerStatus fromActionStatus)
 {
 	FControllerCheckResult result = FControllerCheckResult(false, fromActionStatus);
@@ -798,18 +830,27 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 	if (ActionInstances.IsValidIndex(fromActionIndex) && ActionInstances[fromActionIndex].IsValid())
 	{
 		ActionInstances[fromActionIndex]->OnActionEnds(this, toActionStatus.Kinematics, toActionStatus.MoveInput, inDelta);
+		//if action montage, trigger complete event
+		if (fromActionIndex == 0)
+		{
+			if (UActionMontage* asActionMontage = Cast<UActionMontage>(ActionInstances[fromActionIndex].Get()))
+			{
+				asActionMontage->Reset();
+				OnActionMontageCompleted.Broadcast();
+			}
+		}
 		//Stop action montage
 		if (ActionMontageLibraryMap.Contains(ActionInstances[fromActionIndex]->GetDescriptionName()))
 		{
-			for (const auto entry : ActionMontageLibraryMap)
+			const auto entry = ActionMontageLibraryMap[ActionInstances[fromActionIndex]->GetDescriptionName()];
+			for (const auto actionMontage : entry.Library)
 			{
-				for (const auto actionMontage : entry.Value.Library)
-				{
-					if (!entry.Value.bOverrideStopOnActionEnds)
-						if (!actionMontage.bStopOnActionEnds)
-							continue;
-					StopMontage(actionMontage, entry.Value.bOverridePlayOnState ? true : actionMontage.bPlayOnState);
-				}
+				if (!entry.bOverrideStopOnActionEnds)
+					if (!actionMontage.bStopOnActionEnds)
+						continue;
+				if (actionMontage.bUseMontageLenght)
+					continue;
+				StopMontage(actionMontage, entry.bOverridePlayOnState ? true : actionMontage.bPlayOnState);
 			}
 		}
 
@@ -831,7 +872,7 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 		if (ActionMontageLibraryMap.Contains(ActionInstances[toActionIndex]->GetDescriptionName()))
 		{
 			const auto actionMontage = UFunctionLibrary::GetActionMontageAt(ActionMontageLibraryMap[ActionInstances[toActionIndex]->GetDescriptionName()], static_cast<int>(actTimings.W));
-			if (actionMontage.bUseMontageLenght)
+			if (actionMontage.bUseMontageSectionsAsPhases)
 			{
 				actTimings = ActionInstances[toActionIndex]->RemapDurationByMontageSections(actionMontage.Montage, actTimings);
 			}
@@ -841,22 +882,30 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 			if (actionMontage.bPlayOnState)
 			{
 				if (const auto currentState = GetCurrentControllerState())
-					montageDuration = PlayAnimationMontageOnState_Internal(actionMontage, currentState->GetDescriptionName(), -1);
+					montageDuration = PlayAnimationMontageOnState_Internal(actionMontage, currentState->GetDescriptionName(), -1, actionMontage.bUseMontageLenght,
+					                                                       _onActionMontageEndedCallBack);
 			}
 			else
 			{
-				montageDuration = PlayAnimationMontage_Internal(actionMontage, -1);
+				montageDuration = PlayAnimationMontage_Internal(actionMontage, -1, actionMontage.bUseMontageLenght, _onActionMontageEndedCallBack);
 			}
 
 			if (actionMontage.bUseMontageLenght && montageDuration > 0)
 			{
 				actTimings = ActionInstances[toActionIndex]->RemapDuration(montageDuration, actTimings);
+				if (actionMontage.Montage)
+				{
+					if (_montageOnActionBound.Contains(actionMontage.Montage))
+						_montageOnActionBound[actionMontage.Montage].Add(ActionInstances[toActionIndex]);
+					else
+						_montageOnActionBound.Add(actionMontage.Montage, TArray<TSoftObjectPtr<UBaseControllerAction>>{ActionInstances[toActionIndex]});
+				}
 			}
 		}
 
 		if (ActionInfos.Contains(ActionInstances[toActionIndex]))
 			ActionInfos[ActionInstances[toActionIndex]].Init(actTimings, ActionInstances[toActionIndex]->CoolDownDelay,
-			                                                 transitionToSelf ? (ActionInfos[ActionInstances[toActionIndex]]._repeatCount + 1) : 0);
+			                                                 transitionToSelf ? (ActionInfos[ActionInstances[toActionIndex]]._repeatCount + 1) : 0, static_cast<int>(actTimings.W));
 		if (DebugType == EControllerDebugType::StatusDebug)
 		{
 			UKismetSystemLibrary::PrintString(
@@ -893,10 +942,13 @@ FControllerStatus UModularControllerComponent::ProcessControllerAction(const FCo
 		if (DebugType == EControllerDebugType::StatusDebug)
 		{
 			UKismetSystemLibrary::PrintString(
-				GetWorld(), FString::Printf(TEXT("Action (%s) is Being Processed. Remaining Time: %f"), *ActionInstances[index]->DebugString(),
-				                            ActionInfos.Contains(ActionInstances[index]) ? ActionInfos[ActionInstances[index]].GetRemainingActivationTime() : -1), true, false, FColor::White,
-				5
-				, "ProcessControllerActions");
+				GetWorld(), FString::Printf(TEXT("Action (%s) is Being Processed. Phase: %s Remaining Total Time: %f. Montage Weight: %f"), *ActionInstances[index]->DebugString(),
+				                            ActionInfos.Contains(ActionInstances[index])
+					                            ? *UEnum::GetValueAsString(ActionInfos[ActionInstances[index]].CurrentPhase)
+					                            : *FString::Printf(TEXT("None")),
+				                            ActionInfos.Contains(ActionInstances[index]) ? ActionInfos[ActionInstances[index]].GetRemainingActivationTime() : -1,
+				                            UFunctionLibrary::GetMontageCurrentWeight(GetAnimInstance(), GetActionCurrentMotionMontage(ActionInstances[index].Get()).Montage))
+				, true, false, FColor::White, 5, "ProcessControllerActions");
 		}
 	}
 

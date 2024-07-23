@@ -306,12 +306,42 @@ double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animIns
 }
 
 
-void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematics, const FVector fallbackVelocity, const ERootMotionType rootMotionMode, float surfaceFriction) const
+void UModularControllerComponent::OnActionMontageEnds(UAnimMontage* Montage, bool Interrupted)
+{
+	if (!Montage)
+		return;
+	if (!_montageOnActionBound.Contains(Montage))
+		return;
+	if (_montageOnActionBound[Montage].Num() <= 0)
+		return;
+	for (int i = 0; i < _montageOnActionBound[Montage].Num(); i++)
+	{
+		if (!_montageOnActionBound[Montage][i].IsValid())
+			continue;
+		if (!ActionInfos.Contains(_montageOnActionBound[Montage][i]))
+			continue;
+		auto infos = ActionInfos[_montageOnActionBound[Montage][i]];
+		if (infos.GetRemainingActivationTime() <= 0)
+			continue;
+		ActionInfos[_montageOnActionBound[Montage][i]].SkipTimeToPhase(EActionPhase::Undetermined);
+	}
+	_montageOnActionBound[Montage].Empty();
+	_montageOnActionBound.Remove(Montage);
+}
+
+
+void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematics, const FVector fallbackVelocity, const ERootMotionType rootMotionMode, float surfaceFriction,
+                                                 float weight) const
 {
 	if (rootMotionMode != ERootMotionType::NoRootMotion)
 	{
 		//Rotation
-		kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
+		const FQuat rotDiff = GetRootMotionQuat();
+		FVector axis;
+		float angle;
+		rotDiff.ToAxisAndAngle(axis, angle);
+		angle *= weight;
+		kinematics.AngularKinematic.Orientation *= FQuat(axis, angle);
 	}
 
 	//Translation
@@ -323,7 +353,7 @@ void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematic
 		default:
 			{
 				const FVector translation = GetRootMotionTranslation(rootMotionMode, fallbackVelocity);
-				UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, translation, -surfaceFriction, 0);
+				UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, FMath::Lerp(fallbackVelocity, translation, weight), -surfaceFriction, 0);
 			}
 			break;
 	}
@@ -352,7 +382,7 @@ FVector UModularControllerComponent::GetRootMotionTranslation(const ERootMotionT
 }
 
 
-void UModularControllerComponent::EvaluateRootMotions(float delta)
+void UModularControllerComponent::ExtractRootMotions(float delta)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("EvaluateRootMotions");
 	//Extract Root Motion
@@ -365,55 +395,73 @@ void UModularControllerComponent::EvaluateRootMotions(float delta)
 }
 
 
-FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const FControllerStatus inStatus, float inDelta)
+FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const FControllerStatus inStatus, float inDelta, bool& ignoredCollision)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("EvaluateRootMotionOverride");
 	FControllerStatus result = inStatus;
 
 	//Handle Root Motion Override
-	FOverrideRootMotionCommand command;
-	if (!_noCollisionOverrideRootMotionCommands.Dequeue(command))
-		if (!_overrideRootMotionCommands.Dequeue(command))
-			return result;
+	FOverrideRootMotionCommand* command = nullptr;
+	if (_noCollisionOverrideRootMotionCommand.IsValid())
+	{
+		command = &_noCollisionOverrideRootMotionCommand;
+		ignoredCollision = true;
+	}
+	else if (_overrideRootMotionCommand.IsValid())
+		command = &_overrideRootMotionCommand;
+
+	if (!command)
+		return result;
+
+	FTransform MotionWarpTransform;
+	if (!command->Update(inDelta, MotionWarpTransform, [this,command]()-> void { RemoveMotionWarp(command->WarpKey); }))
+		return result;
 
 	//Rotation
-	if (command.OverrideRotationRootMotionMode != ERootMotionType::NoRootMotion)
+	if (command->OverrideRotationRootMotionMode != ERootMotionType::NoRootMotion)
 	{
 		//Rotation
 		result.Kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
-		if (command.bIsMotionWarping)
-			result.Kinematics.AngularKinematic.Orientation = command.WarpTransform.GetRotation();
+		if (command->IsMotionWarpingEnabled())
+			result.Kinematics.AngularKinematic.Orientation = MotionWarpTransform.GetRotation();
 	}
 
 	//Translation
-	if (command.OverrideTranslationRootMotionMode != ERootMotionType::NoRootMotion)
+	if (command->OverrideTranslationRootMotionMode != ERootMotionType::NoRootMotion)
 	{
-		const FVector matchingMove = command.WarpTransform.GetLocation() - result.Kinematics.LinearKinematic.Position;
-		switch (command.OverrideTranslationRootMotionMode)
+		const FVector matchingMove = MotionWarpTransform.GetLocation() - result.Kinematics.LinearKinematic.Position;
+		switch (command->OverrideTranslationRootMotionMode)
 		{
 			case ERootMotionType::Additive:
 				{
 					result.Kinematics.LinearKinematic.Velocity += GetRootMotionVector();
-					if (command.bIsMotionWarping)
+					if (command->IsMotionWarpingEnabled())
 						result.Kinematics.LinearKinematic.Velocity += matchingMove;
 				}
 				break;
 			case ERootMotionType::Override:
 				{
 					result.Kinematics.LinearKinematic.Velocity = GetRootMotionVector();
-					if (command.bIsMotionWarping)
+					if (command->IsMotionWarpingEnabled())
 					{
-						//result.Kinematics.LinearKinematic.Position = command.WarpTransform.GetLocation();
-						result.Kinematics.LinearKinematic.Velocity = matchingMove / inDelta;
-						//UFunctionLibrary::AddCompositeMovement(result.Kinematics.LinearKinematic, matchingMove / inDelta, -1, 0);
+						UFunctionLibrary::AddCompositeMovement(result.Kinematics.LinearKinematic, matchingMove / inDelta, -1, 0);
 						result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
-						//result.Kinematics.LinearKinematic.SnapDisplacement = matchingMove;
 					}
 				}
 				break;
 			default:
 				break;
 		}
+	}
+
+	//Debug
+	{
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Override RM. trMode(%s), rtMode(%s), time(%f/%f), WarpKey(%s)")
+			, *UEnum::GetValueAsString(command->OverrideTranslationRootMotionMode)
+			, *UEnum::GetValueAsString(command->OverrideRotationRootMotionMode)
+			, command->Time, command->Duration
+			, *command->WarpKey.ToString()
+			),true, false, FColor::Red, 0, "RMOverride");
 	}
 
 	return result;

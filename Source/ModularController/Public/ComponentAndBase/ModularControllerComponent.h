@@ -2,6 +2,7 @@
 
 #pragma once
 #include <functional>
+#include <Kismet/BlueprintAsyncActionBase.h>
 
 #include "Animation/AnimMontage.h"
 #include "CoreMinimal.h"
@@ -26,7 +27,9 @@
 #include "ModularControllerComponent.generated.h"
 #define MODULAR_CONTROLLER_COMPONENT
 
+class UActionMontage;
 class UBaseControllerState;
+class UBaseControllerAction;
 struct FCollisionQueryParams;
 
 
@@ -59,6 +62,11 @@ DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerTriggerPathEventS
 /// </summary>
 DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_OneParam(FControllerUniqueEventSignature, UModularControllerComponent,
                                                    OnControllerUniqueEvent, FName, LaunchID);
+
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageCompleted);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageFailed);
+
 
 //The inflation used when detecting main surfaces
 #define OVERLAP_INFLATION 5
@@ -375,7 +383,6 @@ protected:
 
 #pragma region Physic
 public:
-	
 	// The Mass of the object. use negative values to auto calculate.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	float Mass = 80;
@@ -511,10 +518,10 @@ public:
 
 protected:
 	// The queue of override root motion commands
-	TQueue<FOverrideRootMotionCommand> _overrideRootMotionCommands;
+	FOverrideRootMotionCommand _overrideRootMotionCommand;
 
 	// The queue of override root motion commands with no collision
-	TQueue<FOverrideRootMotionCommand> _noCollisionOverrideRootMotionCommands;
+	FOverrideRootMotionCommand _noCollisionOverrideRootMotionCommand;
 
 
 public:
@@ -527,22 +534,12 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|Events")
 	FControllerUniqueEventSignature OnControllerTriggerUniqueEvent;
 
-
-	/// <summary>
-	/// Set an override of motion.
-	/// </summary>
-	/// <param name="translationMode">Override in translation Mode</param>
-	/// <param name="rotationMode">Override in Rotation Mode</param>
-	/// <returns></returns>
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Behaviours")
-	void SetOverrideRootMotionMode(USkeletalMeshComponent* caller, const ERootMotionType translationMode, const ERootMotionType rotationMode);
-
 	/// <summary>
 	/// Set an override of motion.
 	/// </summary>
 	/// <returns></returns>
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Behaviours")
-	void SetOverrideRootMotion(USkeletalMeshComponent* caller, const FOverrideRootMotionCommand rootMotionParams);
+	void SetOverrideRootMotion(const FOverrideRootMotionCommand rootMotionParams, bool IgnoreCollision = false);
 
 
 #pragma endregion
@@ -681,6 +678,10 @@ public:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller Action")
 	TArray<TSoftObjectPtr<UBaseControllerAction>> ActionInstances;
 
+	/// The action Montage instance used on this controller.
+	UPROPERTY()
+	UActionMontage* ActionMontageInstance;
+
 	/// The HashMap of Controller action infos
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller Action")
 	TMap<TSoftObjectPtr<UBaseControllerAction>, FActionInfos> ActionInfos;
@@ -693,6 +694,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|Controller Action|Events")
 	FControllerActionPhaseChangedSignature OnControllerActionPhaseChangedEvent;
 
+	// Triggers when The action montage complete, interrupted or not.
+	UPROPERTY(BlueprintAssignable, Category = "Controllers|Controller Action|Events")
+	FOnActionMontageCompleted OnActionMontageCompleted;
 
 public:
 	/// Get the current action behaviour instance
@@ -775,6 +779,14 @@ public:
 	 */
 	bool CheckActionCompatibility(const TSoftObjectPtr<UBaseControllerAction> actionInstance, int stateIndex, int actionIndex) const;
 
+	// Play the action montage with the specified priority.
+	bool PlayActionMontage(FActionMotionMontage Montage, int priority = 0);	
+
+	/// Get an action's current motion montage
+	UFUNCTION(BlueprintGetter, Category = "Controllers|Controller Action|Utils")
+	FActionMotionMontage GetActionCurrentMotionMontage(const UBaseControllerAction* actionInst) const;
+
+	
 protected:
 	/// Check controller Actions and returns the index of the active one.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
@@ -794,7 +806,6 @@ protected:
 	/// Evaluate the component state
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
 	FControllerStatus ProcessControllerAction(const FControllerStatus initialState, const float inDelta);
-
 
 	// Process single action's velocity.
 	FControllerStatus ProcessSingleAction(TSoftObjectPtr<UBaseControllerAction> actionInstance, const FControllerStatus initialState, const float inDelta);
@@ -868,7 +879,7 @@ public:
 
 	//Read the skeletal mesh root motion.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Animation Component")
-	void ReadRootMotion(FKinematicComponents& kinematics, const FVector fallbackVelocity, const ERootMotionType rootMotionMode, float surfaceFriction = 1) const;
+	void ReadRootMotion(FKinematicComponents& kinematics, const FVector fallbackVelocity, const ERootMotionType rootMotionMode, float surfaceFriction = 1, float weight = 1) const;
 
 	//Read the root motion translation vector
 	FVector GetRootMotionTranslation(const ERootMotionType rootMotionMode, const FVector currentVelocity) const;
@@ -886,6 +897,12 @@ private:
 	// Motion warp transform registered
 	TMap<FName, FTransform> _motionWarpTransforms;
 
+	// The call back on action's montage
+	FOnMontageEnded _onActionMontageEndedCallBack;
+
+	// Link a montage to one or several actions. used to stop action when montage interrupts
+	TMap<TSoftObjectPtr<UAnimMontage>, TArray<TSoftObjectPtr<UBaseControllerAction>>> _montageOnActionBound;
+
 protected:
 	/// Link anim blueprint on a skeletal mesh, with a key. the use of different key result in the link of several anim blueprints.
 	virtual void LinkAnimBlueprint(TSoftObjectPtr<USkeletalMeshComponent> skeletalMeshReference, FName key, TSubclassOf<UAnimInstance> animClass);
@@ -896,12 +913,17 @@ protected:
 	                             , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = FOnMontageEnded());
 
 
+	// Called when an action's montage ends.
+	UFUNCTION()
+	void OnActionMontageEnds(UAnimMontage* Montage, bool Interrupted);
+
+
 	/// Evaluate component's from it's skeletal mesh Root motions
-	void EvaluateRootMotions(float delta);
+	void ExtractRootMotions(float delta);
 
 
 	/// Evaluate root motion override parameters
-	FControllerStatus EvaluateRootMotionOverride(const FControllerStatus inStatus, float inDelta);
+	FControllerStatus EvaluateRootMotionOverride(const FControllerStatus inStatus, float inDelta, bool& ignoredCollision);
 
 
 #pragma endregion
@@ -1051,4 +1073,43 @@ public:
 
 public:
 #pragma endregion
+};
+
+
+UCLASS(BlueprintType)
+class MODULARCONTROLLER_API UActionMontageEvent : public UBlueprintAsyncActionBase
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(BlueprintAssignable)
+	FOnActionMontageCompleted OnActionMontageCompleted;
+	
+	UPROPERTY(BlueprintAssignable)
+	FOnActionMontageFailed OnActionMontageFailed;
+
+	// UBlueprintAsyncActionBase interface
+	virtual void Activate() override;
+
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category = "AI|Modular AI Movement")
+	static UActionMontageEvent* PlayActionMontage(const UObject* WorldContextObject, UModularControllerComponent* controller, FActionMotionMontage Montage, int priority = 0);
+
+
+private:
+	UFUNCTION()
+	void _OnActionMontageCompleted();
+	
+	UFUNCTION()
+	void _OnActionMontageFailed();
+
+	void CleanUp();
+
+	UPROPERTY()
+	FActionMotionMontage MontageToPlay;
+
+	int Priority = -1;
+
+	const UObject* WorldContextObject;
+
+	UPROPERTY()
+	UModularControllerComponent* _controller;
 };

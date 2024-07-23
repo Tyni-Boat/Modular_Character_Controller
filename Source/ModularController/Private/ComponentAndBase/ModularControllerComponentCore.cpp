@@ -94,8 +94,12 @@ void UModularControllerComponent::Initialize()
 	}
 
 	//Action behaviors
+	_onActionMontageEndedCallBack.Unbind();
+	_onActionMontageEndedCallBack.BindUObject(this, &UModularControllerComponent::OnActionMontageEnds);
 	ActionInstances.Empty();
 	{
+		ActionMontageInstance = NewObject<UActionMontage>();
+		ActionInstances.Add(ActionMontageInstance);
 		for (int i = ActionClasses.Num() - 1; i >= 0; i--)
 		{
 			if (!ActionClasses[i])
@@ -187,7 +191,7 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 	TrackShapeChanges();
 
 	//Extract Root motion
-	EvaluateRootMotions(delta);
+	ExtractRootMotions(delta);
 
 	//Count time elapsed
 	_timeElapsed += delta;
@@ -242,7 +246,7 @@ FControllerStatus UModularControllerComponent::StandAloneEvaluateStatus(FControl
 	FControllerStatus processState = initialState;
 	processState = EvaluateStatusParams(processState, delta);
 	processState = ProcessStatus(processState, delta);
-	processState = EvaluateRootMotionOverride(processState, delta);
+	processState = EvaluateRootMotionOverride(processState, delta, noCollision);
 	processState.Kinematics.AngularKinematic = HandleKinematicRotation(processState.Kinematics, delta);
 
 	//Evaluate
@@ -323,6 +327,69 @@ FControllerStatus UModularControllerComponent::ProcessStatus(const FControllerSt
 	const FControllerStatus primaryMotion = ProcessControllerState(initialState, inDelta);
 	const FControllerStatus alteredMotion = ProcessControllerAction(primaryMotion, inDelta);
 	return alteredMotion;
+}
+
+
+#pragma endregion
+
+
+
+#pragma region Action Montage XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+
+void UActionMontageEvent::Activate()
+{
+	if (!_controller)
+	{
+		FFrame::KismetExecutionMessage(TEXT("Invalid Modular Controller. Cannot execute Play Action Montage."), ELogVerbosity::Error);
+		_OnActionMontageFailed();
+		return;
+	}
+
+	if(!_controller->PlayActionMontage(MontageToPlay, Priority))
+	{
+		_OnActionMontageFailed();
+		return;
+	}
+
+	_controller->OnActionMontageCompleted.AddDynamic(this, &UActionMontageEvent::_OnActionMontageCompleted);
+}
+
+
+UActionMontageEvent* UActionMontageEvent::PlayActionMontage(const UObject* WorldContextObject, UModularControllerComponent* controller, FActionMotionMontage Montage, int priority)
+{
+	UActionMontageEvent* Node = NewObject<UActionMontageEvent>();
+	Node->WorldContextObject = WorldContextObject;
+	Node->_controller = controller;
+	Node->MontageToPlay = Montage;
+	Node->Priority = priority;
+	Node->RegisterWithGameInstance(controller);
+	return Node;
+}
+
+
+void UActionMontageEvent::CleanUp()
+{
+	if (!_controller)
+	{
+		return;
+	}
+	_controller->OnActionMontageCompleted.RemoveDynamic(this, &UActionMontageEvent::_OnActionMontageCompleted);
+}
+
+
+void UActionMontageEvent::_OnActionMontageCompleted()
+{
+	OnActionMontageCompleted.Broadcast();
+	CleanUp();
+	SetReadyToDestroy();
+}
+
+void UActionMontageEvent::_OnActionMontageFailed()
+{
+	OnActionMontageFailed.Broadcast();
+	CleanUp();
+	SetReadyToDestroy();
 }
 
 

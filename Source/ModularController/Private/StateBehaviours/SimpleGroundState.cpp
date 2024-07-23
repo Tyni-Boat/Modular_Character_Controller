@@ -33,6 +33,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 	//Find the best surface
 	int surfaceIndex = -1;
 	float closestSurface = TNumericLimits<float>::Max();
+	float closestSurface_low = TNumericLimits<float>::Max();
 	float closestCheckSurface = TNumericLimits<float>::Max();
 
 	// Default on bad angles
@@ -58,6 +59,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		if ((fromCenter | gravityDirection) <= 0)
 			continue;
 
+		const FVector centerHeightVector = (surface.SurfacePoint - location).ProjectOnToNormal(-gravityDirection);
 		const FVector heightVector = (surface.SurfacePoint - lowestPt).ProjectOnToNormal(-gravityDirection);
 		const float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(asActive ? surface.SurfaceImpactNormal : surface.SurfaceNormal, -gravityDirection)));
 		const FVector farAwayVector = FVector::VectorPlaneProject(surface.SurfacePoint - location, gravityDirection);
@@ -97,7 +99,8 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		if (!asActive && inShapeDir.SquaredLength() > 0 && farAwayVector.Length() >= inShapeDir.Length() * 0.75)
 			continue;
 
-		const float distance = heightVector.Length() * ((surface.SurfacePoint - lowestPt).GetSafeNormal() | gravityDirection);
+		const float distance_low = heightVector.Length() * ((surface.SurfacePoint - lowestPt).GetSafeNormal() | gravityDirection);
+		const float distance = centerHeightVector.Length();
 		if (distance >= closestSurface)
 		{
 			if (bDebugState)
@@ -125,10 +128,11 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		}
 
 		closestSurface = distance;
+		closestSurface_low = distance_low;
 		surfaceIndex = i;
 	}
 
-	UFunctionLibrary::AddOrReplaceCosmeticVariable(statusParams, GroundDistanceVarName, closestSurface < closestCheckSurface ? closestSurface : closestCheckSurface);
+	UFunctionLibrary::AddOrReplaceCosmeticVariable(statusParams, GroundDistanceVarName, closestSurface_low < closestCheckSurface ? closestSurface_low : closestCheckSurface);
 
 	//If we are ascending. do this here because ground distance evaluation
 	if ((velocity | gravityDirection) < -FLOATING_HEIGHT && !asActive)

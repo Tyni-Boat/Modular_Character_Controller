@@ -272,12 +272,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Infos")
 	FVector _startingDurations = FVector(0);
 
+	// The montage index in the montage library.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Infos")
+	int _montageLibraryIndex = -1;
+
 	// The current action phase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Infos")
 	EActionPhase CurrentPhase = EActionPhase::Undetermined;
 
 
-	void Init(FVector timings, float coolDown, int repeatCount = 0);
+	void Init(FVector timings, float coolDown, int repeatCount = 0, int montageIndex = -1);
 
 	double GetRemainingActivationTime() const;
 
@@ -601,9 +605,7 @@ public:
 };
 
 
-//*
-//* Represent an override root motion command
-//*
+// Represent an override root motion command
 USTRUCT(BlueprintType)
 struct MODULARCONTROLLER_API FOverrideRootMotionCommand
 {
@@ -614,39 +616,96 @@ public:
 	{
 	}
 
-	FORCEINLINE FOverrideRootMotionCommand(ERootMotionType translationMode, ERootMotionType rotationMode)
+	FORCEINLINE FOverrideRootMotionCommand(FOverrideRootMotionCommand& Other)
 	{
-		OverrideTranslationRootMotionMode = translationMode;
-		OverrideRotationRootMotionMode = rotationMode;
-		bIgnoreCollisionWhenActive = false;
+		Reset();
+		OverrideRotationRootMotionMode = Other.OverrideRotationRootMotionMode;
+		OverrideTranslationRootMotionMode = Other.OverrideTranslationRootMotionMode;
+		Duration = Other.Duration;
+		PlayRate = Other.PlayRate;
+		WarpKey = Other.WarpKey;
+		WarpCurve = Other.WarpCurve;
+		WarpTransform_Start = Other.WarpTransform_Start;
+		WarpTransform_End = Other.WarpTransform_End;
 	}
 
-	FORCEINLINE FOverrideRootMotionCommand(ERootMotionType allMode)
+	FORCEINLINE bool IsValid() const
 	{
-		OverrideTranslationRootMotionMode = allMode;
-		OverrideRotationRootMotionMode = allMode;
-		bIgnoreCollisionWhenActive = false;
+		return OverrideRotationRootMotionMode != ERootMotionType::NoRootMotion || OverrideTranslationRootMotionMode != ERootMotionType::NoRootMotion;
+	}
+
+	FORCEINLINE bool IsMotionWarpingEnabled() const
+	{
+		return WarpKey != NAME_None;
+	}
+
+	FORCEINLINE void Reset()
+	{
+		OverrideRotationRootMotionMode = ERootMotionType::NoRootMotion;
+		OverrideTranslationRootMotionMode = ERootMotionType::NoRootMotion;
+		Duration = 0;
+		Time = 0;
+		PlayRate = 1;
+		WarpKey = NAME_None;
+	}
+
+	FORCEINLINE bool Update(float deltaTime, FTransform& warpTransform, std::function<void()> OnReset)
+	{
+		if(!IsValid())
+			return false;
+		Time += deltaTime * PlayRate;
+		const float normalizedTime = FMath::GetMappedRangeValueClamped(TRange<float>(0,Duration), TRange<float>(0,1), Time);
+		if(WarpKey != NAME_None)
+		{
+			const float alpha = FAlphaBlend::AlphaToBlendOption(normalizedTime, WarpCurve);
+			const FTransform matchTransform = FTransform(FQuat::Slerp(WarpTransform_Start.GetRotation(), WarpTransform_End.GetRotation(), alpha),
+														 FMath::Lerp(WarpTransform_Start.GetLocation(), WarpTransform_End.GetLocation(), alpha),
+														 FVector(1));
+			warpTransform = matchTransform;
+		}
+		if(Time >= Duration)
+		{
+			OnReset();
+			Reset();
+			return false;
+		}
+		return true;
 	}
 
 	//The override translation rootMotion mode
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Mode")
 	ERootMotionType OverrideTranslationRootMotionMode = ERootMotionType::NoRootMotion;
 
 	//The override rotation rootMotion mode
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Mode")
 	ERootMotionType OverrideRotationRootMotionMode = ERootMotionType::NoRootMotion;
+	
+	// The warp key name
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Warp")
+	FName WarpKey;
 
-	//Should the controller ignore collision during this Root motion Override?
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Param")
-	bool bIgnoreCollisionWhenActive = false;
-
-	// The Warp transform
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Warp")
+	EAlphaBlendOption WarpCurve;
+	
+	// The Warp transform start
 	UPROPERTY()
-	FTransform WarpTransform;
-
-	// is active when trying to Motion Warp to a location
+	FTransform WarpTransform_Start;
+	
+	// The Warp transform end
 	UPROPERTY()
-	bool bIsMotionWarping = false;
+	FTransform WarpTransform_End;
+
+	// The animation play rate
+	UPROPERTY()
+	float PlayRate = 0;
+
+	// The duration of the command
+	UPROPERTY()
+	float Duration = 0;
+	
+	// The current command eval time.
+	UPROPERTY()
+	float Time = 0;
 };
 
 

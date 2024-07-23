@@ -2,6 +2,7 @@
 
 #include "ComponentAndBase/BaseControllerAction.h"
 #include "CoreMinimal.h"
+#include "FunctionLibrary.h"
 #include "ComponentAndBase/BaseControllerState.h"
 #include "Kismet/KismetSystemLibrary.h"
 
@@ -84,7 +85,7 @@ FVector UBaseControllerAction::RemapDuration(float duration, FVector customTimin
 	{
 		UKismetSystemLibrary::PrintString(
 			this, FString::Printf(TEXT("Remap from (%s) to (%s)"), *FVector(timings.X, timings.Y, timings.Z).ToCompactString(),
-			                      *FVector(timings.X, timings.Y, timings.Z).ToCompactString()), true, true, FColor::Orange, 5, "reMapingDuration");
+			                      *FVector(newAnticipation, newDuration, newRecovery).ToCompactString()), true, true, FColor::Orange, 5, "reMapingDuration");
 	}
 
 	return FVector(newAnticipation, newDuration, newRecovery);
@@ -115,3 +116,112 @@ FVector UBaseControllerAction::RemapDurationByMontageSections(UAnimMontage* mont
 
 	return finalTimings;
 }
+
+
+
+
+
+# pragma region Action montage
+
+
+UActionMontage::UActionMontage()
+{
+	ActionName = "BuiltIn_ActionMontage";
+	CoolDownDelay = 0;
+	bShouldControllerStateCheckOverride = true;
+	//bDebugAction = true;
+	Reset();
+}
+
+
+bool UActionMontage::SetActionParams(UModularControllerComponent* controller, FActionMotionMontage montage, int priority)
+{
+	if (!controller)
+		return false;
+	if (!montage.Montage)
+		return false;
+	MontageToPlay = montage;
+	MontageToPlay.bUseMontageLenght = true;
+	MontageToPlay.bStopOnActionEnds = true;
+	ActionPriority = priority;
+	//
+	bCanTransitionToSelf = false;
+	FActionMontageLibrary library;
+	library.Library = TArray<FActionMotionMontage>{MontageToPlay};
+	if (controller->ActionMontageLibraryMap.Contains(GetDescriptionName()))
+		controller->ActionMontageLibraryMap[GetDescriptionName()] = library;
+	else
+		controller->ActionMontageLibraryMap.Add(GetDescriptionName(), library);
+
+	return true;
+}
+
+void UActionMontage::Reset()
+{
+	ActionPriority = -1;
+	MontageToPlay = FActionMotionMontage();
+	AnticipationPhaseDuration = 0.05;
+	ActivePhaseDuration = 0.8;
+	RecoveryPhaseDuration = 0.15;
+}
+
+
+FVector4 UActionMontage::OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput,
+                                                       const float delta) const
+{
+	return FVector4(AnticipationPhaseDuration, ActivePhaseDuration, RecoveryPhaseDuration, 0);
+}
+
+void UActionMontage::OnActionEnds_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
+{
+}
+
+FControllerCheckResult UActionMontage::CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta,
+                                                                  bool asLastActiveAction) const
+{
+	return FControllerCheckResult(MontageToPlay.Montage && GetPriority() >= 0, startingConditions);
+}
+
+FControllerStatus UActionMontage::OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions,
+                                                                                  FActionInfos& actionInfos, const float delta) const
+{
+	FControllerStatus result = startingConditions;
+	if (!controller)
+		return result;
+	result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
+	result.Kinematics.AngularKinematic.AngularAcceleration = FVector(0);
+	result.Kinematics.AngularKinematic.RotationSpeed = FVector(0);
+	const double RMWeight = UFunctionLibrary::GetMontageCurrentWeight(controller->GetAnimInstance(), MontageToPlay.Montage);
+	controller->ReadRootMotion(result.Kinematics, result.Kinematics.LinearKinematic.Velocity, ERootMotionType::Override, 1, RMWeight);
+	return result;
+}
+
+FControllerStatus UActionMontage::OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+                                                                            const float delta) const
+{
+	FControllerStatus result = startingConditions;
+	if (!controller)
+		return result;
+	result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
+	result.Kinematics.AngularKinematic.AngularAcceleration = FVector(0);
+	result.Kinematics.AngularKinematic.RotationSpeed = FVector(0);
+	const double RMWeight = UFunctionLibrary::GetMontageCurrentWeight(controller->GetAnimInstance(), MontageToPlay.Montage);
+	controller->ReadRootMotion(result.Kinematics, result.Kinematics.LinearKinematic.Velocity, ERootMotionType::Override, 1, RMWeight);
+	return result;
+}
+
+FControllerStatus UActionMontage::OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+                                                                              const float delta) const
+{
+	FControllerStatus result = startingConditions;
+	if (!controller)
+		return result;
+	result.Kinematics.LinearKinematic.SnapDisplacement = FVector(0);
+	result.Kinematics.AngularKinematic.AngularAcceleration = FVector(0);
+	result.Kinematics.AngularKinematic.RotationSpeed = FVector(0);
+	const double RMWeight = UFunctionLibrary::GetMontageCurrentWeight(controller->GetAnimInstance(), MontageToPlay.Montage);
+	controller->ReadRootMotion(result.Kinematics, result.Kinematics.LinearKinematic.Velocity, ERootMotionType::Override, 1, RMWeight);
+	return result;
+}
+
+#pragma endregion

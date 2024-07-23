@@ -107,7 +107,8 @@ FControllerStatus UBaseDashAction::OnActionProcessAnticipationPhase_Implementati
 	//Root motion
 	if (controller)
 	{
-		controller->ReadRootMotion(result.Kinematics, FVector(0), RootMotionMode, surface.SurfacePhysicProperties.X);
+		const double RMWeight = UFunctionLibrary::GetMontageCurrentWeight(controller->GetAnimInstance(), controller->GetActionCurrentMotionMontage(this).Montage);
+		controller->ReadRootMotion(result.Kinematics, FVector(0), RootMotionMode, surface.SurfacePhysicProperties.X, RMWeight);
 		const float normalizedTime = actionInfos.GetNormalizedTime(EActionPhase::Anticipation);
 		const float trueTime = normalizedTime * actionInfos._startingDurations.X;
 
@@ -209,7 +210,8 @@ FControllerStatus UBaseDashAction::OnActionProcessActivePhase_Implementation(UMo
 	//Root motion
 	if (controller && surfaceAngle < MaxSurfaceAngle)
 	{
-		controller->ReadRootMotion(result.Kinematics, moveVec, RootMotionMode, surface.SurfacePhysicProperties.X);
+		const double RMWeight = UFunctionLibrary::GetMontageCurrentWeight(controller->GetAnimInstance(), controller->GetActionCurrentMotionMontage(this).Montage);
+		controller->ReadRootMotion(result.Kinematics, moveVec, RootMotionMode, surface.SurfacePhysicProperties.X, RMWeight);
 	}
 
 	//Check if not anymore on surface
@@ -237,11 +239,12 @@ FControllerStatus UBaseDashAction::OnActionProcessRecoveryPhase_Implementation(U
 	//Root motion
 	if (controller)
 	{
+		const double RMWeight = UFunctionLibrary::GetMontageCurrentWeight(controller->GetAnimInstance(), controller->GetActionCurrentMotionMontage(this).Montage);
 		const FVector move = FMath::Lerp(result.Kinematics.LinearKinematic.Velocity, FVector(0), 2 * delta);
 		controller->ReadRootMotion(result.Kinematics, move,
 		                           (controller->CheckActionCompatibility(this, result.StatusParams.StateIndex, result.StatusParams.ActionIndex)
 			                            ? RootMotionMode
-			                            : ERootMotionType::NoRootMotion), surface.SurfacePhysicProperties.X);
+			                            : ERootMotionType::NoRootMotion), surface.SurfacePhysicProperties.X, RMWeight);
 	}
 
 	return result;

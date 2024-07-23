@@ -180,7 +180,7 @@ FHitResultExpanded::FHitResultExpanded(FHitResult hit, int index, ECollisionResp
 {
 	HitResult = hit;
 	HitIndex = index;
-	ObjectType = hit.Component.IsValid()? UCollisionProfile::Get()->ConvertToObjectType(hit.GetComponent()->GetCollisionObjectType()) : EObjectTypeQuery::ObjectTypeQuery_MAX;
+	ObjectType = hit.Component.IsValid() ? UCollisionProfile::Get()->ConvertToObjectType(hit.GetComponent()->GetCollisionObjectType()) : EObjectTypeQuery::ObjectTypeQuery_MAX;
 	QueryResponse = queryType != ECR_MAX ? queryType : (hit.bBlockingHit ? ECR_Block : ECR_Ignore);
 }
 
@@ -326,12 +326,13 @@ FActionInfos::FActionInfos()
 {
 }
 
-void FActionInfos::Init(FVector timings, float coolDown, int repeatCount)
+void FActionInfos::Init(FVector timings, float coolDown, int repeatCount, int montageIndex)
 {
 	Reset(coolDown);
 	_startingDurations = timings;
 	_repeatCount = repeatCount;
 	_remainingActivationTimer = _startingDurations.X + _startingDurations.Y + _startingDurations.Z;
+	_montageLibraryIndex = montageIndex;
 }
 
 double FActionInfos::GetRemainingActivationTime() const
@@ -395,6 +396,7 @@ void FActionInfos::SkipTimeToPhase(EActionPhase phase)
 			_remainingActivationTimer = _startingDurations.Z;
 			break;
 		default:
+			_remainingActivationTimer = 0;
 			break;
 	}
 }
@@ -443,6 +445,7 @@ void FActionInfos::Reset(float coolDown)
 	_cooldownTimer = coolDown;
 	_remainingActivationTimer = 0;
 	_repeatCount = 0;
+	_montageLibraryIndex = -1;
 	CurrentPhase = EActionPhase::Undetermined;
 }
 

@@ -254,13 +254,14 @@ bool UModularControllerComponent::IsIgnoringCollision() const
 				ignore = curAction->NoCollisionPhases.Contains(curActionInfos.CurrentPhase);
 		}
 
-		if (!ignore && !_noCollisionOverrideRootMotionCommands.IsEmpty())
+		if (!ignore)
 		{
-			ignore = true;
+			ignore = _noCollisionOverrideRootMotionCommand.IsValid();
 		}
 	}
 	return ignore;
 }
+
 
 void UModularControllerComponent::AddForce(const FVector force)
 {

@@ -207,3 +207,41 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Action|Timing")
 	FVector RemapDurationByMontageSections(UAnimMontage* montage, FVector fallBackTimings) const;
 };
+
+
+
+// Controller's action montage
+UCLASS(NotBlueprintType, NotBlueprintable, ClassGroup = "Modular Action Behaviours")
+class MODULARCONTROLLER_API UActionMontage : public UBaseControllerAction
+{
+	GENERATED_BODY()
+public:
+	UActionMontage();
+
+	// Set the montage parameters
+	bool SetActionParams(UModularControllerComponent* controller, FActionMotionMontage montage, int priority);
+
+	// Rest the action
+	void Reset();
+
+private:
+	UPROPERTY()
+	FActionMotionMontage MontageToPlay;
+
+public:
+	virtual FVector4 OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
+
+	virtual void OnActionEnds_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const override;
+
+	virtual FControllerCheckResult CheckAction_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, const float delta,
+													  bool asLastActiveAction) const override;
+
+	virtual FControllerStatus OnActionProcessAnticipationPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+																	  const float delta) const override;
+
+	virtual FControllerStatus OnActionProcessActivePhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+																const float delta) const override;
+
+	virtual FControllerStatus OnActionProcessRecoveryPhase_Implementation(UModularControllerComponent* controller, const FControllerStatus startingConditions, FActionInfos& actionInfos,
+																  const float delta) const override;
+};
