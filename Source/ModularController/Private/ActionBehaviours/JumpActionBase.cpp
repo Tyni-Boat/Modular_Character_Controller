@@ -148,35 +148,26 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 
 	if (pressedBtn || normalizedTime <= 0.1)
 	{
-		const FVector jumpAcceleration = -controller->GetGravityDirection() * (JumpForce * (1 / actionInfos._startingDurations.Y)) * forceScale
-			+ ((controller->GetGravityDirection() | result.Kinematics.LinearKinematic.Velocity) > 0 && normalizedTime < 0.1
-				   ? -result.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(controller->GetGravityDirection()) / delta
-				   : FVector(0));
-		result.Kinematics.LinearKinematic.Acceleration += jumpAcceleration * (1 / ActivePhaseDuration);
-
-		//Handle rotation
-		{
-			result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, result.MoveInput, TurnTowardDirectionSpeed * (1 - normalizedTime), delta);
-		}
-
 		//Look for mantling and vaulting
-		const FVector lowestPt = controller->GetWorldSpaceCardinalPoint(controller->GetGravityDirection());
-		for (auto item : MantlingAndVaultingMap)
+		//if (actionInfos.GetPhaseElapsedTime(EActionPhase::Active) <= delta)
 		{
-			for (auto surface : result.Kinematics.SurfacesInContact)
+			const FVector feetPos = controller->GetWorldSpaceCardinalPoint(result.Kinematics.GetGravityDirection());
+			const FVector locationOffset = (feetPos - result.Kinematics.LinearKinematic.Position);
+			for (auto item : MantlingAndVaultingMap)
 			{
 				FSurfaceCheckResponse response;
-				if (controller->EvaluateSurfaceConditions(item.Value, response, surface, result, lowestPt))
+				if (controller->EvaluateSurfaceConditions(item.Value, response, result, locationOffset, FVector(0)
+					, result.Kinematics.GetGravityDirection() * JumpForce))
 				{
 					TArray<FTransform> ptsList;
 					ptsList.Empty();
 					if (item.Value.DepthRange.Z > 0)
 					{
 						FVector pos = result.Kinematics.LinearKinematic.Position;
-						FVector normal = controller->GetGravityDirection();
-						const FVector snapvector = UFunctionLibrary::GetSnapOnSurfaceVector(lowestPt, surface, normal);
-						const FVector ledgeLocation = surface.SurfacePoint + snapvector - snapvector.GetSafeNormal() * 2 * OVERLAP_INFLATION;
-						const FQuat lookDir = FVector::VectorPlaneProject(surface.SurfacePoint - pos, normal).ToOrientationQuat();
+						FVector normal = result.Kinematics.GetGravityDirection();
+						const FVector snapvector = UFunctionLibrary::GetSnapOnSurfaceVector(feetPos, response.Surface, normal);
+						const FVector ledgeLocation = response.Surface.SurfacePoint + snapvector - snapvector.GetSafeNormal() * 2 * OVERLAP_INFLATION;
+						const FQuat lookDir = FVector::VectorPlaneProject(response.Surface.SurfacePoint - pos, normal).ToOrientationQuat();
 						ptsList.Add(FTransform(lookDir, ledgeLocation));
 						if (!response.VaultDepthVector.ContainsNaN())
 							ptsList.Add(FTransform(lookDir, ledgeLocation + response.VaultDepthVector));
@@ -185,6 +176,22 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 					break;
 				}
 			}
+		}
+
+
+		const FVector jumpAcceleration = -result.Kinematics.GetGravityDirection() * (JumpForce * (1 / actionInfos._startingDurations.Y)) * forceScale
+			+ ((result.Kinematics.GetGravityDirection() | result.Kinematics.LinearKinematic.Velocity) > 0 && normalizedTime < 0.1
+				   ? -result.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(result.Kinematics.GetGravityDirection()) / delta
+				   : FVector(0));
+		result.Kinematics.LinearKinematic.Acceleration += jumpAcceleration * (1 / ActivePhaseDuration);
+
+		//Handle rotation
+		{
+			result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic,
+			                                                              FVector::VectorPlaneProject(result.MoveInput, result.Kinematics.GetGravityDirection()).GetSafeNormal() * result.
+			                                                                                                                                                                       MoveInput.
+			                                                                                                                                                                       Length(),
+			                                                              TurnTowardDirectionSpeed * (1 - normalizedTime), delta);
 		}
 	}
 	else

@@ -183,6 +183,10 @@ struct FSurfaceCheckParams
 public:
 	FSurfaceCheckParams();
 
+	// The prediction along the trajectory range.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D PredictionDistanceRange = FVector2D(-1);
+
 	// The range of the surface point's distance along the checking direction. (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FVector2D HeightRange = FVector2D(-1);
@@ -198,6 +202,10 @@ public:
 	// The range of the velocity along the checking direction (cm/s)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FVector2D SpeedRange = FVector2D(-1);
+
+	// The range of the velocity in the surface direction (cm/s)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector2D OrientationSpeedRange = FVector2D(-1);
 
 	// The range of the surface velocity along the checking direction at impact point (cm/s)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
@@ -236,6 +244,10 @@ struct FSurfaceCheckResponse
 	GENERATED_BODY()
 
 	FSurfaceCheckResponse();
+
+	// The surface that was test aginst
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FSurface Surface = FSurface();
 
 	// The vault depth vector (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
@@ -290,6 +302,8 @@ public:
 	double GetNormalizedTime(EActionPhase phase) const;
 
 	double GetPhaseRemainingTime(EActionPhase phase) const;
+	
+	double GetPhaseElapsedTime(EActionPhase phase) const;
 
 	void SkipTimeToPhase(EActionPhase phase);
 
@@ -512,7 +526,7 @@ public:
 	FQuat GetAngularSpeedQuat(float time = 1) const;
 
 	//Evaluate future movement conditions base on the delta time.
-	FAngularKinematicCondition GetFinalCondition(double deltaTime) const;
+	FAngularKinematicCondition GetFinalCondition(double deltaTime, FVector* targetLookDir = nullptr, FVector* rotateVector = nullptr, FQuat* rotDiff = nullptr) const;
 };
 
 
@@ -528,6 +542,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
 	FAngularKinematicCondition AngularKinematic = FAngularKinematicCondition();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
+	FVector Gravity = FVector::DownVector;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurfaceHandling")
 	int SurfaceBinaryFlag = -1;
@@ -548,6 +565,33 @@ public:
 
 	//Get the rotation from angular kinematic.
 	FQuat GetRotation() const;
+
+	FORCEINLINE FVector GetGravity() const { return Gravity; }
+	FORCEINLINE FVector GetGravityDirection() const { return Gravity.GetSafeNormal(); }
+	FORCEINLINE float GetGravityScale() const { return Gravity.Length(); }
+};
+
+
+//Represent a kinematic prediction's point
+USTRUCT(BlueprintType)
+struct MODULARCONTROLLER_API FKinematicPredictionSample
+{
+	GENERATED_BODY()
+
+public:
+	FKinematicPredictionSample();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
+	FLinearKinematicCondition LinearKinematic = FLinearKinematicCondition();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
+	FAngularKinematicCondition AngularKinematic = FAngularKinematicCondition();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kinematics")
+	FVector Gravity = FVector::DownVector;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time")
+	float RelativeTime = -1;
 };
 
 
@@ -577,6 +621,10 @@ public:
 	// The custom zone drag.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
 	float CustomPhysicDrag = -1;
+
+	// The time offset from the current time. negative values are past and positive future. zero is present.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ProcessResult")
+	float TimeOffset = 0;
 };
 
 
@@ -614,6 +662,7 @@ struct MODULARCONTROLLER_API FOverrideRootMotionCommand
 public:
 	FORCEINLINE FOverrideRootMotionCommand()
 	{
+		Reset();
 	}
 
 	FORCEINLINE FOverrideRootMotionCommand(FOverrideRootMotionCommand& Other)
@@ -625,8 +674,7 @@ public:
 		PlayRate = Other.PlayRate;
 		WarpKey = Other.WarpKey;
 		WarpCurve = Other.WarpCurve;
-		WarpTransform_Start = Other.WarpTransform_Start;
-		WarpTransform_End = Other.WarpTransform_End;
+		WarpTransform_Path = Other.WarpTransform_Path;
 	}
 
 	FORCEINLINE bool IsValid() const
@@ -636,7 +684,7 @@ public:
 
 	FORCEINLINE bool IsMotionWarpingEnabled() const
 	{
-		return WarpKey != NAME_None;
+		return WarpKey != NAME_None && WarpTransform_Path.Num() > 0;
 	}
 
 	FORCEINLINE void Reset()
@@ -647,23 +695,31 @@ public:
 		Time = 0;
 		PlayRate = 1;
 		WarpKey = NAME_None;
+		WarpTransform_Path.Empty();
 	}
 
 	FORCEINLINE bool Update(float deltaTime, FTransform& warpTransform, std::function<void()> OnReset)
 	{
-		if(!IsValid())
+		if (!IsValid())
 			return false;
 		Time += deltaTime * PlayRate;
-		const float normalizedTime = FMath::GetMappedRangeValueClamped(TRange<float>(0,Duration), TRange<float>(0,1), Time);
-		if(WarpKey != NAME_None)
+		const float normalizedTime = FMath::GetMappedRangeValueClamped(TRange<float>(0, Duration), TRange<float>(0, 1), Time);
+		if (WarpKey != NAME_None)
 		{
 			const float alpha = FAlphaBlend::AlphaToBlendOption(normalizedTime, WarpCurve);
-			const FTransform matchTransform = FTransform(FQuat::Slerp(WarpTransform_Start.GetRotation(), WarpTransform_End.GetRotation(), alpha),
-														 FMath::Lerp(WarpTransform_Start.GetLocation(), WarpTransform_End.GetLocation(), alpha),
-														 FVector(1));
-			warpTransform = matchTransform;
+			const float cursor = alpha * (WarpTransform_Path.Num() - 1);
+			const int index = FMath::Clamp(static_cast<int>(cursor), 0, WarpTransform_Path.Num() - 2);
+			const float interIndexAlpha = FMath::Clamp(cursor - index, 0, 1);
+			const int nextIndex = index + 1;
+			if(WarpTransform_Path.IsValidIndex(index) && WarpTransform_Path.IsValidIndex(nextIndex))
+			{
+				const FTransform matchTransform = FTransform(FQuat::Slerp(WarpTransform_Path[index].GetRotation(), WarpTransform_Path[nextIndex].GetRotation(), interIndexAlpha),
+															 FMath::Lerp(WarpTransform_Path[index].GetLocation(), WarpTransform_Path[nextIndex].GetLocation(), interIndexAlpha),
+															 FVector(1));
+				warpTransform = matchTransform;
+			}
 		}
-		if(Time >= Duration)
+		if (Time >= Duration)
 		{
 			OnReset();
 			Reset();
@@ -679,21 +735,17 @@ public:
 	//The override rotation rootMotion mode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Mode")
 	ERootMotionType OverrideRotationRootMotionMode = ERootMotionType::NoRootMotion;
-	
+
 	// The warp key name
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Warp")
 	FName WarpKey;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Warp")
 	EAlphaBlendOption WarpCurve;
-	
-	// The Warp transform start
+
+	// The Warp transform path
 	UPROPERTY()
-	FTransform WarpTransform_Start;
-	
-	// The Warp transform end
-	UPROPERTY()
-	FTransform WarpTransform_End;
+	TArray<FTransform> WarpTransform_Path;
 
 	// The animation play rate
 	UPROPERTY()
@@ -702,7 +754,7 @@ public:
 	// The duration of the command
 	UPROPERTY()
 	float Duration = 0;
-	
+
 	// The current command eval time.
 	UPROPERTY()
 	float Time = 0;

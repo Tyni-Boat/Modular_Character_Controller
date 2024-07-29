@@ -47,8 +47,10 @@ void UFunctionLibrary::ExtractComponentSpacePose(const UAnimSequenceBase* Animat
 	OutPose.InitPose(MoveTemp(Pose));
 }
 
-FTransform UFunctionLibrary::ExtractRootMotionFromAnimation(const UAnimSequenceBase* Animation, float StartTime, float EndTime)
+FTransform UFunctionLibrary::ExtractRootMotionFromAnimation(const UAnimSequenceBase* Animation, float StartTime, float EndTime, TArray<FTransform>* stepArray)
 {
+	if (stepArray)
+		stepArray->Empty();
 	if (const UAnimMontage* Anim = Cast<UAnimMontage>(Animation))
 	{
 		// This is identical to UAnimMontage::ExtractRootMotionFromTrackRange and UAnimCompositeBase::ExtractRootMotionFromTrack but ignoring bEnableRootMotion
@@ -67,6 +69,12 @@ FTransform UFunctionLibrary::ExtractRootMotionFromAnimation(const UAnimSequenceB
 			{
 				if (CurStep.AnimSequence)
 				{
+					if (stepArray)
+					{
+						FRootMotionMovementParams stepRM;
+						stepRM.Accumulate(CurStep.AnimSequence->ExtractRootMotionFromRange(CurStep.StartPosition, CurStep.EndPosition));
+						stepArray->Add(stepRM.GetRootMotionTransform());
+					}
 					AccumulatedRootMotionParams.Accumulate(CurStep.AnimSequence->ExtractRootMotionFromRange(CurStep.StartPosition, CurStep.EndPosition));
 				}
 			}
@@ -568,6 +576,50 @@ bool UFunctionLibrary::IsValidSurfaces(FKinematicComponents kinematicComponent, 
 	return false;
 }
 
+
+TArray<FKinematicPredictionSample> UFunctionLibrary::MakeKinematicsTrajectory(const FKinematicComponents kinematics, const int SampleCount, const float TimeStep,
+                                                                              float accReductionScale, float relativeAccMaxAngle)
+{
+	TArray<FKinematicPredictionSample> _result;
+	FKinematicComponents _kinematics = kinematics;
+	_kinematics.LinearKinematic.Acceleration = _kinematics.LinearKinematic.Acceleration - _kinematics.LinearKinematic.refAcceleration;
+	_kinematics.LinearKinematic.refAcceleration = FVector(0);
+	_kinematics.LinearKinematic.Velocity = _kinematics.LinearKinematic.Velocity - _kinematics.LinearKinematic.refVelocity;
+	_kinematics.LinearKinematic.refVelocity = FVector(0);
+	_kinematics.AngularKinematic.AngularAcceleration = FVector(0);
+	float startAngle = -1;
+	float cumulatedAngle = 0;
+
+	for (int i = 0; i < SampleCount; i++)
+	{
+		auto newLinear = _kinematics.LinearKinematic.GetFinalCondition(TimeStep);
+		if (startAngle < 0)
+		{
+			startAngle = FMath::RadiansToDegrees(
+				FMath::Acos((newLinear.Position - _kinematics.LinearKinematic.Position).GetSafeNormal() | _kinematics.AngularKinematic.Orientation.Vector()));
+		}
+		FQuat rotDiff = FQuat::Identity;
+		auto newAngular = _kinematics.AngularKinematic.GetFinalCondition(TimeStep, (startAngle >= relativeAccMaxAngle)? &newLinear.Velocity : nullptr,
+		                                                                 (startAngle < relativeAccMaxAngle) ? &newLinear.Acceleration : nullptr
+		                                                                 , &rotDiff);
+		newAngular.RotationSpeed = kinematics.AngularKinematic.RotationSpeed;
+		FVector axis;
+		float angle;
+		rotDiff.ToAxisAndAngle(axis, angle);
+		cumulatedAngle += FMath::RadiansToDegrees(angle);
+		FKinematicPredictionSample sample = FKinematicPredictionSample();
+		sample.LinearKinematic = newLinear;
+		sample.AngularKinematic = newAngular;
+		sample.RelativeTime = (i + 1) * TimeStep;
+		_result.Add(sample);
+		newLinear.Acceleration *= FMath::Clamp(1 - accReductionScale, 0, 1);
+		_kinematics.AngularKinematic = newAngular;
+		_kinematics.LinearKinematic = newLinear;
+	}
+
+	return _result;
+}
+
 FActionMotionMontage UFunctionLibrary::GetActionMontageAt(FActionMontageLibrary& structRef, int index, int fallbackIndex, bool tryZeroOnNoFallBack)
 {
 	FActionMotionMontage actionMontage;
@@ -619,7 +671,7 @@ double UFunctionLibrary::GetActionLibraryMontageMaxWeight(FActionMontageLibrary&
 		for (int i = 0; i < structRef.Library.Num(); i++)
 		{
 			double w = GetMontageCurrentWeight(AnimInstance, structRef.Library[i].Montage);
-			if(w > weight)
+			if (w > weight)
 				weight = w;
 		}
 	}

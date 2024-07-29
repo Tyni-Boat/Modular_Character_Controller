@@ -70,7 +70,6 @@ void UModularControllerComponent::Initialize()
 {
 	Velocity = FVector(0);
 	OwnerPawn = Cast<APawn>(GetOwner());
-	SetGravity(FVector::DownVector * FMath::Abs(GetGravityZ()));
 
 	//Inputs
 	_inputPool = NewObject<UInputEntryPool>(UInputEntryPool::StaticClass(), UInputEntryPool::StaticClass());
@@ -139,6 +138,9 @@ void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick Tick
 		TRACE_CPUPROFILER_EVENT_SCOPE_STR("PrimaryTick_PrePhysic_ModularController");
 		// Apply movements here
 		MovementTickComponent(DeltaTime);
+
+		//Update history
+		UpdateMovementHistory(ApplyedControllerStatus, DeltaTime);
 	}
 	else if (ThisTickFunction->TickGroup == TG_DuringPhysics)
 	{
@@ -198,10 +200,11 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 
 	//Solve collisions
 	int maxDepth = 64;
-	OverlapSolver(maxDepth, delta, &_contactHits, ApplyedControllerStatus.CustomSolverCheckParameters);
+	OverlapSolver(maxDepth, delta, &_contactHits, ApplyedControllerStatus.CustomSolverCheckParameters, nullptr,
+	              [this](FVector location)-> void { UpdatedPrimitive->SetWorldLocation(location); });
 
 	//Handle tracked surfaces
-	HandleTrackedSurface(ApplyedControllerStatus, delta);
+	HandleTrackedSurface(ApplyedControllerStatus, _contactHits, delta);
 
 	//In StandAlone Mode, don't bother with net logic at all
 	if (GetNetMode() == NM_Standalone)
@@ -333,7 +336,6 @@ FControllerStatus UModularControllerComponent::ProcessStatus(const FControllerSt
 #pragma endregion
 
 
-
 #pragma region Action Montage XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 
@@ -346,7 +348,7 @@ void UActionMontageEvent::Activate()
 		return;
 	}
 
-	if(!_controller->PlayActionMontage(MontageToPlay, Priority))
+	if (!_controller->PlayActionMontage(MontageToPlay, Priority))
 	{
 		_OnActionMontageFailed();
 		return;

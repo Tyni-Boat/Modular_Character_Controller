@@ -23,7 +23,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 	if (!controller)
 		return 0;
 
-	FVector gravityDirection = controller->GetGravityDirection();
+	FVector gravityDirection = status.Kinematics.GetGravityDirection();
 	FVector location = status.Kinematics.LinearKinematic.Position;
 	if (!gravityDirection.Normalize())
 		gravityDirection = FVector::DownVector;
@@ -87,7 +87,7 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 			{
 				continue;
 			}
-			if(!asActive && (surface.SurfaceNormal | surface.SurfaceImpactNormal) < 0.9)
+			if (!asActive && (surface.SurfaceNormal | surface.SurfaceImpactNormal) < 0.9)
 				continue;
 
 			badAngleIndex = i;
@@ -162,10 +162,10 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 #pragma region General Movement XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 
-FVector USimpleGroundState::GetMoveVector(const FVector inputVector, const float moveScale, const FSurface Surface, const UModularControllerComponent* controller) const
+FVector USimpleGroundState::GetMoveVector(const FVector inputVector, const float moveScale, const FSurface Surface, const FVector gravity) const
 {
 	FVector desiredMove = inputVector;
-	const FVector normal = controller ? -controller->GetGravityDirection() : FVector::UpVector;
+	const FVector normal = gravity.SquaredLength() > 0 ? -gravity.GetSafeNormal() : FVector::UpVector;
 
 	//Slope handling
 	{
@@ -209,7 +209,7 @@ FControllerCheckResult USimpleGroundState::CheckState_Implementation(UModularCon
 	else
 	{
 		const FVector relativeVel = FVector::VectorPlaneProject(result.ProcessResult.Kinematics.LinearKinematic.Velocity - result.ProcessResult.Kinematics.LinearKinematic.refVelocity,
-		                                                        controller->GetGravityDirection());
+		                                                        startingConditions.Kinematics.GetGravityDirection());
 		UFunctionLibrary::AddOrReplaceCosmeticVector(result.ProcessResult.StatusParams, GroundMoveVarName, relativeVel);
 	}
 
@@ -233,7 +233,7 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	FControllerStatus result = startingConditions;
 	if (!controller)
 		return result;
-	const FVector gravityDir = controller->GetGravityDirection();
+	const FVector gravityDir = startingConditions.Kinematics.GetGravityDirection();
 	const FVector lowestPt = controller->GetWorldSpaceCardinalPoint(gravityDir);
 	const TArray<int> indexes = UToolsLibrary::BoolToIndexesArray(UToolsLibrary::FlagToBoolArray(result.Kinematics.SurfaceBinaryFlag));
 	int primarySurfaceIndex = UFunctionLibrary::GetSurfaceIndexUnderCondition(result.Kinematics, [gravityDir, this](const FSurface& surface) -> bool
@@ -270,12 +270,17 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	}
 
 	//Collect inputs
-	const FVector inputMove = result.MoveInput;
+	const FVector inputMove = FVector::VectorPlaneProject(result.MoveInput, startingConditions.Kinematics.GetGravityDirection()).GetSafeNormal() * result.MoveInput.Length();
 	const FVector lockOnDirection = controller->ReadAxisInput(LockOnDirection);
 	const bool lockedOn = lockOnDirection.SquaredLength() > 0;
 
 	//Parameters from inputs
 	float moveScale = 1;
+	const float rotAlpha = result.Kinematics.AngularKinematic.Orientation.Vector() | inputMove.GetSafeNormal();;
+	if (bMoveOnlyForward)
+	{
+		moveScale = FMath::Clamp(rotAlpha, 0, 1);
+	}
 
 	//Snapping
 	const FVector snapVector = UFunctionLibrary::GetSnapOnSurfaceVector(
@@ -295,8 +300,9 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	const FVector downSnap = snapVector.ProjectOnToNormal(gravityDir);
 	const FVector userMove = inputMove * MaxSpeed * moveScale;
 	const FVector originalMoveVec = FMath::Lerp(lastMoveVec, userMove, Acceleration * delta);
-	const FVector postRMMove = controller->GetRootMotionTranslation(RootMotionMode, userMove);
-	FVector moveVec = GetMoveVector(postRMMove, moveScale, cloneSurface, controller) * FMath::Clamp(1 - (downSnap.Length() / (SurfaceParams.HeightRange.Y * 0.5)), 0, 1);
+	const FVector postRMMove = controller->GetRootMotionTranslation(RootMotionMode, originalMoveVec);
+	FVector moveVec = GetMoveVector(postRMMove, moveScale, cloneSurface, startingConditions.Kinematics.Gravity)
+		* FMath::Clamp(1 - (downSnap.Length() / (SurfaceParams.HeightRange.Y * 0.5)), 0, 1);
 
 	//Angle verification
 	FVector slideVector = FVector(0);
@@ -309,13 +315,16 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	}
 	if (primaryAngle > SurfaceParams.ImpactAngleRange.Y)
 	{
-		slideVector = FVector::VectorPlaneProject(gravityDir, primarySurface.SurfaceImpactNormal).GetSafeNormal() * controller->GetGravityScale();
+		slideVector = FVector::VectorPlaneProject(gravityDir, primarySurface.SurfaceImpactNormal).GetSafeNormal() * startingConditions.Kinematics.GetGravityScale();
 	}
 
 	//Rotate
 	const float turnSpd = primaryAngle > SurfaceParams.ImpactAngleRange.Y && SlideTurnSpeed > 0 ? SlideTurnSpeed : TurnSpeed;
 	FVector lookDir = lockedOn ? lockOnDirection : (slideVector.SquaredLength() > 0 && SlideTurnSpeed > 0 ? slideVector : inputMove);
-	result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, lookDir, turnSpd, delta);
+	result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, lookDir,
+	                                                              turnSpd * FAlphaBlend::AlphaToBlendOption(
+		                                                              FMath::GetMappedRangeValueClamped(TRange<float>(-1, 1), TRange<float>(0.25, 1), rotAlpha), TurnCurve)
+	                                                              , delta);
 
 	//
 	if (!controller->ActionInstances.IsValidIndex(result.StatusParams.ActionIndex))
@@ -325,7 +334,8 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 	}
 	else
 	{
-		const FVector relVel = FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity - result.Kinematics.LinearKinematic.refVelocity, controller->GetGravityDirection());
+		const FVector relVel = FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity - result.Kinematics.LinearKinematic.refVelocity,
+		                                                   startingConditions.Kinematics.GetGravityDirection());
 		result.StatusParams.StateModifiers = relVel;
 		UFunctionLibrary::AddOrReplaceCosmeticVector(result.StatusParams, GroundMoveVarName, relVel);
 	}
@@ -349,15 +359,17 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 		}
 		else
 		{
-			const FVector relVel = FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity - result.Kinematics.LinearKinematic.refVelocity, controller->GetGravityDirection());
+			const FVector relVel = FVector::VectorPlaneProject(result.Kinematics.LinearKinematic.Velocity - result.Kinematics.LinearKinematic.refVelocity,
+			                                                   startingConditions.Kinematics.GetGravityDirection());
 			const FVector planedNormal = FVector::VectorPlaneProject(primarySurface.SurfaceImpactNormal, gravityDir).GetSafeNormal();
 			const FVector orthogonalRelVel = relVel.ProjectOnToNormal(planedNormal) * ((planedNormal | relVel) < 0 ? 1 : 0);
 			result.Kinematics.LinearKinematic.Acceleration = slideVector + moveVec - ((orthogonalRelVel / delta) * 0.25);
 		}
 	}
-	const FVector scanDir = controller->GetGravityDirection() * (SurfaceParams.HeightRange.Y + FLOATING_HEIGHT + 1);
+	const FVector scanDir = startingConditions.Kinematics.GetGravityDirection() * (SurfaceParams.HeightRange.Y + FLOATING_HEIGHT + 1);
 	result.CustomSolverCheckParameters = FVector4(scanDir.X, scanDir.Y, scanDir.Z, 0.125);
-	UFunctionLibrary::ApplyForceOnSurfaces(result.Kinematics, primarySurface.SurfacePoint, controller->GetGravity() * controller->GetMass(), true, ECR_Block);
+	if (startingConditions.TimeOffset == 0)
+		UFunctionLibrary::ApplyForceOnSurfaces(result.Kinematics, primarySurface.SurfacePoint, startingConditions.Kinematics.Gravity * controller->GetMass(), true, ECR_Block);
 
 	return result;
 }

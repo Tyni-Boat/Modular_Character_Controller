@@ -65,6 +65,7 @@ DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_OneParam(FControllerUniqueEventSignatu
 
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageCompleted);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageFailed);
 
 
@@ -415,9 +416,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
 	bool bUseComplexCollision = false;
 
+	// The Maximum sample in the history
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
+	int MaxHistorySamples = 10;
 
-	// The component's current gravity vector
-	FVector _gravityVector = -FVector::UpVector;
+	// The History time interval
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Physic")
+	float HistoryTimeStep = 0.1;
+
+	// The History Samples array. Youngest at index 0
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, category = "Controllers|Physic")
+	TArray<FKinematicPredictionSample> MovementHistorySamples;
+
 
 	// The cached array of component in contact
 	TArray<FHitResultExpanded> _contactHits;
@@ -434,41 +444,12 @@ public:
 	// The current collision shape datas.
 	FCollisionShape _shapeDatas;
 
+	// The history save chrono.
+	float _historyCounterChrono;
+
 
 	UFUNCTION(BlueprintPure, Category="Controllers|Physic")
 	bool IsIgnoringCollision() const;
-
-
-	// Get the controller Gravity
-	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
-	FORCEINLINE FVector GetGravity() const
-	{
-		return _gravityVector;
-	}
-
-
-	// Get the controller Gravity
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Physic")
-	FORCEINLINE void SetGravity(FVector gravity)
-	{
-		_gravityVector = gravity;
-	}
-
-
-	// Get the controller Gravity's Direction
-	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
-	FORCEINLINE FVector GetGravityDirection() const
-	{
-		return _gravityVector.GetSafeNormal();
-	}
-
-
-	// Get the controller Gravity's Scale
-	UFUNCTION(BlueprintPure, Category = "Controllers|Physic")
-	FORCEINLINE float GetGravityScale() const
-	{
-		return _gravityVector.Length();
-	}
 
 
 	// Get the controller Mass
@@ -504,11 +485,16 @@ public:
 
 
 	//Solve overlap problems recursively.
-	void OverlapSolver(int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits = nullptr, const FVector4 scanParameters = FVector4(0));
+	void OverlapSolver(int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits = nullptr, const FVector4 scanParameters = FVector4(0), FTransform* customTransform = nullptr,
+	                   std::function<void(FVector)> OnLocationSet = {});
 
 
 	// Handle tracked surfaces.
-	void HandleTrackedSurface(FControllerStatus& fromStatus, float delta);
+	void HandleTrackedSurface(FControllerStatus& fromStatus, TArray<FHitResultExpanded> incomingCollisions, float delta) const;
+
+
+	// Update the movement history
+	void UpdateMovementHistory(FControllerStatus& status, const float delta);
 
 
 #pragma endregion
@@ -780,13 +766,13 @@ public:
 	bool CheckActionCompatibility(const TSoftObjectPtr<UBaseControllerAction> actionInstance, int stateIndex, int actionIndex) const;
 
 	// Play the action montage with the specified priority.
-	bool PlayActionMontage(FActionMotionMontage Montage, int priority = 0);	
+	bool PlayActionMontage(FActionMotionMontage Montage, int priority = 0);
 
 	/// Get an action's current motion montage
 	UFUNCTION(BlueprintGetter, Category = "Controllers|Controller Action|Utils")
 	FActionMotionMontage GetActionCurrentMotionMontage(const UBaseControllerAction* actionInst) const;
 
-	
+
 protected:
 	/// Check controller Actions and returns the index of the active one.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Action|Events")
@@ -982,70 +968,53 @@ public:
 
 
 	//Tracecast a number of times until the condition is meet
-	bool ComponentTraceCastSingleUntil(FHitResult& outHit, FVector direction, FVector position, FQuat rotation, std::function<bool(FHitResult)> condition, int iterations = 3,
-	                                   double inflation = 0.100, bool traceComplex = false);
+	bool ComponentTraceSingleUntil(FHitResult& outHit, FVector direction, FVector position, FQuat rotation, std::function<bool(FHitResult)> condition, int iterations = 3,
+	                               double inflation = 0.100, bool traceComplex = false);
 
 
 	/// Check for all collisions at a position and rotation in a direction as overlaps. return true if any collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	FORCEINLINE bool ComponentTraceCastMulti(TArray<FHitResultExpanded>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
+	FORCEINLINE bool ComponentTraceMulti(TArray<FHitResultExpanded>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
 	{
-		return ComponentTraceCastMulti_internal(outHits, position, direction, rotation, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
+		return ComponentTraceMulti_internal(outHits, position, direction, rotation, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
 	}
 
-
-	bool ComponentTraceCastMulti_internal(TArray<FHitResultExpanded>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false,
-	                                      FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam,
-	                                      double counterDirectionMaxOffset = TNumericLimits<float>::Max()) const;
+	bool ComponentTraceMulti_internal(TArray<FHitResultExpanded>& outHits, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false,
+	                                  FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam,
+	                                  double counterDirectionMaxOffset = TNumericLimits<float>::Max()) const;
 
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	FORCEINLINE bool ComponentTraceCastSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
+	FORCEINLINE bool ComponentTraceSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
 	{
-		return ComponentTraceCastSingle_Internal(outHit, position, direction, rotation, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
+		return ComponentTraceSingle_Internal(outHit, position, direction, rotation, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
 	}
 
+	bool ComponentTraceSingle_Internal(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false,
+	                                   FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam) const;
 
-	bool ComponentTraceCastSingle_Internal(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false,
-	                                       FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam) const;
 
-
-	/// <summary>
-	/// Trace component along a path
-	/// </summary>
-	/// <param name="results">the result of the trace</param>
-	/// <param name="start">the start point</param>
-	/// <param name="pathPoints">the point the trace wil follow</param>
-	/// <param name="channel">the collision channel of the path</param>
-	/// <param name="stopOnHit">should the trace stop when hit obstacle?</param>
-	/// <param name="skinWeight">the skim weight of the component</param>
-	/// <param name="debugRay">visulize the path?</param>
-	/// <param name="rotateAlongPath">should the component rotation follow the path?</param>
+	// Trace single along a path
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	FORCEINLINE void PathCastComponent(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, bool stopOnHit = true, float skinWeight = 0, bool debugRay = false,
-	                                   bool rotateAlongPath = false, bool bendOnCollision = false, bool traceComplex = false)
+	FORCEINLINE bool ComponentPathTraceSingle(FHitResult& result, int& pathPtIndex, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false)
 	{
-		PathCastComponent_Internal(results, start, pathPoints, stopOnHit, skinWeight, debugRay, rotateAlongPath, bendOnCollision, traceComplex, FCollisionQueryParams::DefaultQueryParam);
+		return ComponentPathTraceSingle_Internal(result, pathPtIndex, pathPoints, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
 	}
 
-	void PathCastComponent_Internal(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, bool stopOnHit = true, float skinWeight = 0, bool debugRay = false,
-	                                bool rotateAlongPath = false, bool bendOnCollision = false, bool traceComplex = false,
-	                                FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam);
+	bool ComponentPathTraceSingle_Internal(FHitResult& result, int& pathPtIndex, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false,
+	                                       FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam);
 
 
-	/// <summary>
-	/// Trace component along a path
-	/// </summary>
-	/// <param name="results">the result of the trace</param>
-	/// <param name="start">the start point</param>
-	/// <param name="pathPoints">the point the trace wil follow</param>
-	/// <param name="channel">the collision channel of the path</param>
-	/// <param name="stopOnHit">should the trace stop when hit obstacle?</param>
-	/// <param name="debugRay">visulize the path?</param>
+	// Trace Multi along a path
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	void PathCastLine(TArray<FHitResult>& results, FVector start, TArray<FVector> pathPoints, ECollisionChannel channel, bool stopOnHit = true, bool debugRay = false,
-	                  bool bendOnCollision = false, bool traceComplex = false);
+	FORCEINLINE bool ComponentPathTraceMulti(TArray<FHitResultExpanded>& results, TArray<int>& pathPtIndexes, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false)
+	{
+		return ComponentPathTraceMulti_Internal(results, pathPtIndexes, pathPoints, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
+	}
+
+	bool ComponentPathTraceMulti_Internal(TArray<FHitResultExpanded>& results, TArray<int>& pathPtIndexes, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false,
+	                                      FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam);
 
 
 	/// Check for Overlap at a atPosition and rotation and return the separationForce needed for depenetration. work best with simple collisions
@@ -1055,15 +1024,14 @@ public:
 
 
 	/// Return a point on the surface of the collider.
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils", meta=(AdvancedDisplay="2"))
 	FVector PointOnShape(FVector direction, const FVector inLocation, const float hullInflation = 0.126);
 
 
 	// Evaluate all conditions of a surface against this controller
-	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	bool EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FSurface surface, FControllerStatus status, FVector customLocation = FVector(0),
-	                               FVector customOrientation = FVector(0),
-	                               FVector customDirection = FVector(0));
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils", meta=(AdvancedDisplay="3"))
+	bool EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus, FVector locationOffset = FVector(0),
+	                               FVector orientationOffset = FVector(0), FVector solverChkParam = FVector(0), FVector customDirection = FVector(0));
 
 
 #pragma endregion
@@ -1083,7 +1051,7 @@ class MODULARCONTROLLER_API UActionMontageEvent : public UBlueprintAsyncActionBa
 public:
 	UPROPERTY(BlueprintAssignable)
 	FOnActionMontageCompleted OnActionMontageCompleted;
-	
+
 	UPROPERTY(BlueprintAssignable)
 	FOnActionMontageFailed OnActionMontageFailed;
 
@@ -1097,7 +1065,7 @@ public:
 private:
 	UFUNCTION()
 	void _OnActionMontageCompleted();
-	
+
 	UFUNCTION()
 	void _OnActionMontageFailed();
 

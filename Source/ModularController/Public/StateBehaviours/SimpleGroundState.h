@@ -63,7 +63,7 @@ protected:
 public:
 	
 	//Get the move acceleration vector.
-	virtual FVector GetMoveVector(const FVector inputVector, const float moveScale, const FSurface Surface, const UModularControllerComponent* controller = NULL) const;
+	virtual FVector GetMoveVector(const FVector inputVector, const float moveScale, const FSurface Surface, const FVector gravity) const;
 
 
 #pragma endregion
@@ -83,19 +83,27 @@ protected:
 protected:
 	// The maximum speed of the controller on the surface (cm/s)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
-	float MaxSpeed = 700;
+	float MaxSpeed = 450;
 
 	// The movement acceleration
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
-	float Acceleration = 5;
+	float Acceleration = 8;
 
 	// The speed used to rotate toward movement direction
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
 	float TurnSpeed = 15;
 
+	// The Turn curve
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
+	EAlphaBlendOption TurnCurve = EAlphaBlendOption::ExpOut;
+
 	// The speed used to rotate toward sliding direction
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
 	float SlideTurnSpeed = 5;
+
+	// The turn first before moving?
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Movement|Move Parameters")
+	bool bMoveOnlyForward = false;
 
 #pragma endregion
 

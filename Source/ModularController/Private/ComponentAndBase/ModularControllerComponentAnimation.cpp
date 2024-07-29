@@ -455,13 +455,23 @@ FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const 
 	}
 
 	//Debug
+	if (DebugType == EControllerDebugType::AnimationDebug)
 	{
-		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Override RM. trMode(%s), rtMode(%s), time(%f/%f), WarpKey(%s)")
-			, *UEnum::GetValueAsString(command->OverrideTranslationRootMotionMode)
-			, *UEnum::GetValueAsString(command->OverrideRotationRootMotionMode)
-			, command->Time, command->Duration
-			, *command->WarpKey.ToString()
-			),true, false, FColor::Red, 0, "RMOverride");
+		UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Override RM. trMode(%s), rtMode(%s), time(%f/%f), WarpKey(%s), WarpPathCount(%d)")
+		                                                        , *UEnum::GetValueAsString(command->OverrideTranslationRootMotionMode)
+		                                                        , *UEnum::GetValueAsString(command->OverrideRotationRootMotionMode)
+		                                                        , command->Time, command->Duration
+		                                                        , *command->WarpKey.ToString()
+		                                                        , command->WarpTransform_Path.Num()
+		                                  ), true, false, FColor::Red, 0, "RMOverride");
+		if (command->WarpTransform_Path.Num() > 1)
+		{
+			for (int i = 1; i < command->WarpTransform_Path.Num(); i++)
+			{
+				UKismetSystemLibrary::DrawDebugArrow(this, command->WarpTransform_Path[i - 1].GetLocation(), command->WarpTransform_Path[i].GetLocation()
+					, 50, FColor::Red, inDelta * 1.2);
+			}
+		}
 	}
 
 	return result;

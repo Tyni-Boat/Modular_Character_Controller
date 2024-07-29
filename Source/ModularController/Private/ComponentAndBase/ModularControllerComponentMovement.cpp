@@ -84,7 +84,7 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 		FHitResult sweepSnap;
 		FCollisionQueryParams queryParams;
 		queryParams.AddIgnoredComponents(IgnoredCollisionComponents);
-		const bool snapHit = ComponentTraceCastSingle_Internal(sweepSnap, initialLocation, snapMove, primaryRotation, -1, bUseComplexCollision, queryParams);
+		const bool snapHit = ComponentTraceSingle_Internal(sweepSnap, initialLocation, snapMove, primaryRotation, -1, bUseComplexCollision, queryParams);
 		if (snapHit)
 		{
 			int deep = 1;
@@ -113,7 +113,7 @@ FKinematicComponents UModularControllerComponent::KinematicMoveEvaluation(FContr
 		//Trace to detect hit while moving
 		blockingHit = noCollision
 			              ? false
-			              : ComponentTraceCastSingle_Internal(sweepMoveHit, initialLocation - dDir * FMath::Abs(hull), displacement + (dDir * FMath::Abs(hull)), primaryRotation, hull,
+			              : ComponentTraceSingle_Internal(sweepMoveHit, initialLocation - dDir * FMath::Abs(hull), displacement + (dDir * FMath::Abs(hull)), primaryRotation, hull,
 			                                                  bUseComplexCollision, queryParams);
 
 		// Handle collision
@@ -239,6 +239,8 @@ FControllerStatus UModularControllerComponent::ConsumeLastKinematicMove(FVector 
 {
 	//Consume kinematics
 	FControllerStatus initialState = ApplyedControllerStatus;
+	if(initialState.Kinematics.Gravity.SquaredLength() <= 0)
+		initialState.Kinematics.Gravity = FVector::DownVector * FMath::Abs(GetGravityZ());
 	initialState.Kinematics.LinearKinematic.Acceleration = FVector(0);
 	initialState.Kinematics.LinearKinematic.CompositeMovements.Empty();
 	initialState.Kinematics.LinearKinematic.refAcceleration = FVector(0);
@@ -281,7 +283,7 @@ FAngularKinematicCondition UModularControllerComponent::HandleKinematicRotation(
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("HandleKinematicRotation");
 	FAngularKinematicCondition outputCondition = inKinematic.AngularKinematic;
 
-	FVector gravityUp = -GetGravityDirection();
+	FVector gravityUp = -inKinematic.GetGravityDirection();
 
 	//Handle surfaces rotation
 	{
@@ -396,7 +398,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 		const FVector primaryOffset = Hit.Normal * offsetter;
 
 		//Check primary
-		if (ComponentTraceCastSingle_Internal(primaryHit, initialLocation + primaryOffset, slideMove + slideMove.GetSafeNormal() * inflatter, rotation, hullInflation - inflatter,
+		if (ComponentTraceSingle_Internal(primaryHit, initialLocation + primaryOffset, slideMove + slideMove.GetSafeNormal() * inflatter, rotation, hullInflation - inflatter,
 		                                      bUseComplexCollision,
 		                                      queryParams))
 		{
@@ -421,7 +423,7 @@ FVector UModularControllerComponent::SlideAlongSurfaceAt(FHitResult& Hit, const 
 				const FVector secondaryOffset = newNormal * offsetter;
 
 				// Perform second move
-				if (ComponentTraceCastSingle_Internal(secondaryMove, firstHitLocation + secondaryOffset, twoWallAdjust + twoWallAdjust.GetSafeNormal() * 2 * inflatter, rotation,
+				if (ComponentTraceSingle_Internal(secondaryMove, firstHitLocation + secondaryOffset, twoWallAdjust + twoWallAdjust.GetSafeNormal() * 2 * inflatter, rotation,
 				                                      hullInflation - 2 * inflatter, bUseComplexCollision, queryParams))
 				{
 					if (DebugType == EControllerDebugType::MovementDebug)

@@ -49,7 +49,8 @@ void UModularControllerComponent::TrackShapeChanges()
 }
 
 
-void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits, const FVector4 scanParameters)
+void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits, const FVector4 scanParameters, FTransform* customTransform,
+                                                std::function<void(FVector)> OnLocationSet)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("OverlapSolver");
 	_tempOverlapSolverHits.Empty();
@@ -59,8 +60,9 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 		return;
 	const auto world = GetWorld();
 	constexpr float detectionInflation = OVERLAP_INFLATION;
-	const FVector location = GetLocation();
-	const FQuat rotation = UpdatedPrimitive->GetComponentQuat();
+	const FVector location = customTransform ? customTransform->GetLocation() : GetLocation();
+	const FVector locationOffset = customTransform ? customTransform->GetLocation() - GetLocation() : FVector(0);
+	const FQuat rotation = customTransform ? customTransform->GetRotation() : UpdatedPrimitive->GetComponentQuat();
 	FComponentQueryParams comQueryParams;
 	if (UpdatedPrimitive->GetOwner())
 		comQueryParams.AddIgnoredActor(UpdatedPrimitive->GetOwner());
@@ -68,32 +70,11 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 	const auto channel = UpdatedPrimitive->GetCollisionObjectType();
 	const FVector scanDirection = FVector(scanParameters.X, scanParameters.Y, scanParameters.Z);
 	const float scanMaxOffset = scanParameters.W;
-	const FVector cardinalPoint = GetWorldSpaceCardinalPoint(-scanDirection);
+	const FVector cardinalPoint = GetWorldSpaceCardinalPoint(-scanDirection) + locationOffset;
 	FVector offset = scanDirection.GetClampedToMaxSize((cardinalPoint - location).Length() * 2) + scanDirection.GetSafeNormal() * detectionInflation;
 	if (offset.SquaredLength() > 0)
 	{
 		FHitResult hit;
-		// FCollisionQueryParams queryParams = FCollisionQueryParams::DefaultQueryParam;
-		// FCollisionResponseParams response = FCollisionResponseParams::DefaultResponseParam;
-		// response.CollisionResponse.SetAllChannels(ECR_Block);
-		// queryParams.AddIgnoredActor(GetOwner());
-		// queryParams.bTraceComplex = bUseComplexCollision;
-		// queryParams.bReturnPhysicalMaterial = true;
-		// const auto newShape = UpdatedPrimitive->GetCollisionShape(-2);
-		//
-		// if (GetWorld()->SweepSingleByChannel(hit, location, location - offset, rotation, channel, newShape, queryParams, response))
-		// {
-		// 	if (DebugType != EControllerDebugType::None)
-		// 	{
-		// 		UFunctionLibrary::DrawDebugCircleOnHit(hit, false, 45, hit.bStartPenetrating ? FColor::Yellow : FColor::Magenta, DeltaTime * 1.2, 0.5);
-		// 	}
-		// 	FVector vector = UFunctionLibrary::GetSnapOnSurfaceVector(cardinalPoint, FSurface(hit), scanDirection.GetSafeNormal());
-		// 	const FVector offsetDir = -vector;
-		// 	const FVector counterDir = vector.GetSafeNormal() * (5 + detectionInflation + 0.125);
-		// 	offset = offsetDir + counterDir.GetClampedToMaxSize(offsetDir.Length());
-		// }
-		// else
-		// {
 		if (DebugType != EControllerDebugType::None)
 		{
 			hit.Normal = offset.GetSafeNormal();
@@ -102,10 +83,11 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 			hit.Component = UpdatedPrimitive;
 			UFunctionLibrary::DrawDebugCircleOnHit(hit, false, FColor::White, DeltaTime * 1.2, 0.5);
 		}
-		// }
 	}
-	if (ComponentTraceCastMulti_internal(_tempOverlapSolverHits, location - offset, scanDirection + offset, rotation, detectionInflation, bUseComplexCollision,
-	                                     FCollisionQueryParams::DefaultQueryParam, scanMaxOffset))
+	FCollisionQueryParams query = FCollisionQueryParams::DefaultQueryParam;
+	query.AddIgnoredComponents(IgnoredCollisionComponents);
+	if (ComponentTraceMulti_internal(_tempOverlapSolverHits, location - offset, scanDirection + offset, rotation, detectionInflation, bUseComplexCollision,
+	                                 query, scanMaxOffset))
 	{
 		FMTDResult penetrationInfos;
 		FVector displacement = FVector(0);
@@ -125,7 +107,7 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 				const FVector depForce = penetrationInfos.Direction * penetrationInfos.Distance;
 
 				//Handle physic objects collision
-				if (overlapHit.HitResult.Component->IsSimulatingPhysics())
+				if (overlapHit.HitResult.Component->IsSimulatingPhysics() && !customTransform)
 				{
 					overlapHit.HitResult.Component->AddForce(-depForce * GetMass() / DeltaTime);
 				}
@@ -137,6 +119,9 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 		if (displacement.IsZero())
 			return;
 
+		if(OnLocationSet == nullptr)
+			return;
+
 		//Try to go to that location
 		FHitResult hit = FHitResult(NoInit);
 		if (world->SweepSingleByChannel(hit, location, location + displacement, rotation, channel, shape, comQueryParams))
@@ -146,26 +131,26 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 			{
 				UpdatedPrimitive->SetWorldLocation(location + displacement);
 				maxDepth--;
-				if (maxDepth >= 0)
+				if (maxDepth >= 0 && !customTransform)
 					modularComp->OverlapSolver(maxDepth, DeltaTime);
 			}
 			else
 			{
 				if (hit.Component->IsSimulatingPhysics())
-					UpdatedPrimitive->SetWorldLocation(hit.Location + displacement.GetClampedToMaxSize(0.125));
+					OnLocationSet(hit.Location + displacement.GetClampedToMaxSize(0.125));
 				else
-					UpdatedPrimitive->SetWorldLocation(hit.Location);
+					OnLocationSet(hit.Location);
 			}
 		}
 		else
 		{
-			UpdatedPrimitive->SetWorldLocation(location + displacement);
+			OnLocationSet(location + displacement);
 		}
 	}
 }
 
 
-void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromStatus, float delta)
+void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromStatus, TArray<FHitResultExpanded> incomingCollisions, float delta) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("HandleTrackedSurface");
 	if (fromStatus.Kinematics.SurfacesInContact.Num() > 0)
@@ -200,7 +185,7 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 				continue;
 			}
 			const auto surface = fromStatus.Kinematics.SurfacesInContact[i];
-			const int indexOf = _contactHits.IndexOfByPredicate([surface](FHitResultExpanded innerHit)-> bool
+			const int indexOf = incomingCollisions.IndexOfByPredicate([surface](FHitResultExpanded innerHit)-> bool
 			{
 				return innerHit.HitResult.Component == surface.TrackedComponent && innerHit.HitIndex == surface.TrackedComponentIndex;
 			});
@@ -209,9 +194,9 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 		}
 
 		//Add news and update currents
-		for (int j = 0; j < _contactHits.Num(); j++)
+		for (int j = 0; j < incomingCollisions.Num(); j++)
 		{
-			const auto hit = _contactHits[j];
+			const auto hit = incomingCollisions[j];
 			bool canStepOn = true;
 			const int indexOf = fromStatus.Kinematics.SurfacesInContact.IndexOfByPredicate([hit](const FSurface& item) -> bool
 			{
@@ -231,13 +216,36 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 	}
 	else
 	{
-		for (int i = 0; i < _contactHits.Num(); i++)
+		for (int i = 0; i < incomingCollisions.Num(); i++)
 		{
-			const auto hit = _contactHits[i];
+			const auto hit = incomingCollisions[i];
 			const bool validPawn = hit.HitResult.Component.IsValid();
 			const bool canStepOn = validPawn ? hit.HitResult.Component->CanCharacterStepUpOn == ECB_Owner || hit.HitResult.Component->CanCharacterStepUpOn == ECB_Yes : true;
 			fromStatus.Kinematics.SurfacesInContact.Add(FSurface(hit, canStepOn));
 		}
+	}
+}
+
+void UModularControllerComponent::UpdateMovementHistory(FControllerStatus& status, const float delta)
+{
+	for (int i = 0; i < MovementHistorySamples.Num(); i++)
+	{
+		MovementHistorySamples[i].RelativeTime -= delta;
+	}
+
+	_historyCounterChrono -= delta;
+	if (_historyCounterChrono <= 0)
+	{
+		_historyCounterChrono = HistoryTimeStep;
+		FKinematicPredictionSample sample = FKinematicPredictionSample();
+		sample.LinearKinematic = status.Kinematics.LinearKinematic;
+		sample.LinearKinematic.Acceleration = sample.LinearKinematic.Acceleration - sample.LinearKinematic.refAcceleration;
+		sample.LinearKinematic.Velocity = sample.LinearKinematic.Velocity - sample.LinearKinematic.refVelocity;
+		sample.AngularKinematic = status.Kinematics.AngularKinematic;
+		sample.RelativeTime = 0;
+		MovementHistorySamples.Add(sample);
+		if (MovementHistorySamples.Num() > MaxHistorySamples)
+			MovementHistorySamples.RemoveAt(0);
 	}
 }
 

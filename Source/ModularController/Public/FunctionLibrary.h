@@ -22,7 +22,7 @@ public:
 
 	static void ExtractComponentSpacePose(const UAnimSequenceBase* Animation, const FBoneContainer& BoneContainer, float Time, bool bExtractRootMotion, FCSPose<FCompactPose>& OutPose);
 
-	static FTransform ExtractRootMotionFromAnimation(const UAnimSequenceBase* Animation, float StartTime, float EndTime);
+	static FTransform ExtractRootMotionFromAnimation(const UAnimSequenceBase* Animation, float StartTime, float EndTime, TArray<FTransform>* stepArray = nullptr);
 
 	static FTransform ExtractRootTransformFromAnimation(const UAnimSequenceBase* Animation, float Time);
 
@@ -140,6 +140,11 @@ public:
 	// Check if at least one of the surfaces defined in SurfaceBinaryFlag is valid.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
 	static bool IsValidSurfaces(FKinematicComponents kinematicComponent, ECollisionResponse channelFilter = ECR_MAX);
+
+	// Make a prediction trajectory using kinematic, assuming accelerations stay constant.
+	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics", meta=(AdvancedDisplay="2"))
+	static TArray<FKinematicPredictionSample> MakeKinematicsTrajectory(const FKinematicComponents kinematics, const int SampleCount = 10, const float TimeStep = 0.1
+		, float accReductionScale = 0, float relativeAccMaxAngle = 15);
 
 	// Get an action montage at index in montage library
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Actions")

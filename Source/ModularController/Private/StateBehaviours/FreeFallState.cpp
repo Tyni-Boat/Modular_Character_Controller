@@ -46,18 +46,14 @@ FControllerCheckResult UFreeFallState::CheckState_Implementation(UModularControl
 void UFreeFallState::OnEnterState_Implementation(UModularControllerComponent* controller,
                                                  const FKinematicComponents startingConditions, const FVector moveInput, const float delta) const
 {
-	if (controller)
-		controller->SetGravity(Gravity);
 }
 
-
 FControllerStatus UFreeFallState::ProcessState_Implementation(UModularControllerComponent* controller,
-                                                              const FControllerStatus startingConditions, const float delta) const
-{
+                                                              const FControllerStatus startingConditions, const float delta) const{
 	FControllerStatus processResult = startingConditions;
 
 	//Input handling
-	auto inputAxis = processResult.MoveInput;
+	auto inputAxis = FVector::VectorPlaneProject(processResult.MoveInput, processResult.Kinematics.GetGravityDirection()).GetSafeNormal() * processResult.MoveInput.Length();
 	if (inputAxis.Normalize())
 	{
 		const FVector planarInput = FVector::VectorPlaneProject(inputAxis, Gravity.GetSafeNormal());
@@ -78,12 +74,12 @@ FControllerStatus UFreeFallState::ProcessState_Implementation(UModularController
 	//Rotation
 	processResult.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(startingConditions.Kinematics.AngularKinematic, inputAxis, AirControlRotationSpeed, delta);
 
+	processResult.Kinematics.Gravity = Gravity;
 	processResult.StatusParams.StateModifiers.X += delta;
 	processResult.CustomSolverCheckParameters = Gravity.GetSafeNormal() * MaxCheckSurfaceDistance;
 	processResult.Kinematics.SurfaceBinaryFlag = 0;
 	return processResult;
 }
-
 
 FString UFreeFallState::DebugString() const
 {

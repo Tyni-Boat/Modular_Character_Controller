@@ -24,7 +24,6 @@ FVector UModularControllerComponent::GetMoveVector(const FVector inputVector, co
 {
 	FVector desiredMove = inputVector * MaxSpeed * moveScale;
 	desiredMove = GetRootMotionTranslation(RootMotionType, desiredMove);
-	const FVector normal = GetGravityDirection();
 	return desiredMove;
 }
 

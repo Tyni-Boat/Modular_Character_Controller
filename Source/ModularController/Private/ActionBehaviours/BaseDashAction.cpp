@@ -75,7 +75,7 @@ FVector4 UBaseDashAction::OnActionBegins_Implementation(UModularControllerCompon
 	FVector4 timings = FVector4(AnticipationPhaseDuration, ActivePhaseDuration, RecoveryPhaseDuration, 0);
 	const FQuat currentOrientation = controller->GetRotation();
 	FVector closestDir = currentOrientation.Vector();
-	FVector moveDirection = moveInput.Length() > 0 ? moveInput.GetSafeNormal() : closestDir.GetSafeNormal();
+	FVector moveDirection = moveInput.Length() > 0 ? FVector::VectorPlaneProject(moveInput, startingConditions.GetGravityDirection()).GetSafeNormal() : closestDir.GetSafeNormal();
 	const FVector currentLocation = startingConditions.LinearKinematic.Position;
 
 
@@ -114,7 +114,9 @@ FControllerStatus UBaseDashAction::OnActionProcessAnticipationPhase_Implementati
 
 		const FQuat currentOrientation = controller->GetRotation();
 		const FTransform compTransform = FTransform(currentOrientation, result.Kinematics.LinearKinematic.Position);
-		FVector moveDirection = startingConditions.MoveInput.Length() > 0 ? startingConditions.MoveInput.GetSafeNormal() : currentOrientation.Vector();
+		FVector moveDirection = startingConditions.MoveInput.Length() > 0
+			                        ? FVector::VectorPlaneProject(result.MoveInput, result.Kinematics.GetGravityDirection()).GetSafeNormal()
+			                        : currentOrientation.Vector();
 
 		if (trueTime <= delta)
 		{
@@ -132,7 +134,7 @@ FControllerStatus UBaseDashAction::OnActionProcessAnticipationPhase_Implementati
 				FVector axis;
 				float angle;
 				diff.ToAxisAndAngle(axis, angle);
-				axis = axis.ProjectOnToNormal(controller->GetGravityDirection());
+				axis = axis.ProjectOnToNormal(result.Kinematics.GetGravityDirection());
 				axis.Normalize();
 				FQuat headingRot = result.Kinematics.AngularKinematic.Orientation * FQuat(axis, angle);
 				result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, headingRot.Vector(), TNumericLimits<float>::Max(), delta);
@@ -159,12 +161,14 @@ FControllerStatus UBaseDashAction::OnActionProcessActivePhase_Implementation(UMo
 	const int surfaceIndex = indexes.Num() > 0 ? indexes[0] : -1;
 	const auto surface = result.Kinematics.SurfacesInContact.IsValidIndex(surfaceIndex) ? result.Kinematics.SurfacesInContact[surfaceIndex] : FSurface();
 	const float surfaceAngle = surface.TrackedComponent.IsValid()
-		                           ? FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, -controller->GetGravityDirection())))
+		                           ? FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, -result.Kinematics.GetGravityDirection())))
 		                           : -1;
 
 	const FQuat currentOrientation = controller->GetRotation();
 	const FTransform compTransform = FTransform(currentOrientation, result.Kinematics.LinearKinematic.Position);
-	FVector moveDirection = startingConditions.MoveInput.Length() > 0 ? startingConditions.MoveInput.GetSafeNormal() : currentOrientation.Vector();
+	FVector moveDirection = startingConditions.MoveInput.Length() > 0
+		                        ? FVector::VectorPlaneProject(result.MoveInput, result.Kinematics.GetGravityDirection()).GetSafeNormal()
+		                        : currentOrientation.Vector();
 
 	const float normalizedTime = actionInfos.GetNormalizedTime(EActionPhase::Active);
 	const float trueTime = normalizedTime * actionInfos._startingDurations.Y;
@@ -188,7 +192,7 @@ FControllerStatus UBaseDashAction::OnActionProcessActivePhase_Implementation(UMo
 			FVector axis;
 			float angle;
 			diff.ToAxisAndAngle(axis, angle);
-			axis = axis.ProjectOnToNormal(controller->GetGravityDirection());
+			axis = axis.ProjectOnToNormal(result.Kinematics.GetGravityDirection());
 			axis.Normalize();
 			FQuat headingRot = result.Kinematics.AngularKinematic.Orientation * FQuat(axis, angle);
 			result.Kinematics.AngularKinematic = UFunctionLibrary::LookAt(result.Kinematics.AngularKinematic, headingRot.Vector(), TNumericLimits<float>::Max(), delta);
