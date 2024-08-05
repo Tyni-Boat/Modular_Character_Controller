@@ -86,11 +86,11 @@ public:
 
 	// Add or replace a key value pair in StatusAdditionalCheckVariables. return true if the key is new.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Status Parameters")
-	static bool AddOrReplaceCosmeticVariable(FStatusParameters& statusParam, const FName key, const float value);
+	static bool AddOrReplaceCosmeticVariable(UPARAM(Ref) FStatusParameters& statusParam, const FName key, const float value);
 
 	// Add or replace a Vector key value pair in StatusAdditionalCheckVariables. return true if the key is new.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Status Parameters")
-	static bool AddOrReplaceCosmeticVector(FStatusParameters& statusParam, const FName key, const FVector value);
+	static bool AddOrReplaceCosmeticVector(UPARAM(Ref) FStatusParameters& statusParam, const FName key, const FVector value);
 
 	// Get variable value from StatusAdditionalCheckVariables at key.
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Status Parameters")
@@ -113,7 +113,7 @@ public:
 	static bool RemoveCompositeMovement(FLinearKinematicCondition& linearKinematic, int index);
 
 	// Get the linear velocity relative to the surfaces affecting his move.
-	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
+	UFUNCTION(BlueprintPure, Category = "Function Library | Kinematics", meta=(AdvancedDisplay = "1"))
 	static FVector GetRelativeVelocity(FKinematicComponents kinematicComponent, const float deltaTime, ECollisionResponse channelFilter = ECR_MAX);
 
 	// Apply force on the set of surfaces in contact defined by SurfaceBinaryFlag.
@@ -141,10 +141,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics")
 	static bool IsValidSurfaces(FKinematicComponents kinematicComponent, ECollisionResponse channelFilter = ECR_MAX);
 
-	// Make a prediction trajectory using kinematic, assuming accelerations stay constant.
+	///<summary>
+	/// Make a prediction trajectory using kinematic, ignoring the acceleration (the trajectory will consider a conservation of velocity and no force)
+	///</summary>
+	/// <param name="kinematics">The starting kinematic of the prediction</param>
+	/// <param name="SampleCount">The number of samples of this Trajectory</param>
+	/// <param name="TimeStep">Evaluate trajectory every timeStep</param>
+	/// <param name="maxSpeed">Apply acceleration until velocity reach this amount</param>
+	/// <param name="constantAccelerationForce">Add a constant acceleration during the prediction</param>
+	/// <param name="maxRotationRate">Clamp the maximum rotation speed (Degrees/sec)</param>
+	/// <param name="maxRotation">Clamp the maximum rotation during the prediction (Degrees)</param>
+	/// <param name="allowMovementMaxAngle">Will not simulate linear part when velocity and orientation form an angle above this (Degrees)</param>
+	/// <returns></returns>
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Kinematics", meta=(AdvancedDisplay="2"))
-	static TArray<FKinematicPredictionSample> MakeKinematicsTrajectory(const FKinematicComponents kinematics, const int SampleCount = 10, const float TimeStep = 0.1
-		, float accReductionScale = 0, float relativeAccMaxAngle = 15);
+	static TArray<FKinematicPredictionSample> MakeKinematicsTrajectory(const FKinematicComponents kinematics, const int SampleCount = 10, const float TimeStep = 0.1,
+	                                                                   const float maxSpeed = 300, FVector constantAccelerationForce = FVector(0), float maxRotationRate = 180,
+	                                                                   float maxRotation = 180, float allowMovementMaxAngle = 360);
 
 	// Get an action montage at index in montage library
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Actions")
@@ -157,7 +169,7 @@ public:
 
 	// Get the max weight of montages in the library
 	UFUNCTION(BlueprintCallable, Category = "Function Library | Actions")
-	static double GetActionLibraryMontageMaxWeight(FActionMontageLibrary& structRef, const UAnimInstance* AnimInstance);
+	static double GetActionLibraryMontageMaxWeight(UPARAM(Ref) FActionMontageLibrary& structRef, const UAnimInstance* AnimInstance);
 
 	// Get the index of the first surface matching condition
 	static int GetSurfaceIndexUnderCondition(FKinematicComponents kinematicComponent, std::function<bool(FSurface&)> condition);

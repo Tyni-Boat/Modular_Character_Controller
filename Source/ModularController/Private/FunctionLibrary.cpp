@@ -577,42 +577,54 @@ bool UFunctionLibrary::IsValidSurfaces(FKinematicComponents kinematicComponent, 
 }
 
 
-TArray<FKinematicPredictionSample> UFunctionLibrary::MakeKinematicsTrajectory(const FKinematicComponents kinematics, const int SampleCount, const float TimeStep,
-                                                                              float accReductionScale, float relativeAccMaxAngle)
+TArray<FKinematicPredictionSample> UFunctionLibrary::MakeKinematicsTrajectory(const FKinematicComponents kinematics, const int SampleCount, const float TimeStep, const float maxSpeed,
+                                                                              FVector constantAccelerationForce, float maxRotationRate, float maxRotation, float allowMovementMaxAngle)
 {
 	TArray<FKinematicPredictionSample> _result;
 	FKinematicComponents _kinematics = kinematics;
-	_kinematics.LinearKinematic.Acceleration = _kinematics.LinearKinematic.Acceleration - _kinematics.LinearKinematic.refAcceleration;
+	FQuat initialOrientation = _kinematics.AngularKinematic.Orientation;
+	FVector accVector = _kinematics.LinearKinematic.Acceleration - _kinematics.LinearKinematic.refAcceleration;
+	_kinematics.LinearKinematic.Velocity -= _kinematics.LinearKinematic.refVelocity;
 	_kinematics.LinearKinematic.refAcceleration = FVector(0);
-	_kinematics.LinearKinematic.Velocity = _kinematics.LinearKinematic.Velocity - _kinematics.LinearKinematic.refVelocity;
 	_kinematics.LinearKinematic.refVelocity = FVector(0);
 	_kinematics.AngularKinematic.AngularAcceleration = FVector(0);
-	float startAngle = -1;
-	float cumulatedAngle = 0;
 
 	for (int i = 0; i < SampleCount; i++)
 	{
-		auto newLinear = _kinematics.LinearKinematic.GetFinalCondition(TimeStep);
-		if (startAngle < 0)
-		{
-			startAngle = FMath::RadiansToDegrees(
-				FMath::Acos((newLinear.Position - _kinematics.LinearKinematic.Position).GetSafeNormal() | _kinematics.AngularKinematic.Orientation.Vector()));
-		}
-		FQuat rotDiff = FQuat::Identity;
-		auto newAngular = _kinematics.AngularKinematic.GetFinalCondition(TimeStep, (startAngle >= relativeAccMaxAngle)? &newLinear.Velocity : nullptr,
-		                                                                 (startAngle < relativeAccMaxAngle) ? &newLinear.Acceleration : nullptr
-		                                                                 , &rotDiff);
-		newAngular.RotationSpeed = kinematics.AngularKinematic.RotationSpeed;
+		//handle orientation
+		FQuat orientation = _kinematics.AngularKinematic.Orientation;
+		FQuat diff = orientation * initialOrientation.Inverse();
 		FVector axis;
-		float angle;
-		rotDiff.ToAxisAndAngle(axis, angle);
-		cumulatedAngle += FMath::RadiansToDegrees(angle);
+		float radAngle;
+		diff.ToAxisAndAngle(axis, radAngle);
+		float angle = FMath::RadiansToDegrees(radAngle);
+
+		//Linear part
+		_kinematics.LinearKinematic.Acceleration = constantAccelerationForce + (_kinematics.LinearKinematic.Velocity.Length() < maxSpeed ? accVector : FVector(0));
+		auto newLinear = _kinematics.LinearKinematic;
+		if (UToolsLibrary::IsVectorCone(newLinear.Velocity, orientation.Vector(), allowMovementMaxAngle))
+			newLinear = _kinematics.LinearKinematic.GetFinalCondition(TimeStep);
+
+		//Handle Rotation
+		float radRotRate = FMath::DegreesToRadians(maxRotationRate / TimeStep);
+		_kinematics.AngularKinematic.RotationSpeed = _kinematics.AngularKinematic.RotationSpeed.GetClampedToMaxSize(radRotRate);
+		auto newAngular = _kinematics.AngularKinematic;
+		if (angle < maxRotation)
+		{
+			FQuat rotStep = FQuat::Identity;
+			newAngular = _kinematics.AngularKinematic.GetFinalCondition(TimeStep, &rotStep);
+			newLinear.Velocity = rotStep.RotateVector(newLinear.Velocity);
+			accVector = rotStep.RotateVector(accVector);
+		}
+
+		//Make Sample
 		FKinematicPredictionSample sample = FKinematicPredictionSample();
 		sample.LinearKinematic = newLinear;
 		sample.AngularKinematic = newAngular;
 		sample.RelativeTime = (i + 1) * TimeStep;
 		_result.Add(sample);
-		newLinear.Acceleration *= FMath::Clamp(1 - accReductionScale, 0, 1);
+
+		//Set and go again
 		_kinematics.AngularKinematic = newAngular;
 		_kinematics.LinearKinematic = newLinear;
 	}

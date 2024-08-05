@@ -47,7 +47,10 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 		if (!surface.TrackedComponent.IsValid())
 			continue;
 
-		if (surface.TrackedComponent->GetCollisionResponseToChannel(ChannelGround) != SurfaceParams.CollisionResponse)
+		if (static_cast<ECollisionResponse>(surface.SurfacePhysicProperties.Z) != SurfaceParams.CollisionResponse)
+			continue;
+
+		if (surface.TrackedComponent->GetCollisionObjectType() != GroundObjectType)
 			continue;
 
 		//Only surfaces we can step on
@@ -134,9 +137,15 @@ int USimpleGroundState::CheckSurfaceIndex(UModularControllerComponent* controlle
 
 	UFunctionLibrary::AddOrReplaceCosmeticVariable(statusParams, GroundDistanceVarName, closestSurface_low < closestCheckSurface ? closestSurface_low : closestCheckSurface);
 
-	//If we are ascending. do this here because ground distance evaluation
-	if ((velocity | gravityDirection) < -FLOATING_HEIGHT && !asActive)
-		return 0;
+	if (!asActive)
+	{
+		if (controller->ActionInstances.IsValidIndex(status.StatusParams.ActionIndex) && controller->ActionInstances[status.StatusParams.ActionIndex]->bShouldControllerStateCheckOverride)
+		{
+			//If we are ascending. do this here because ground distance evaluation
+			if ((velocity | gravityDirection) < 0)
+				return 0;
+		}
+	}
 
 	//Compute the flag
 	int flag = UToolsLibrary::BoolArrayToFlag(UToolsLibrary::IndexesToBoolArray(TArray<int>{surfaceIndex, badAngleIndex}));
@@ -169,11 +178,12 @@ FVector USimpleGroundState::GetMoveVector(const FVector inputVector, const float
 
 	//Slope handling
 	{
-		if (bSlopeAffectSpeed && desiredMove.Length() > 0 && FMath::Abs(Surface.SurfaceNormal | normal) < 1)
+		if (bSlopeAffectSpeed && desiredMove.Length() > 0)
 		{
-			const FVector slopeDirection = FVector::VectorPlaneProject(Surface.SurfaceImpactNormal, normal);
-			const double slopeScale = slopeDirection | desiredMove.GetSafeNormal();
-			desiredMove *= FMath::GetMappedRangeValueClamped(TRange<double>(-1, 1), TRange<double>(0.25, 1.25), slopeScale);
+			// const FVector slopeDirection = FVector::VectorPlaneProject(Surface.SurfaceImpactNormal, normal);
+			// const double slopeScale = slopeDirection | desiredMove.GetSafeNormal();
+			// desiredMove *= FMath::GetMappedRangeValueClamped(TRange<double>(-1, 1), TRange<double>(0.25, 1.25), slopeScale);
+			desiredMove = FVector::VectorPlaneProject(desiredMove, UToolsLibrary::VectorCone(Surface.SurfaceNormal, normal, 35).GetSafeNormal());
 		}
 	}
 
@@ -312,6 +322,8 @@ FControllerStatus USimpleGroundState::ProcessState_Implementation(UModularContro
 		const FVector planarMoveVec = FVector::VectorPlaneProject(moveVec, planedNormal);
 		const FVector orthogonalMoveVec = moveVec.ProjectOnToNormal(planedNormal) * ((planedNormal | moveVec) >= 0 ? 1 : 0);
 		moveVec = planarMoveVec + orthogonalMoveVec;
+		if (bSlopeAffectSpeed)
+			moveVec = FVector::VectorPlaneProject(moveVec, UToolsLibrary::VectorCone(primarySurface.SurfaceNormal, -gravityDir, SurfaceParams.ImpactAngleRange.Y * 0.5).GetSafeNormal());
 	}
 	if (primaryAngle > SurfaceParams.ImpactAngleRange.Y)
 	{

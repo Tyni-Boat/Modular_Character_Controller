@@ -1,4 +1,4 @@
-// Copyright © 2023 by Tyni Boat. All Rights Reserved.
+// Copyright ï¿½ 2023 by Tyni Boat. All Rights Reserved.
 
 #pragma once
 #include "GameFramework/NavMovementComponent.h"
@@ -10,12 +10,11 @@
 #include "NavigationControlerComponent.generated.h"
 
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPathReached, FAIRequestID, moveUID);
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPathReached);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPartialPathReached);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPathUpdated);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPathFailed);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPathStarted, FAIRequestID, moveUID);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPathFailed, FAIRequestID, moveUID);
 
 
 #pragma region Network path type XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -30,7 +29,6 @@ class MODULARCONTROLLER_API UNetPathPoint : public UObject
 	GENERATED_BODY()
 
 public:
-
 	UNetPathPoint();
 
 	UNetPathPoint(FVector location, int index, INavLinkCustomInterface* navLinkInterface);
@@ -38,7 +36,6 @@ public:
 	virtual bool IsSupportedForNetworking() const override;
 
 public:
-
 	//the index of the point on the path.
 	UPROPERTY(Replicated)
 	int PointIndex;
@@ -58,7 +55,6 @@ public:
 #pragma endregion
 
 
-
 UCLASS(ClassGroup = "Controllers", meta = (BlueprintSpawnableComponent))
 class MODULARCONTROLLER_API UNavigationControlerComponent : public UPathFollowingComponent
 {
@@ -71,34 +67,10 @@ public:
 	UNavigationControlerComponent();
 
 	/// <summary>
-	/// The ai agent height
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers|Core")
-	float AgentHeight = 180;
-
-	/// <summary>
-	/// The ai agent radius
-	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers|Core")
-	float AgentRadius = 40;
-
-	/// <summary>
 	/// activate the debug mode.
 	/// </summary>
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers|Core")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers|Debug")
 	bool IsDebug;
-
-protected:
-
-	//The owner actor's pawn
-	UPROPERTY()
-	APawn* t_ownerPawn;
-
-	//The move request done earlier
-	FAIMoveRequest _moveRequest;
-
-	//The move request ID
-	FAIRequestID _currentMoveRequestID;
 
 protected:
 	// Called when the game starts
@@ -106,73 +78,101 @@ protected:
 
 
 public:
-
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+	// get the current status of path following
+	UFUNCTION(BlueprintPure, Category = "AI Controllers|Core")
+	FORCEINLINE EPathFollowingStatus::Type GetPathFollowingStatus() const { return Status; }
 
 #pragma endregion
 
 
-#pragma region Network XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-	/// <summary>
-	/// Get the network role of the owning actor
-	/// </summary>
-	/// <returns></returns>
-	UFUNCTION(BlueprintGetter)
-	FORCEINLINE ENetRole GetNetRole() const { return GetOwner()->GetLocalRole(); }
-
-
-	virtual bool ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags) override;
+#pragma region Search XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 
 	// Find Path to an actor, a location or the closest navigable location within a max distance.
-	UFUNCTION(Server, Reliable)
-	void ServerFindPath(AActor* target, FVector location, float reachDistance, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter);
-	
+	int SearchPath(AActor* target, FVector location, float maxOffNavDistance, TSubclassOf<UNavigationQueryFilter> filter);
+
 
 	// Cancel any path finding
-	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "Navigation")
-	void ServerCancelPath();
-
-	/// <summary>
-	/// Update path on clients
-	/// </summary>
-	UFUNCTION(NetMulticast, Reliable)
-	void MulticastUpdatePath();
+	void CancelPath();
 
 
 	/// <summary>
 	/// Execute a la fin d'un path.
 	/// </summary>
 	/// <param name="EPathFollowingResult"></param>
-	UFUNCTION(NetMulticast, Reliable)
-	void MulticastOnPathFinnished(uint32 EPathFollowingResult);
-
+	void OnPathEnds(FAIRequestID requestID, uint32 EPathFollowingResult);
 
 
 #pragma endregion
 
 
 #pragma region Path Requests and Follow XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+protected:
+	//the maximum projection distance to navMesh
+	float MaxPointProjection = 10000;
+
 public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers")
+	float AgentHeight = 180;
 
-	//the maximum distance away from the path that trigger path recalculation
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers|Path Requests and Follow")
-	float MaxMoveAwayDistanceThreshold = 1000;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers")
+	float AgentRadius = 50;
 
-	//the replicated path points.
-	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "AI Controllers|Path Requests and Follow")
-	TArray<UNetPathPoint*> CustomPathPoints;
+	// When offset from the path, the minimum segment lenght to try to return to the path
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI Controllers")
+	float MinimumBackToPathSegmentLeght = 300;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "AI Controllers|Path Requests and Follow")
+	// the distance from the end of a segment to begin smoothing directions
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI Controllers")
+	float SmoothDirectionThreshold = 50;
+
+	// the minimum angle to smooth path.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI Controllers", meta=(UIMin=0, UIMax = 90, ClampMin = 0, ClampMax = 90))
+	float SmoothAngleThreshold = 5;
+
+	// the smoothing density
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI Controllers", meta=(UIMin=0, UIMax = 1, ClampMin = 0, ClampMax = 1))
+	float SmoothStep = 0.1;
+
+	// How much should we reduce the speed when cornering?
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI Controllers", meta=(UIMin=0, UIMax = 0.99, ClampMin = 0, ClampMax = 0.99))
+	float CorneringSpeedReduction = 0.5;
+
+	// the smoothing curve
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI Controllers")
+	EAlphaBlendOption SmoothCurve = EAlphaBlendOption::Linear;
+
+
+	// The direction of the movement to follow the path
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "AI Controllers")
 	FVector PathVelocity;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI Controllers|Path Requests and Follow")
-	float PathRemainingDistance;
+	// the offset of the actor location from it actual location in the navigation
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "AI Controllers")
+	FVector NavigationOffset;
 
-	UPROPERTY(VisibleAnywhere, Replicated, BlueprintReadOnly, Category = "AI Controllers|Path Requests and Follow")
+	// Active if we have a valid path and our status is "moving"
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI Controllers")
 	bool IsFollowingAPath;
+
+	// Total lenght of the path
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI Controllers")
+	float PathRemainingLenght = 0;
+
+	// Remaining lenght of a path
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI Controllers")
+	float PathTotalLenght = 0;
+
+	// The Lenght of the current path segment
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI Controllers")
+	float PathCurrentSegmentLenght = 0;
+
+	// Remaining lenght the current segment
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI Controllers")
+	float PathCurrentSegmentRemainingLenght = 0;
 
 
 	UPROPERTY(BlueprintAssignable)
@@ -182,33 +182,30 @@ public:
 	FOnPathFailed OnPathFailedEvent;
 
 	UPROPERTY(BlueprintAssignable)
-	FOnPathUpdated OnPathUpdatedEvent;
+	FOnPathStarted OnPathStartedEvent;
 
 protected:
+	//the request queue
+	TQueue<FAIRequestID> _activePathQueue;
 
-	//the client navigation next index
-	uint32 _clientNextPathIndex;
+	//The queue of path request async waiting to the processed.
+	TQueue<TTuple<uint32, TSoftObjectPtr<AActor>>> _asyncPathRequestQueue;
 
-	//The last distance. used to recalculate path.
-	float t_lastDistance = -1;
+	//The queue of path processed async waiting to be start on the main thread.
+	TQueue<TTuple<uint32, TTuple<FAIMoveRequest, FNavPathSharedPtr>>> _asyncPathResponseQueue;
 
-	//The async path request list.
-	TArray<uint32> _asyncPathRequestNumbers;
-
-	//The corresponding actor to follow by request
-	UPROPERTY()
-	TMap<uint32, AActor*> _asyncPathFollowTargets;
+	//The array of path curves, containing starts index as X and end index as Y and Z the angle in degrees of the corner
+	TArray<FVector> _curvesMap;
 
 
 public:
-
 	/// <summary>
 	/// Request an AI path to a destination.
 	/// </summary>
 	/// <param name="location"></param>
 	/// <param name="filter"></param>
 	/// <returns></returns>
-	bool AIRequestPathTo(FVector location, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	int AIRequestPathTo(FVector location, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
 	/// <summary>
 	/// Request an AI path to an actor.
@@ -216,29 +213,24 @@ public:
 	/// <param name="target"></param>
 	/// <param name="filter"></param>
 	/// <returns></returns>
-	bool AIRequestPathToActor(AActor* target, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	int AIRequestPathToActor(AActor* target, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
-	virtual void OnPathUpdated() override;
 
 	virtual void OnPathFinished(const FPathFollowingResult& Result) override;
 
-	/**
-	 * @brief Check if a point is containes in the agent. Execute only on server. on client i returns false
-	 * @param point The point to check
-	 * @return true if the point is contained inside of the capsule's shape
-	 */
-	bool AgentCapsuleContainsPoint(const FVector point);
+
+	virtual FAIRequestID RequestMove(const FAIMoveRequest& RequestData, FNavPathSharedPtr InPath) override;
+
 
 protected:
-
 	//Called when an async path calculation ends.
 	void OnAsyncPathEvaluated(uint32 aPathId, ENavigationQueryResult::Type aResultType, FNavPathSharedPtr aNavPointer);
 
-	/**
-	 * @brief Update Path logic
-	 * @param delta delta time
-	 */
-	void UpdatePath(float delta);
+	// Look for computed paths and start them on the main thread.
+	void UpdateStartPath();
+
+	// Calculate the current path remaining distance.
+	void CalculatePathRemainingLenght();
 
 	/**
 	 * @brief Follow the path if any.
@@ -248,12 +240,10 @@ protected:
 
 
 #pragma endregion
-
 };
 
 
 #pragma region Nav Events XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
 
 
 UCLASS(BlueprintType)
@@ -261,51 +251,40 @@ class MODULARCONTROLLER_API UPathFollowEvent : public UBlueprintAsyncActionBase
 {
 	GENERATED_BODY()
 public:
-
 	UPROPERTY(BlueprintAssignable)
 	FOnPathReached OnPathReached;
 
 	UPROPERTY(BlueprintAssignable)
-	FOnPartialPathReached OnPathPartialReached;
-
-	UPROPERTY(BlueprintAssignable)
 	FOnPathFailed OnPathFailed;
-
-	UPROPERTY(BlueprintAssignable)
-	FOnPathUpdated OnPathUpdated;
 
 
 	// UBlueprintAsyncActionBase interface
 	virtual void Activate() override;
 
 
-	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category = "AI|Modular AI Movement")
-	static UPathFollowEvent* ModularAIMoveTo(const UObject* WorldContextObject, UNavigationControlerComponent* controller, FVector location, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AdvancedDisplay = "3"), Category = "AI|Modular AI Movement")
+	static UPathFollowEvent* ModularAIMoveTo(const UObject* WorldContextObject, UNavigationControlerComponent* controller, FVector location, float maxOffNavDistance = 1000
+	                                         , TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
-	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category = "AI|Modular AI Movement")
-	static UPathFollowEvent* ModularAIFollow(const UObject* WorldContextObject, UNavigationControlerComponent* controller, AActor* target, float reachDistance = 50, float maxOffNavDistance = 1000, TSubclassOf<UNavigationQueryFilter> filter = nullptr);
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AdvancedDisplay = "3"), Category = "AI|Modular AI Movement")
+	static UPathFollowEvent* ModularAIFollow(const UObject* WorldContextObject, UNavigationControlerComponent* controller, AActor* target, float maxOffNavDistance = 1000
+	                                         , TSubclassOf<UNavigationQueryFilter> filter = nullptr);
 
 
 private:
-
 	UFUNCTION()
-	void _OnPathReached();
+	void _OnPathReached(FAIRequestID requestID);
 	UFUNCTION()
-	void _OnPathReachedPartial();
-	UFUNCTION()
-	void _OnPathFailed();
-	UFUNCTION()
-	void _OnPathUpdated();
+	void _OnPathFailed(FAIRequestID requestID);
 
 	void CleanUp();
-	
+
 
 	const UObject* WorldContextObject;
 
 	UPROPERTY()
 	UNavigationControlerComponent* _controller;
 	FVector _destination;
-	float _reachDistance;
 	float _offNavDistance;
 	TSubclassOf<UNavigationQueryFilter> _navFilter = nullptr;
 
@@ -314,6 +293,7 @@ private:
 	bool _targetMode;
 
 	FTimerHandle TimerHandle_OnInstantFinish;
+	FAIRequestID pathID = FAIRequestID::InvalidRequest;
 };
 
 #pragma endregion

@@ -28,7 +28,7 @@ protected:
 
 	// The ground collision Channel.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
-	TEnumAsByte<ECollisionChannel> ChannelGround;
+	TEnumAsByte<ECollisionChannel> GroundObjectType;
 
 	// The State's Root motion Mode
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, category = "Main")

@@ -526,7 +526,7 @@ public:
 	FQuat GetAngularSpeedQuat(float time = 1) const;
 
 	//Evaluate future movement conditions base on the delta time.
-	FAngularKinematicCondition GetFinalCondition(double deltaTime, FVector* targetLookDir = nullptr, FVector* rotateVector = nullptr, FQuat* rotDiff = nullptr) const;
+	FAngularKinematicCondition GetFinalCondition(double deltaTime, FQuat* rotDiff = nullptr) const;
 };
 
 

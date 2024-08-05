@@ -622,7 +622,7 @@ FQuat FAngularKinematicCondition::GetAngularSpeedQuat(float time) const
 	return q;
 }
 
-FAngularKinematicCondition FAngularKinematicCondition::GetFinalCondition(double deltaTime, FVector* targetLookDir, FVector* rotateVector, FQuat* rotDiff) const
+FAngularKinematicCondition FAngularKinematicCondition::GetFinalCondition(double deltaTime, FQuat* rotDiff) const
 {
 	FAngularKinematicCondition finalCondition = FAngularKinematicCondition();
 
@@ -634,20 +634,7 @@ FAngularKinematicCondition FAngularKinematicCondition::GetFinalCondition(double 
 	double velz = AngularAcceleration.Z * deltaTime + RotationSpeed.Z;
 
 	finalCondition.RotationSpeed = FVector(velx, vely, velz);
-	if (targetLookDir && targetLookDir->SquaredLength() > 0 && finalCondition.RotationSpeed.SquaredLength() > 0)
-	{
-		//target to rot axis
-		FVector alignedTarget = FVector::VectorPlaneProject(targetLookDir->GetSafeNormal(), finalCondition.RotationSpeed.GetSafeNormal()).GetSafeNormal();
-		//Remaining angle to match target
-		float alphaAngle = FMath::Acos(alignedTarget | FVector::VectorPlaneProject(Orientation.Vector(), finalCondition.RotationSpeed.GetSafeNormal()).GetSafeNormal());
-		//set max angle
-		finalCondition.RotationSpeed = finalCondition.RotationSpeed.GetClampedToMaxSize(FMath::RadiansToDegrees(alphaAngle) / deltaTime);
-	}
 	const FQuat angularSpeed = finalCondition.GetAngularSpeedQuat(deltaTime);
-	if(rotateVector)
-	{
-		*rotateVector = angularSpeed.RotateVector(*rotateVector);
-	}
 	if(rotDiff)
 	{
 		*rotDiff = angularSpeed;

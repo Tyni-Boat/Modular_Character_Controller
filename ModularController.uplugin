@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.7",
-	"FriendlyName": "ModularController",
+	"FriendlyName": "ModularController v2",
 	"Description": "Multi Player Ready Modular pawn controller plugin. Locomotion system, climbing system, Swimming, Parkour, Etc... Everything fits In.",
 	"Category": "Code Plugins",
 	"CreatedBy": "Tyni Boat",
