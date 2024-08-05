@@ -273,6 +273,7 @@ void UNavigationControlerComponent::OnPathFinished(const FPathFollowingResult& R
 FAIRequestID UNavigationControlerComponent::RequestMove(const FAIMoveRequest& RequestData, FNavPathSharedPtr InPath)
 {
 	_curvesMap.Empty();
+	_explicitPathPause = false;
 	if (SmoothDirectionThreshold > 0 && InPath.IsValid() && InPath->GetPathPoints().Num() > 3)
 	{
 		for (int i = InPath->GetPathPoints().Num() - 2; i >= 1; i--)
@@ -488,7 +489,7 @@ void UNavigationControlerComponent::FollowPath(float delta)
 	//Check if the navigation location is too far from the actual location
 	{
 		NavigationOffset = FVector::VectorPlaneProject((GetOwner()->GetActorLocation() - GetCurrentNavLocation().Location), FVector::UpVector);
-		if (NavigationOffset.Length() > AgentRadius && IsFollowingAPath)
+		if (NavigationOffset.Length() > AgentRadius && IsFollowingAPath && !_explicitPathPause)
 		{
 			if (!UToolsLibrary::IsVectorCone(FVector::VectorPlaneProject(newPathDir, FVector::UpVector), -NavigationOffset, 30))
 			{
@@ -505,8 +506,8 @@ void UNavigationControlerComponent::FollowPath(float delta)
 	{
 		const FName compName = FName(this->GetReadableName());
 		UKismetSystemLibrary::PrintString(this, FString::Printf(
-			                                  TEXT("[PathFinding] - Path following state: %s. Total Path Lenght (%f), Remaining distance (%f), Segment Lenght (%f), Remaining Segment (%f)")
-			                                  , *UEnum::GetValueAsString(Status), PathTotalLenght, PathRemainingLenght, PathCurrentSegmentLenght, PathCurrentSegmentRemainingLenght),
+			                                  TEXT("[PathFinding] - Path following state: %s. Paused? (%d). Total Path Lenght (%f), Remaining distance (%f), Segment Lenght (%f), Remaining Segment (%f)")
+			                                  , *UEnum::GetValueAsString(Status), _explicitPathPause, PathTotalLenght, PathRemainingLenght, PathCurrentSegmentLenght, PathCurrentSegmentRemainingLenght),
 		                                  true, false, FColor::Silver, delta, FName(FString::Printf(TEXT("%s_Status"), *compName.ToString())));
 		UKismetSystemLibrary::DrawDebugCylinder(this, GetCurrentNavLocation().Location, GetCurrentNavLocation().Location + FVector::UpVector * AgentHeight, AgentRadius, 12, FColor::Silver,
 		                                        delta);

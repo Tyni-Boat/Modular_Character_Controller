@@ -347,16 +347,36 @@ FVector UModularControllerComponent::PointOnShape(FVector direction, const FVect
 	return onColliderPt + offset + direction * hullInflation;
 }
 
-
-bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus,
-                                                            FVector locationOffset, FVector orientationOffset, FVector solverChkParam,
-                                                            FVector customDirection)
+bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus, FVector locationOffset,
+                                                            FVector orientationOffset, FVector solverChkParam, FVector customDirection)
 {
+	return EvaluateSurfaceConditionsInternal(conditions, response, inStatus, locationOffset, orientationOffset, solverChkParam, customDirection);
+}
+
+
+bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus,
+                                                                    FVector locationOffset, FVector orientationOffset, FVector solverChkParam,
+                                                                    FVector customDirection, TArray<bool>* checkDones)
+{
+	response.LocationOffset = locationOffset;
+	if (checkDones)
+	{
+		checkDones->Empty();
+		checkDones->SetNum(17);
+		checkDones->RemoveAt(1);
+		checkDones->Insert(true, 1);
+	}
+
 	if (!UpdatedPrimitive)
 		return false;
 
 	// Prediction
 	bool asPrediction = conditions.PredictionDistanceRange.Y > conditions.PredictionDistanceRange.X && conditions.PredictionDistanceRange.X >= 0;
+	if (checkDones)
+	{
+		checkDones->RemoveAt(2);
+		checkDones->Insert(asPrediction, 2);
+	}
 	bool foundTrue = false;
 	FControllerStatus status = inStatus;
 	TArray<FSurface> surfaces;
@@ -385,7 +405,9 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 		int maxDepth = 0;
 		FTransform customTr = FTransform(status.Kinematics.AngularKinematic.Orientation, status.Kinematics.LinearKinematic.Position);
 		TArray<FHitResultExpanded> hits;
-		OverlapSolver(maxDepth, HistoryTimeStep, &hits, solverChkParam.SquaredLength() > 0 ? FVector4(solverChkParam) : inStatus.CustomSolverCheckParameters,
+		FVector defaultChkDir = inStatus.Kinematics.GetGravityDirection() * conditions.PredictionCheckSurfaceDistance;
+		OverlapSolver(maxDepth, HistoryTimeStep, &hits,
+		              solverChkParam.SquaredLength() > 0 ? FVector4(solverChkParam) : FVector4(defaultChkDir.X, defaultChkDir.Y, defaultChkDir.Z, inStatus.CustomSolverCheckParameters.W),
 		              &customTr);
 		HandleTrackedSurface(status, hits, HistoryTimeStep);
 		surfaces = status.Kinematics.SurfacesInContact;
@@ -396,6 +418,12 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 		surfaces = status.Kinematics.SurfacesInContact;
 	}
 
+	if (checkDones)
+	{
+		checkDones->RemoveAt(3);
+		checkDones->Insert(surfaces.Num() > 0, 3);
+	}
+
 	if (surfaces.Num() <= 0)
 		return false;
 
@@ -404,6 +432,12 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 		// Conditions are never valid on invalid surface
 		if (!surface.TrackedComponent.IsValid())
 			continue;
+		response.Surface = surface;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(4);
+			checkDones->Insert(true, 4);
+		}
 		const FVector chkSurfaceDirection = (customDirection.SquaredLength() <= 0 ? -status.Kinematics.GetGravityDirection() : customDirection).GetSafeNormal();
 		const FVector orientation = (status.Kinematics.AngularKinematic.Orientation * FQuat(orientationOffset.GetSafeNormal(), orientationOffset.Length())).Vector().GetSafeNormal();
 		const FVector location = status.Kinematics.LinearKinematic.Position;
@@ -412,26 +446,51 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 		//Collision response test
 		if (conditions.CollisionResponse != ECR_MAX && static_cast<ECollisionResponse>(surface.SurfacePhysicProperties.Z) != conditions.CollisionResponse)
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(5);
+			checkDones->Insert(true, 5);
+		}
 
 		//Stepability test
 		if (conditions.bMustBeStepable != static_cast<bool>(surface.SurfacePhysicProperties.W))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(6);
+			checkDones->Insert(true, 6);
+		}
 
 		//Heigth Test
 		const FVector heightVector = (surface.SurfacePoint - offsetLocation).ProjectOnToNormal(chkSurfaceDirection);
 		const float directionalHeightScale = heightVector.Length() * ((heightVector | chkSurfaceDirection) > 0 ? 1 : -1);
 		if (!UToolsLibrary::CheckInRange(conditions.HeightRange, directionalHeightScale, true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(7);
+			checkDones->Insert(true, 7);
+		}
 
 		//Angle Test (N)
 		const float normalAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceNormal, chkSurfaceDirection)));
 		if (!UToolsLibrary::CheckInRange(conditions.NormalAngleRange, normalAngle, true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(8);
+			checkDones->Insert(true, 8);
+		}
 
 		//Angle Test (I)
 		const float impactAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(surface.SurfaceImpactNormal, chkSurfaceDirection)));
 		if (!UToolsLibrary::CheckInRange(conditions.ImpactAngleRange, impactAngle, true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(9);
+			checkDones->Insert(true, 9);
+		}
 
 		//Offset test
 		const FVector farAwayVector = FVector::VectorPlaneProject(surface.SurfacePoint - location, chkSurfaceDirection);
@@ -439,11 +498,21 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 		const FVector inShapeDir = shapePtInDir - location;
 		if (inShapeDir.SquaredLength() > 0 && !UToolsLibrary::CheckInRange(conditions.OffsetRange, farAwayVector.SquaredLength() / inShapeDir.SquaredLength(), true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(10);
+			checkDones->Insert(true, 10);
+		}
 
 		//Angle Test (orientation)
 		const float orientationAngle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(farAwayVector.GetSafeNormal(), orientation)));
 		if (!UToolsLibrary::CheckInRange(conditions.OrientationAngleRange, orientationAngle, true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(11);
+			checkDones->Insert(true, 11);
+		}
 
 		//Depth test
 		if (conditions.DepthRange.Z > 0 && conditions.DepthRange.X > 0)
@@ -471,24 +540,44 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 				response.VaultDepthVector = FVector::VectorPlaneProject(hitBackWall.ImpactPoint - surface.SurfacePoint, chkSurfaceDirection);
 			}
 		}
+		if (checkDones)
+		{
+			checkDones->RemoveAt(12);
+			checkDones->Insert(true, 12);
+		}
 
 		//Speed test
 		const FVector speedVector = status.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(chkSurfaceDirection);
 		const float directionalSpeedScale = speedVector.Length() * ((speedVector | chkSurfaceDirection) > 0 ? 1 : -1);
 		if (!UToolsLibrary::CheckInRange(conditions.SpeedRange, directionalSpeedScale, true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(13);
+			checkDones->Insert(true, 13);
+		}
 
 		//Orientation Speed test
 		const FVector orientationSpeedVector = status.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(farAwayVector.GetSafeNormal());
 		const float orientationDirectionalSpeedScale = orientationSpeedVector.Length() * ((orientationSpeedVector | farAwayVector.GetSafeNormal()) > 0 ? 1 : -1);
 		if (!UToolsLibrary::CheckInRange(conditions.OrientationSpeedRange, orientationDirectionalSpeedScale, true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(14);
+			checkDones->Insert(true, 14);
+		}
 
 		//Surface speed Test
 		const FVector surfaceSpeedVector = surface.GetVelocityAt(surface.SurfacePoint).ProjectOnToNormal(chkSurfaceDirection);
 		const float dirSurfaceSpeedScale = surfaceSpeedVector.Length() * ((surfaceSpeedVector | chkSurfaceDirection) > 0 ? 1 : -1);
 		if (!UToolsLibrary::CheckInRange(conditions.SurfaceSpeedRange, dirSurfaceSpeedScale, true))
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(15);
+			checkDones->Insert(true, 15);
+		}
 
 		//Cosmetic vars test
 		bool breakFalse = false;
@@ -505,11 +594,22 @@ bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams 
 
 		if (breakFalse)
 			continue;
+		if (checkDones)
+		{
+			checkDones->RemoveAt(16);
+			checkDones->Insert(true, 16);
+		}
 
-		response.Surface = surface;
 		foundTrue = true;
+		break;
 	}
 
+
+	if (checkDones)
+	{
+		checkDones->RemoveAt(0);
+		checkDones->Insert(foundTrue, 0);
+	}
 	return foundTrue;
 }
 

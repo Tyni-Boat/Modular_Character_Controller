@@ -148,37 +148,6 @@ FControllerStatus UJumpActionBase::OnActionProcessActivePhase_Implementation(UMo
 
 	if (pressedBtn || normalizedTime <= 0.1)
 	{
-		//Look for mantling and vaulting
-		//if (actionInfos.GetPhaseElapsedTime(EActionPhase::Active) <= delta)
-		{
-			const FVector feetPos = controller->GetWorldSpaceCardinalPoint(result.Kinematics.GetGravityDirection());
-			const FVector locationOffset = (feetPos - result.Kinematics.LinearKinematic.Position);
-			for (auto item : MantlingAndVaultingMap)
-			{
-				FSurfaceCheckResponse response;
-				if (controller->EvaluateSurfaceConditions(item.Value, response, result, locationOffset, FVector(0)
-					, result.Kinematics.GetGravityDirection() * JumpForce))
-				{
-					TArray<FTransform> ptsList;
-					ptsList.Empty();
-					if (item.Value.DepthRange.Z > 0)
-					{
-						FVector pos = result.Kinematics.LinearKinematic.Position;
-						FVector normal = result.Kinematics.GetGravityDirection();
-						const FVector snapvector = UFunctionLibrary::GetSnapOnSurfaceVector(feetPos, response.Surface, normal);
-						const FVector ledgeLocation = response.Surface.SurfacePoint + snapvector - snapvector.GetSafeNormal() * 2 * OVERLAP_INFLATION;
-						const FQuat lookDir = FVector::VectorPlaneProject(response.Surface.SurfacePoint - pos, normal).ToOrientationQuat();
-						ptsList.Add(FTransform(lookDir, ledgeLocation));
-						if (!response.VaultDepthVector.ContainsNaN())
-							ptsList.Add(FTransform(lookDir, ledgeLocation + response.VaultDepthVector));
-					}
-					controller->OnControllerTriggerPathEvent.Broadcast(item.Key, ptsList);
-					break;
-				}
-			}
-		}
-
-
 		const FVector jumpAcceleration = -result.Kinematics.GetGravityDirection() * (JumpForce * (1 / actionInfos._startingDurations.Y)) * forceScale
 			+ ((result.Kinematics.GetGravityDirection() | result.Kinematics.LinearKinematic.Velocity) > 0 && normalizedTime < 0.1
 				   ? -result.Kinematics.LinearKinematic.Velocity.ProjectOnToNormal(result.Kinematics.GetGravityDirection()) / delta

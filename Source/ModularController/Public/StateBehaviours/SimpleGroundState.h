@@ -18,9 +18,17 @@ class MODULARCONTROLLER_API USimpleGroundState : public UBaseControllerState
 #pragma region Check XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 protected:
 	
-	// The surface conditions
+	// The surface max angle
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
-	FSurfaceCheckParams SurfaceParams;
+	float MaxSurfaceAngle = 35;
+	
+	// The surface max step height
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
+	float MaxStepHeight = 35;
+	
+	// The surface min step depth
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main")
+	float MinStepDepth = 15;
 
 	// The speed used to "snap" the controller ton the surface.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Main", meta=(ClampMin = 0, ClampMax = 1))

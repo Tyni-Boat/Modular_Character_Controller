@@ -186,6 +186,10 @@ public:
 	// The prediction along the trajectory range.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FVector2D PredictionDistanceRange = FVector2D(-1);
+	
+	// When using prediction, the check surface offset along the checking direction
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	float PredictionCheckSurfaceDistance = 0;
 
 	// The range of the surface point's distance along the checking direction. (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
@@ -245,9 +249,13 @@ struct FSurfaceCheckResponse
 
 	FSurfaceCheckResponse();
 
-	// The surface that was test aginst
+	// The surface that was test against
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FSurface Surface = FSurface();
+
+	// The location offset used
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector LocationOffset = FVector(NAN);
 
 	// The vault depth vector (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")

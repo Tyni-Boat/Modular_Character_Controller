@@ -423,7 +423,11 @@ FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const 
 		//Rotation
 		result.Kinematics.AngularKinematic.Orientation *= GetRootMotionQuat();
 		if (command->IsMotionWarpingEnabled())
+		{
+			result.Kinematics.AngularKinematic.AngularAcceleration = FVector(0);
+			result.Kinematics.AngularKinematic.RotationSpeed = FVector(0);
 			result.Kinematics.AngularKinematic.Orientation = MotionWarpTransform.GetRotation();
+		}
 	}
 
 	//Translation

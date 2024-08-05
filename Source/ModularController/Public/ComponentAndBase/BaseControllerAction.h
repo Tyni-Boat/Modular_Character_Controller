@@ -76,14 +76,14 @@ public:
 	// The list of compatible states names.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
 		, meta = (EditCondition =
-			"ActionCompatibilityMode == EActionCompatibilityMode::OnCompatibleStateOnly || ActionCompatibilityMode == EActionCompatibilityMode::OnBothCompatiblesStateAndAction"
+			"WatcherCompatibilityMode == EActionCompatibilityMode::OnCompatibleStateOnly || WatcherCompatibilityMode == EActionCompatibilityMode::OnBothCompatiblesStateAndAction"
 		))
 	TArray<FName> CompatibleStates;
 
 	// The list of compatible actions names
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Base|State & Compatibility"
 		, meta = (EditCondition =
-			"ActionCompatibilityMode == EActionCompatibilityMode::WhileCompatibleActionOnly || ActionCompatibilityMode == EActionCompatibilityMode::OnBothCompatiblesStateAndAction"
+			"WatcherCompatibilityMode == EActionCompatibilityMode::WhileCompatibleActionOnly || WatcherCompatibilityMode == EActionCompatibilityMode::OnBothCompatiblesStateAndAction"
 		))
 	TArray<FName> CompatibleActions;
 

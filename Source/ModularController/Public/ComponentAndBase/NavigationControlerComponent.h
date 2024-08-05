@@ -85,6 +85,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI Controllers|Core")
 	FORCEINLINE EPathFollowingStatus::Type GetPathFollowingStatus() const { return Status; }
 
+	// Pause Path following
+	UFUNCTION(BlueprintCallable, Category = "AI Controllers|Core")
+	FORCEINLINE void PausePathFollowing()
+	{
+		PauseMove(GetCurrentRequestId());
+		_explicitPathPause = true;
+	}
+
+	// Resume Path following
+	UFUNCTION(BlueprintCallable, Category = "AI Controllers|Core")
+	FORCEINLINE void ResumePathFollowing()
+	{
+		ResumeMove(GetCurrentRequestId());
+		_explicitPathPause = false;
+	}
+
 #pragma endregion
 
 
@@ -96,6 +112,7 @@ public:
 
 
 	// Cancel any path finding
+	UFUNCTION(BlueprintCallable, Category = "AI Controllers|Core")
 	void CancelPath();
 
 
@@ -113,6 +130,8 @@ public:
 protected:
 	//the maximum projection distance to navMesh
 	float MaxPointProjection = 10000;
+
+	bool _explicitPathPause = false;
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Controllers")

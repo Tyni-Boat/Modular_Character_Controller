@@ -108,6 +108,19 @@ void UModularControllerComponent::Initialize()
 		SortActions();
 	}
 
+	//Traversal watchers
+	WatcherInstances.Empty();
+	_watcherTickChrono = WatcherTickInterval;
+	{
+		for (int i = WatcherClasses.Num() - 1; i >= 0; i--)
+		{
+			if (!WatcherClasses[i])
+				continue;
+			WatcherInstances.Add(WatcherClasses[i]->GetDefaultObject());
+		}
+		SortTraversalWatchers();
+	}
+
 	//Physic Inits
 	EvaluateCardinalPoints();
 
@@ -292,6 +305,9 @@ FControllerStatus UModularControllerComponent::EvaluateStatusParams(const FContr
 
 	const auto swapCheckedStatus = TryChangeControllerState(stateControllerStatus, stateStatus);
 	stateStatus = swapCheckedStatus.ProcessResult;
+
+	//Traversal
+	CheckControllerTraversalWatcher(stateStatus, delta);
 
 	//Actions
 	FControllerStatus actionStatus = stateStatus;

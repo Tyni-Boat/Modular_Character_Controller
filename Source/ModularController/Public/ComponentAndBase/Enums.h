@@ -66,6 +66,7 @@ enum class EControllerDebugType: uint8
 	StatusDebug,
 	AnimationDebug,
 	InputDebug,
+	TraversalDebug
 };
 
 

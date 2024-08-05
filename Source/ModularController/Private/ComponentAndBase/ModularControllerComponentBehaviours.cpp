@@ -613,7 +613,7 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 
 	if (DebugType == EControllerDebugType::StatusDebug)
 	{
-		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Action Phase: %d"), selectedActionIndex), true, false, FColor::Silver, 0
+		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Action: Selected Index (%d)"), selectedActionIndex), true, false, FColor::Silver, 0
 		                                  , TEXT("CheckControllerActions"));
 	}
 
@@ -982,6 +982,292 @@ FControllerStatus UModularControllerComponent::ProcessSingleAction(TSoftObjectPt
 
 void UModularControllerComponent::OnControllerActionChanged_Implementation(UBaseControllerAction* newAction, UBaseControllerAction* lastAction)
 {
+}
+
+
+#pragma endregion
+
+
+#pragma region Watchers
+
+
+bool UModularControllerComponent::CheckTraversalWatcherByType(TSubclassOf<UBaseTraversalWatcher> moduleType) const
+{
+	if (WatcherInstances.Num() <= 0)
+		return false;
+	const auto index = WatcherInstances.IndexOfByPredicate([moduleType](const TSoftObjectPtr<UBaseTraversalWatcher>& watcher)
+	{
+		return watcher.IsValid() && watcher->GetClass() == moduleType;
+	});
+	return WatcherInstances.IsValidIndex(index);
+}
+
+bool UModularControllerComponent::CheckTraversalWatcherByName(FName moduleName) const
+{
+	if (WatcherInstances.Num() <= 0)
+		return false;
+	const auto index = WatcherInstances.IndexOfByPredicate([moduleName](const TSoftObjectPtr<UBaseTraversalWatcher>& watcher)
+	{
+		return watcher.IsValid() && watcher->GetDescriptionName() == moduleName;
+	});
+	return WatcherInstances.IsValidIndex(index);
+}
+
+bool UModularControllerComponent::CheckTraversalWatcherByPriority(int modulePriority) const
+{
+	if (WatcherInstances.Num() <= 0)
+		return false;
+	const auto index = WatcherInstances.IndexOfByPredicate([modulePriority](const TSoftObjectPtr<UBaseTraversalWatcher>& watcher)
+	{
+		return watcher.IsValid() && watcher->GetPriority() == modulePriority;
+	});
+	return WatcherInstances.IsValidIndex(index);
+}
+
+void UModularControllerComponent::SortTraversalWatchers()
+{
+	if (WatcherInstances.Num() > 1)
+	{
+		WatcherInstances.Sort([](const TSoftObjectPtr<UBaseTraversalWatcher>& a, const TSoftObjectPtr<UBaseTraversalWatcher>& b)
+		{
+			return a.IsValid() && b.IsValid() && a->GetPriority() > b->GetPriority();
+		});
+	}
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void UModularControllerComponent::AddTraversalWatcher_Implementation(TSubclassOf<UBaseTraversalWatcher> moduleType)
+{
+	if (!moduleType)
+		return;
+	if (CheckTraversalWatcherByType(moduleType.Get()))
+		return;
+	WatcherInstances.Add(moduleType->GetDefaultObject());
+	SortTraversalWatchers();
+}
+
+UBaseTraversalWatcher* UModularControllerComponent::GetTraversalWatcherByType(TSubclassOf<UBaseTraversalWatcher> moduleType)
+{
+	if (WatcherInstances.Num() <= 0)
+		return nullptr;
+	const auto index = WatcherInstances.IndexOfByPredicate([moduleType](const TSoftObjectPtr<UBaseTraversalWatcher>& watcher)
+	{
+		return watcher.IsValid() && watcher->GetClass() == moduleType;
+	});
+	if (WatcherInstances.IsValidIndex(index))
+	{
+		return WatcherInstances[index].Get();
+	}
+	return nullptr;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void UModularControllerComponent::RemoveTraversalWatcherByType_Implementation(TSubclassOf<UBaseTraversalWatcher> moduleType)
+{
+	if (CheckTraversalWatcherByType(moduleType))
+	{
+		auto watcher = WatcherInstances.FindByPredicate([moduleType](const TSoftObjectPtr<UBaseTraversalWatcher>& watch)
+		{
+			return watch.IsValid() && watch->GetClass() == moduleType->GetClass();
+		});
+		WatcherInstances.Remove(*watcher);
+		SortTraversalWatchers();
+	}
+}
+
+void UModularControllerComponent::RemoveTraversalWatcherByName_Implementation(FName moduleName)
+{
+	if (CheckTraversalWatcherByName(moduleName))
+	{
+		auto watcher = WatcherInstances.FindByPredicate([moduleName](const TSoftObjectPtr<UBaseTraversalWatcher>& watch)
+		{
+			return watch.IsValid() && watch->GetDescriptionName() == moduleName;
+		});
+		WatcherInstances.Remove(*watcher);
+		SortTraversalWatchers();
+	}
+}
+
+void UModularControllerComponent::RemoveTraversalWatcherByPriority_Implementation(int modulePriority)
+{
+	if (CheckTraversalWatcherByPriority(modulePriority))
+	{
+		auto watcher = WatcherInstances.FindByPredicate([modulePriority](const TSoftObjectPtr<UBaseTraversalWatcher>& watch)
+		{
+			return watch.IsValid() && watch->GetPriority() == modulePriority;
+		});
+		WatcherInstances.Remove(*watcher);
+		SortTraversalWatchers();
+	}
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void UModularControllerComponent::CheckControllerTraversalWatcher(FControllerStatus currentControllerStatus, const float inDelta)
+{
+	if (_watcherTickChrono > 0)
+	{
+		_watcherTickChrono -= inDelta;
+		if (_watcherTickChrono <= 0)
+		{
+			_watcherTickChrono = WatcherTickInterval;
+			TRACE_CPUPROFILER_EVENT_SCOPE_STR("CheckControllerTraversalWatcher");
+			int selectedWatcherIndex = -1;
+			TMap<FName, TMap<FName, TArray<bool>>> _motherTraversalDebug;
+			if (DebugType == EControllerDebugType::TraversalDebug)
+				_motherTraversalDebug = TMap<FName, TMap<FName, TArray<bool>>>();
+
+			//Check transversal watcher
+			for (int i = 0; i < WatcherInstances.Num(); i++)
+			{
+				if (selectedWatcherIndex == i)
+					continue;
+
+				if (!WatcherInstances[i].IsValid())
+					continue;
+
+				if (CheckTraversalWatcherCompatibility(WatcherInstances[i], currentControllerStatus.StatusParams.StateIndex, currentControllerStatus.StatusParams.ActionIndex))
+				{
+					if (WatcherInstances.IsValidIndex(selectedWatcherIndex) && WatcherInstances[selectedWatcherIndex].IsValid())
+					{
+						if (WatcherInstances[i]->GetPriority() <= WatcherInstances[selectedWatcherIndex]->GetPriority())
+						{
+							continue;
+						}
+					}
+
+					if (DebugType == EControllerDebugType::TraversalDebug)
+						_motherTraversalDebug.Add(WatcherInstances[i]->GetDescriptionName(), TMap<FName, TArray<bool>>());
+
+					if (WatcherInstances[i]->CheckWatcher(this, currentControllerStatus, inDelta,
+					                                      DebugType == EControllerDebugType::TraversalDebug
+						                                      ? &_motherTraversalDebug[WatcherInstances[i]->GetDescriptionName()]
+						                                      : nullptr))
+					{
+						selectedWatcherIndex = i;
+						if (DebugType == EControllerDebugType::StatusDebug)
+						{
+							UKismetSystemLibrary::PrintString(
+								GetWorld(), FString::Printf(TEXT("Traversal Watcher (%s) was checked as active."), *WatcherInstances[i]->DebugString()), true, false, FColor::Silver
+								, 0, FName(FString::Printf(TEXT("CheckControllerWatcher_%s"), *WatcherInstances[i]->GetDescriptionName().ToString())));
+						}
+					}
+				}
+			}
+
+			if (DebugType == EControllerDebugType::StatusDebug)
+			{
+				UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Watchers: selected Index (%d)"), selectedWatcherIndex), true, false, FColor::Silver, 0
+				                                  , TEXT("CheckControllerWatcher"));
+			}
+
+			if (DebugType == EControllerDebugType::TraversalDebug)
+			{
+				float duration = 60;
+				for (auto motherItem : _motherTraversalDebug)
+				{
+					auto debugName = FString::Printf(TEXT("CheckControllerWatcher_%s"), *motherItem.Key.ToString());
+					FString innerContent = FString();
+					for (auto childItem : motherItem.Value)
+					{
+						innerContent = FString::Printf(
+							TEXT(
+								"Key(%s)  Tested(%d)  AsPrediction(%d)  SurfaceCount(%d)  SurfaceValid(%d)  ColResponse(%d)  canStep(%d)  Height(%d)  nAngle(%d)  iAngle(%d)  awayTest(%d)  orientation(%d)  depth(%d)  axisSpeed(%d)  surfaceDirSpeed(%d)  SurfaceSpeed(%d)  Cosmetic(%d)")
+							, *childItem.Key.ToString(), childItem.Value[1], childItem.Value[2], childItem.Value[3], childItem.Value[4], childItem.Value[5], childItem.Value[6],
+							childItem.Value[7],
+							childItem.Value[8], childItem.Value[9], childItem.Value[10], childItem.Value[11], childItem.Value[12], childItem.Value[13], childItem.Value[14],
+							childItem.Value[15],
+							childItem.Value[16]
+						);
+						auto nameKey = debugName;
+						UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("%s:"), *innerContent), true, false, childItem.Value[0] ? FColor::Green : FColor::Silver
+						                                  , duration, FName(nameKey.Append(childItem.Key.ToString())));
+					}
+					UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Watchers full status Tab for %s:")
+					                                                              , *motherItem.Key.ToString()), true, false, FColor::White, duration, FName(debugName));
+				}
+			}
+		}
+	}
+}
+
+bool UModularControllerComponent::CheckTraversalWatcherCompatibility(const TSoftObjectPtr<UBaseTraversalWatcher> watcherInstance, int stateIndex, int actionIndex) const
+{
+	if (!watcherInstance.IsValid())
+		return false;
+
+	bool incompatible = false;
+	switch (watcherInstance->WatcherCompatibilityMode)
+	{
+		default:
+			break;
+		case EActionCompatibilityMode::WhileCompatibleActionOnly:
+			{
+				incompatible = true;
+				if (watcherInstance->CompatibleActions.Num() > 0)
+				{
+					if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex].IsValid())
+					{
+						const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
+						if (watcherInstance->CompatibleActions.Contains(actionName))
+						{
+							incompatible = false;
+						}
+					}
+				}
+			}
+			break;
+		case EActionCompatibilityMode::OnCompatibleStateOnly:
+			{
+				incompatible = true;
+				if (StatesInstances.IsValidIndex(stateIndex) && watcherInstance->CompatibleStates.Num() > 0 && StatesInstances[stateIndex].IsValid())
+				{
+					const auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
+					if (watcherInstance->CompatibleStates.Contains(stateName))
+					{
+						incompatible = false;
+					}
+				}
+			}
+			break;
+		case EActionCompatibilityMode::OnBothCompatiblesStateAndAction:
+			{
+				int compatibilityCount = 0;
+				//State
+				if (StatesInstances.IsValidIndex(stateIndex) && watcherInstance->CompatibleStates.Num() > 0 && StatesInstances[stateIndex].IsValid())
+				{
+					const auto stateName = StatesInstances[stateIndex]->GetDescriptionName();
+					if (watcherInstance->CompatibleStates.Contains(stateName))
+					{
+						compatibilityCount++;
+					}
+				}
+				//Actions
+				if (watcherInstance->CompatibleActions.Num() > 0)
+				{
+					if (ActionInstances.IsValidIndex(actionIndex) && ActionInstances[actionIndex].IsValid())
+					{
+						const auto actionName = ActionInstances[actionIndex]->GetDescriptionName();
+						if (watcherInstance->CompatibleActions.Contains(actionName))
+						{
+							compatibilityCount++;
+						}
+					}
+				}
+				incompatible = compatibilityCount < 2;
+			}
+			break;
+	}
+
+	return !incompatible;
 }
 
 

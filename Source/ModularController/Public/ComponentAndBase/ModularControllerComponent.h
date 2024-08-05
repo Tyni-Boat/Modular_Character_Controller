@@ -14,6 +14,11 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/NavMovementComponent.h"
 
+#ifndef BASE_WATCHER
+#define BASE_WATCHER
+#include "BaseTraversalWatcher.h"
+#endif
+
 #ifndef BASE_ACTION
 #define BASE_ACTION
 #include "BaseControllerAction.h"
@@ -799,6 +804,89 @@ protected:
 
 #pragma endregion
 
+#pragma region Watchers
+
+public:
+	/// The watchers types used on this controller.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, category = "Controllers|Controller Watcher")
+	TArray<TSubclassOf<UBaseTraversalWatcher>> WatcherClasses;
+
+	/// The watcher instances used on this controller.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller Watcher")
+	TArray<TSoftObjectPtr<UBaseTraversalWatcher>> WatcherInstances;
+
+	/// The time interval to check Traversal
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Controller Watcher")
+	float WatcherTickInterval = 0.1;
+
+public:
+
+	/// Check if we have a watcher by type
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Watcher")
+	bool CheckTraversalWatcherByType(TSubclassOf<UBaseTraversalWatcher> moduleType) const;
+
+	/// Check if we have a watcher by name
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Watcher")
+	bool CheckTraversalWatcherByName(FName moduleName) const;
+
+	/// Check if we have a Watcher by priority
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Watcher")
+	bool CheckTraversalWatcherByPriority(int modulePriority) const;
+
+	// Sort Watcher instances Array
+	void SortTraversalWatchers();
+
+
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+	/// Add a traversal watcher
+	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|Controller Watcher")
+	void AddTraversalWatcher(TSubclassOf<UBaseTraversalWatcher> moduleType);
+
+
+	/// Get an traversal watcher by type
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Watcher")
+	UBaseTraversalWatcher* GetTraversalWatcherByType(TSubclassOf<UBaseTraversalWatcher> moduleType);
+
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+	/// Remove a traversal watcher by type
+	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|Controller Watcher")
+	void RemoveTraversalWatcherByType(TSubclassOf<UBaseTraversalWatcher> moduleType);
+
+	/// Remove a traversal watcher by name
+	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|Controller Watcher")
+	void RemoveTraversalWatcherByName(FName moduleName);
+
+
+	/// Remove a traversal watcher by priority
+	UFUNCTION(BlueprintCallable, NetMulticast, Reliable, Category = "Controllers|Controller Watcher")
+	void RemoveTraversalWatcherByPriority(int modulePriority);
+
+protected:
+
+	// The tick chrono for watchers
+	float _watcherTickChrono = 0;
+	
+	/// Check controller Watchers.
+	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Watcher|Events")
+	void CheckControllerTraversalWatcher(FControllerStatus currentControllerStatus, const float inDelta);
+
+
+	/**
+	 * @brief Check if a traversal watcher is compatible with this state and those actions
+	 * @param watcherInstance The action to verify
+	 * @param stateIndex the controller state index used
+	 * @param actionIndex the action array used
+	 * @return true if it's compatible
+	 */
+	bool CheckTraversalWatcherCompatibility(const TSoftObjectPtr<UBaseTraversalWatcher> watcherInstance, int stateIndex, int actionIndex) const;
+
+
+#pragma endregion
+
 
 #pragma region Animation Component
 public:
@@ -1032,6 +1120,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils", meta=(AdvancedDisplay="3"))
 	bool EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus, FVector locationOffset = FVector(0),
 	                               FVector orientationOffset = FVector(0), FVector solverChkParam = FVector(0), FVector customDirection = FVector(0));
+
+
+	// Evaluate all conditions of a surface against this controller
+	bool EvaluateSurfaceConditionsInternal(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus, FVector locationOffset = FVector(0),
+	                               FVector orientationOffset = FVector(0), FVector solverChkParam = FVector(0), FVector customDirection = FVector(0), TArray<bool>* checkDones = nullptr);
 
 
 #pragma endregion

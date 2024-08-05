@@ -81,7 +81,8 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 			hit.ImpactNormal = offset.GetSafeNormal();
 			hit.ImpactPoint = location - offset;
 			hit.Component = UpdatedPrimitive;
-			UFunctionLibrary::DrawDebugCircleOnHit(hit, false, FColor::White, DeltaTime * 1.2, 0.5);
+			UFunctionLibrary::DrawDebugCircleOnHit(hit, 60, FColor::White, 0.008, 0.5);
+			UKismetSystemLibrary::DrawDebugArrow(hit.GetComponent(), hit.ImpactPoint, hit.ImpactPoint + offset, 50, FColor::White, 0.008, 0.5);
 		}
 	}
 	FCollisionQueryParams query = FCollisionQueryParams::DefaultQueryParam;

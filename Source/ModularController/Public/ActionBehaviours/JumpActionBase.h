@@ -25,15 +25,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Inputs")
 	FName JumpLocationInput;
 
-	//The map of mantling and vaulting surface params. will be scanned in the order and trigger a path event with the key at the first valid surface check. event fire only once during jump life time.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "Inputs")
-	TMap<FName, FSurfaceCheckParams> MantlingAndVaultingMap;
-
 
 #pragma endregion
 
 #pragma region Jump
 protected:
+	
 	// The normalized Jump curve [0-1]
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, category = "JumpTo Parameters")
 	FAlphaBlend JumpCurve;
