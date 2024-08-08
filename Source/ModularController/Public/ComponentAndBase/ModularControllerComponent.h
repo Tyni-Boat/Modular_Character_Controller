@@ -60,7 +60,7 @@ DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerActionPhaseChange
 /// Declare a multicast for event with a path of point array
 /// </summary>
 DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_TwoParams(FControllerTriggerPathEventSignature, UModularControllerComponent,
-                                                    OnControllerTriggerPathEvent, FName, LaunchID, TArray<FTransform>, Path);
+                                                    OnControllerTriggerTraversalEvent, FName, LaunchID, TArray<FTransform>, Path);
 
 /// <summary>
 /// Declare a multicast for event with a unique name identifier
@@ -71,7 +71,11 @@ DECLARE_DYNAMIC_MULTICAST_SPARSE_DELEGATE_OneParam(FControllerUniqueEventSignatu
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageCompleted);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageBlendingOut);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageFailed);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnActionMontageLauched);
 
 
 //The inflation used when detecting main surfaces
@@ -104,6 +108,8 @@ private:
 
 	FQuat _lastRotation = FQuat::Identity;
 
+	float _mainTickChrono;
+
 protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
@@ -116,6 +122,10 @@ protected:
 
 	// Called to Compute the next frame's Movement logic
 	void ComputeTickComponent(float delta);
+
+	//The performance profile in use
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Core")
+	FControllerPerformanceLOD CurrentPerformanceProfile;
 
 	//Use this to offset rotation. useful when using skeletal mesh without as root primitive.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Core")
@@ -490,8 +500,8 @@ public:
 
 
 	//Solve overlap problems recursively.
-	void OverlapSolver(int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits = nullptr, const FVector4 scanParameters = FVector4(0), FTransform* customTransform = nullptr,
-	                   std::function<void(FVector)> OnLocationSet = {});
+	void OverlapSolver(TArray<FHitResultExpanded> &tempOverlapSolverHits, int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits = nullptr, const FVector4 scanParameters = FVector4(0), FTransform* customTransform = nullptr,
+	                   std::function<void(FVector)> OnLocationSet = {}) const;
 
 
 	// Handle tracked surfaces.
@@ -518,7 +528,7 @@ protected:
 public:
 	// Trigger a path event.
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|Events")
-	FControllerTriggerPathEventSignature OnControllerTriggerPathEvent;
+	FControllerTriggerPathEventSignature OnControllerTriggerTraversalEvent;
 
 
 	// Trigger a unique event.
@@ -689,6 +699,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Controllers|Controller Action|Events")
 	FOnActionMontageCompleted OnActionMontageCompleted;
 
+	// Triggers when The action montage starting blending out.
+	UPROPERTY(BlueprintAssignable, Category = "Controllers|Controller Action|Events")
+	FOnActionMontageBlendingOut OnActionMontageBlendingOut;
+
 public:
 	/// Get the current action behaviour instance
 	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action", meta = (CompactNodeTitle = "CurrentAction"))
@@ -698,6 +712,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action", meta = (CompactNodeTitle = "CurrentActionInfos"))
 	FActionInfos GetCurrentControllerActionInfos() const;
 
+	/// Return true if the current action is the action montage
+	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action", meta = (CompactNodeTitle = "IsActionMontage"))
+	bool IsActionMontagePlaying() const;
 
 	/// Check if we have an action behaviour by type
 	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Action")
@@ -815,12 +832,7 @@ public:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, category = "Controllers|Controller Watcher")
 	TArray<TSoftObjectPtr<UBaseTraversalWatcher>> WatcherInstances;
 
-	/// The time interval to check Traversal
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, category = "Controllers|Controller Watcher")
-	float WatcherTickInterval = 0.1;
-
 public:
-
 	/// Check if we have a watcher by type
 	UFUNCTION(BlueprintPure, Category = "Controllers|Controller Watcher")
 	bool CheckTraversalWatcherByType(TSubclassOf<UBaseTraversalWatcher> moduleType) const;
@@ -866,10 +878,9 @@ public:
 	void RemoveTraversalWatcherByPriority(int modulePriority);
 
 protected:
-
 	// The tick chrono for watchers
 	float _watcherTickChrono = 0;
-	
+
 	/// Check controller Watchers.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Controller Watcher|Events")
 	void CheckControllerTraversalWatcher(FControllerStatus currentControllerStatus, const float inDelta);
@@ -944,11 +955,11 @@ public:
 
 	///Play an animation montage on the controller globally. returns the duration
 	double PlayAnimationMontage_Internal(FActionMotionMontage Montage, float customAnimStartTime = -1
-	                                     , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = {});
+	                                     , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = {}, FOnMontageBlendingOutStarted blendOutCallBack = {});
 
 	///Play an animation montage on the specified controller state linked anim graph. returns the duration
 	double PlayAnimationMontageOnState_Internal(FActionMotionMontage Montage, FName stateName, float customAnimStartTime = -1
-	                                            , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = {});
+	                                            , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = {}, FOnMontageBlendingOutStarted blendOutCallBack = {});
 
 
 	//Read the skeletal mesh root motion.
@@ -971,8 +982,11 @@ private:
 	// Motion warp transform registered
 	TMap<FName, FTransform> _motionWarpTransforms;
 
-	// The call back on action's montage
+	// The call back on action's montage end
 	FOnMontageEnded _onActionMontageEndedCallBack;
+
+	// The call back on action's montage end
+	FOnMontageBlendingOutStarted _OnActionMontageBlendingOutStartedCallBack;
 
 	// Link a montage to one or several actions. used to stop action when montage interrupts
 	TMap<TSoftObjectPtr<UAnimMontage>, TArray<TSoftObjectPtr<UBaseControllerAction>>> _montageOnActionBound;
@@ -984,12 +998,17 @@ protected:
 
 	// Play a montage on an animation instance and return the duration
 	double PlayAnimMontageSingle(UAnimInstance* animInstance, FActionMotionMontage montage, float customAnimStartTime = -1
-	                             , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = FOnMontageEnded());
+	                             , bool useMontageEndCallback = false, FOnMontageEnded endCallBack = FOnMontageEnded(),
+	                             FOnMontageBlendingOutStarted blendOutCallBack = FOnMontageBlendingOutStarted());
 
 
 	// Called when an action's montage ends.
 	UFUNCTION()
 	void OnActionMontageEnds(UAnimMontage* Montage, bool Interrupted);
+
+	// Called when an action's montage starting to blend out.
+	UFUNCTION()
+	void OnActionMontageBlendOutStarted(UAnimMontage* Montage, bool Interrupted);
 
 
 	/// Evaluate component's from it's skeletal mesh Root motions
@@ -1057,7 +1076,7 @@ public:
 
 	//Tracecast a number of times until the condition is meet
 	bool ComponentTraceSingleUntil(FHitResult& outHit, FVector direction, FVector position, FQuat rotation, std::function<bool(FHitResult)> condition, int iterations = 3,
-	                               double inflation = 0.100, bool traceComplex = false);
+	                               double inflation = 0.100, bool traceComplex = false) const;
 
 
 	/// Check for all collisions at a position and rotation in a direction as overlaps. return true if any collision occurs
@@ -1074,7 +1093,7 @@ public:
 
 	/// Check for collision at a position and rotation in a direction. return true if collision occurs
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	FORCEINLINE bool ComponentTraceSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false)
+	FORCEINLINE bool ComponentTraceSingle(FHitResult& outHit, FVector position, FVector direction, FQuat rotation, double inflation = 0.100, bool traceComplex = false) const
 	{
 		return ComponentTraceSingle_Internal(outHit, position, direction, rotation, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
 	}
@@ -1085,13 +1104,13 @@ public:
 
 	// Trace single along a path
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
-	FORCEINLINE bool ComponentPathTraceSingle(FHitResult& result, int& pathPtIndex, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false)
+	FORCEINLINE bool ComponentPathTraceSingle(FHitResult& result, int& pathPtIndex, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false) const
 	{
 		return ComponentPathTraceSingle_Internal(result, pathPtIndex, pathPoints, inflation, traceComplex, FCollisionQueryParams::DefaultQueryParam);
 	}
 
 	bool ComponentPathTraceSingle_Internal(FHitResult& result, int& pathPtIndex, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false,
-	                                       FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam);
+	                                       FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam) const;
 
 
 	// Trace Multi along a path
@@ -1102,18 +1121,18 @@ public:
 	}
 
 	bool ComponentPathTraceMulti_Internal(TArray<FHitResultExpanded>& results, TArray<int>& pathPtIndexes, TArray<FTransform> pathPoints, float inflation = 0, bool traceComplex = false,
-	                                      FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam);
+	                                      FCollisionQueryParams& queryParams = FCollisionQueryParams::DefaultQueryParam) const;
 
 
 	/// Check for Overlap at a atPosition and rotation and return the separationForce needed for depenetration. work best with simple collisions
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils")
 	bool CheckPenetrationAt(FVector& separationForce, FVector& contactForce, FVector atPosition, FQuat withOrientation, UPrimitiveComponent* onlyThisComponent = nullptr,
-	                        double hullInflation = 0.125, bool getVelocity = false);
+	                        double hullInflation = 0.125, bool getVelocity = false) const;
 
 
 	/// Return a point on the surface of the collider.
 	UFUNCTION(BlueprintCallable, Category = "Controllers|Tools & Utils", meta=(AdvancedDisplay="2"))
-	FVector PointOnShape(FVector direction, const FVector inLocation, const float hullInflation = 0.126);
+	FVector PointOnShape(FVector direction, const FVector inLocation, const float hullInflation = 0.126) const;
 
 
 	// Evaluate all conditions of a surface against this controller
@@ -1123,8 +1142,9 @@ public:
 
 
 	// Evaluate all conditions of a surface against this controller
-	bool EvaluateSurfaceConditionsInternal(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus, FVector locationOffset = FVector(0),
-	                               FVector orientationOffset = FVector(0), FVector solverChkParam = FVector(0), FVector customDirection = FVector(0), TArray<bool>* checkDones = nullptr);
+	bool EvaluateSurfaceConditionsInternal(TArray<FHitResultExpanded>& tmpSolverHits, FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus, FVector locationOffset = FVector(0),
+	                                       FVector orientationOffset = FVector(0), FVector solverChkParam = FVector(0), FVector customDirection = FVector(0),
+	                                       TArray<bool>* checkDones = nullptr) const;
 
 
 #pragma endregion
@@ -1143,7 +1163,13 @@ class MODULARCONTROLLER_API UActionMontageEvent : public UBlueprintAsyncActionBa
 	GENERATED_BODY()
 public:
 	UPROPERTY(BlueprintAssignable)
+	FOnActionMontageLauched OnActionMontageLaunched;
+	
+	UPROPERTY(BlueprintAssignable)
 	FOnActionMontageCompleted OnActionMontageCompleted;
+	
+	UPROPERTY(BlueprintAssignable)
+	FOnActionMontageBlendingOut OnActionMontageBlendingOut;
 
 	UPROPERTY(BlueprintAssignable)
 	FOnActionMontageFailed OnActionMontageFailed;
@@ -1158,9 +1184,15 @@ public:
 private:
 	UFUNCTION()
 	void _OnActionMontageCompleted();
+	
+	UFUNCTION()
+	void _OnActionMontageBlendOutStart();
 
 	UFUNCTION()
 	void _OnActionMontageFailed();
+	
+	UFUNCTION()
+	void _OnActionMontageLaunched();
 
 	void CleanUp();
 

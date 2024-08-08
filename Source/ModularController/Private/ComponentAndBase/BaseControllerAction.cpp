@@ -11,7 +11,7 @@
 
 
 FVector4 UBaseControllerAction::OnActionBegins_Implementation(UModularControllerComponent* controller, const FKinematicComponents startingConditions, const FVector moveInput,
-                                                             const float delta) const
+                                                              const float delta) const
 {
 	return FVector4(AnticipationPhaseDuration, ActivePhaseDuration, RecoveryPhaseDuration, 0);
 }
@@ -61,7 +61,7 @@ FString UBaseControllerAction::DebugString()
 FVector UBaseControllerAction::RemapDuration(float duration, FVector customTiming, bool tryDontMapAnticipation, bool tryDontMapRecovery) const
 {
 	FVector timings = FVector(AnticipationPhaseDuration, ActivePhaseDuration, RecoveryPhaseDuration);
-	if(!customTiming.IsZero())
+	if (!customTiming.IsZero())
 		timings = customTiming;
 	const float anticipationScale = timings.X / (timings.X + timings.Y + timings.Z);
 	const float recoveryScale = timings.Z / (timings.X + timings.Y + timings.Z);
@@ -118,9 +118,6 @@ FVector UBaseControllerAction::RemapDurationByMontageSections(UAnimMontage* mont
 }
 
 
-
-
-
 # pragma region Action montage
 
 
@@ -140,6 +137,8 @@ bool UActionMontage::SetActionParams(UModularControllerComponent* controller, FA
 		return false;
 	if (!montage.Montage)
 		return false;
+	if (ActionPriority >= 0)
+		return false;
 	MontageToPlay = montage;
 	MontageToPlay.bUseMontageLenght = true;
 	MontageToPlay.bStopOnActionEnds = true;
@@ -149,7 +148,10 @@ bool UActionMontage::SetActionParams(UModularControllerComponent* controller, FA
 	FActionMontageLibrary library;
 	library.Library = TArray<FActionMotionMontage>{MontageToPlay};
 	if (controller->ActionMontageLibraryMap.Contains(GetDescriptionName()))
-		controller->ActionMontageLibraryMap[GetDescriptionName()] = library;
+	{
+		controller->ActionMontageLibraryMap[GetDescriptionName()].Library.Empty();
+		controller->ActionMontageLibraryMap[GetDescriptionName()].Library.Add(MontageToPlay);
+	}
 	else
 		controller->ActionMontageLibraryMap.Add(GetDescriptionName(), library);
 

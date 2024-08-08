@@ -17,7 +17,7 @@
 #pragma region Tools & Utils
 
 bool UModularControllerComponent::ComponentTraceSingleUntil(FHitResult& outHit, FVector direction, FVector position,
-                                                            FQuat rotation, std::function<bool(FHitResult)> condition, int iterations, double inflation, bool traceComplex)
+                                                            FQuat rotation, std::function<bool(FHitResult)> condition, int iterations, double inflation, bool traceComplex) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("ComponentTraceCastSingleUntil");
 
@@ -157,7 +157,7 @@ bool UModularControllerComponent::ComponentTraceSingle_Internal(FHitResult& outH
 
 
 bool UModularControllerComponent::ComponentPathTraceSingle_Internal(FHitResult& result, int& pathPtIndex, TArray<FTransform> pathPoints, float inflation, bool traceComplex,
-                                                                    FCollisionQueryParams& queryParams)
+                                                                    FCollisionQueryParams& queryParams) const
 {
 	if (pathPoints.Num() <= 1)
 		return false;
@@ -182,7 +182,7 @@ bool UModularControllerComponent::ComponentPathTraceSingle_Internal(FHitResult& 
 
 bool UModularControllerComponent::ComponentPathTraceMulti_Internal(TArray<FHitResultExpanded>& results, TArray<int>& pathPtIndexes, TArray<FTransform> pathPoints, float inflation,
                                                                    bool traceComplex,
-                                                                   FCollisionQueryParams& queryParams)
+                                                                   FCollisionQueryParams& queryParams) const
 {
 	if (pathPoints.Num() <= 1)
 		return false;
@@ -208,7 +208,7 @@ bool UModularControllerComponent::ComponentPathTraceMulti_Internal(TArray<FHitRe
 
 
 bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, FVector& contactForce, FVector atPosition, FQuat withOrientation, UPrimitiveComponent* onlyThisComponent,
-                                                     double hullInflation, bool getVelocity)
+                                                     double hullInflation, bool getVelocity) const
 {
 	{
 		FVector moveVec = FVector(0);
@@ -330,7 +330,7 @@ bool UModularControllerComponent::CheckPenetrationAt(FVector& separationForce, F
 }
 
 
-FVector UModularControllerComponent::PointOnShape(FVector direction, const FVector inLocation, const float hullInflation)
+FVector UModularControllerComponent::PointOnShape(FVector direction, const FVector inLocation, const float hullInflation) const
 {
 	if (!UpdatedPrimitive)
 		return inLocation;
@@ -350,13 +350,15 @@ FVector UModularControllerComponent::PointOnShape(FVector direction, const FVect
 bool UModularControllerComponent::EvaluateSurfaceConditions(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus, FVector locationOffset,
                                                             FVector orientationOffset, FVector solverChkParam, FVector customDirection)
 {
-	return EvaluateSurfaceConditionsInternal(conditions, response, inStatus, locationOffset, orientationOffset, solverChkParam, customDirection);
+	TArray<FHitResultExpanded> tmpSolverHits;
+	return EvaluateSurfaceConditionsInternal(tmpSolverHits, conditions, response, inStatus, locationOffset, orientationOffset, solverChkParam, customDirection);
 }
 
 
-bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(FSurfaceCheckParams conditions, FSurfaceCheckResponse& response, FControllerStatus inStatus,
+bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(TArray<FHitResultExpanded>& tmpSolverHits, FSurfaceCheckParams conditions, FSurfaceCheckResponse& response,
+                                                                    FControllerStatus inStatus,
                                                                     FVector locationOffset, FVector orientationOffset, FVector solverChkParam,
-                                                                    FVector customDirection, TArray<bool>* checkDones)
+                                                                    FVector customDirection, TArray<bool>* checkDones) const
 {
 	response.LocationOffset = locationOffset;
 	if (checkDones)
@@ -387,7 +389,7 @@ bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(FSurfaceChec
 		int trajHitIndex = -1;
 		status.Kinematics.SurfacesInContact.Empty();
 		//Prediction trajectory
-		auto trajectory = UFunctionLibrary::MakeKinematicsTrajectory(status.Kinematics, MaxHistorySamples, HistoryTimeStep);
+		auto trajectory = UFunctionLibrary::MakeKinematicsTrajectory(status.Kinematics, 30, 0.1); // HistoryTimeStep);
 		for (int i = 0; i < trajectory.Num(); i++)
 		{
 			trajPts.Add(FTransform(trajectory[i].AngularKinematic.Orientation, trajectory[i].LinearKinematic.Position));
@@ -406,10 +408,10 @@ bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(FSurfaceChec
 		FTransform customTr = FTransform(status.Kinematics.AngularKinematic.Orientation, status.Kinematics.LinearKinematic.Position);
 		TArray<FHitResultExpanded> hits;
 		FVector defaultChkDir = inStatus.Kinematics.GetGravityDirection() * conditions.PredictionCheckSurfaceDistance;
-		OverlapSolver(maxDepth, HistoryTimeStep, &hits,
+		OverlapSolver(tmpSolverHits, maxDepth, 0.1, &hits,
 		              solverChkParam.SquaredLength() > 0 ? FVector4(solverChkParam) : FVector4(defaultChkDir.X, defaultChkDir.Y, defaultChkDir.Z, inStatus.CustomSolverCheckParameters.W),
 		              &customTr);
-		HandleTrackedSurface(status, hits, HistoryTimeStep);
+		HandleTrackedSurface(status, hits, 0.1);
 		surfaces = status.Kinematics.SurfacesInContact;
 	}
 	else
@@ -443,6 +445,8 @@ bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(FSurfaceChec
 		const FVector location = status.Kinematics.LinearKinematic.Position;
 		const FVector offsetLocation = location + locationOffset;
 
+		response.HitPlanedNormal = FVector::VectorPlaneProject(surface.SurfaceNormal, chkSurfaceDirection).GetSafeNormal();
+		
 		//Collision response test
 		if (conditions.CollisionResponse != ECR_MAX && static_cast<ECollisionResponse>(surface.SurfacePhysicProperties.Z) != conditions.CollisionResponse)
 			continue;
@@ -495,7 +499,7 @@ bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(FSurfaceChec
 		//Offset test
 		const FVector farAwayVector = FVector::VectorPlaneProject(surface.SurfacePoint - location, chkSurfaceDirection);
 		const FVector shapePtInDir = GetWorldSpaceCardinalPoint(farAwayVector);
-		const FVector inShapeDir = shapePtInDir - location;
+		const FVector inShapeDir = (shapePtInDir - location);
 		if (inShapeDir.SquaredLength() > 0 && !UToolsLibrary::CheckInRange(conditions.OffsetRange, farAwayVector.SquaredLength() / inShapeDir.SquaredLength(), true))
 			continue;
 		if (checkDones)
@@ -515,29 +519,46 @@ bool UModularControllerComponent::EvaluateSurfaceConditionsInternal(FSurfaceChec
 		}
 
 		//Depth test
-		if (conditions.DepthRange.Z > 0 && conditions.DepthRange.X > 0)
+		if (conditions.DepthRange.X > 0)
 		{
 			const FVector virtualSnap = UFunctionLibrary::GetSnapOnSurfaceVector(offsetLocation, surface, chkSurfaceDirection);
-			FVector offset = farAwayVector.GetSafeNormal() * conditions.DepthRange.Z;
+			FVector offset = farAwayVector.GetSafeNormal() * status.Kinematics.GetGravityScale();
+			response.HurdleStartLocation = location;
 			FHitResult hitMantle;
 			FVector pt = location + virtualSnap + virtualSnap.GetSafeNormal() * 0.1;
+			response.HurdleApexLocation = pt;
 			if (!ComponentTraceSingle(hitMantle, pt, offset, status.Kinematics.AngularKinematic.Orientation, 0))
 				hitMantle.Distance = offset.Length();
-			if (!UToolsLibrary::CheckInRange(FVector2D(conditions.DepthRange.X, conditions.DepthRange.Z + 0.125), hitMantle.Distance, true))
+			if (!UToolsLibrary::CheckInRange(FVector2D(conditions.DepthRange.X, (offset.Length() + 0.0125)), hitMantle.Distance, true))
 				continue;
-			if (conditions.DepthRange.Y >= 0)
+			if (conditions.DepthRange.Y > 0)
 			{
 				offset = offset.GetSafeNormal() * hitMantle.Distance;
 				FHitResult hitBackWall;
-				if (!surface.TrackedComponent->LineTraceComponent(hitBackWall, location + offset, location, FCollisionQueryParams::DefaultQueryParam))
+				if (!surface.TrackedComponent->LineTraceComponent(hitBackWall, offsetLocation + offset, offsetLocation, FCollisionQueryParams::DefaultQueryParam))
 					continue;
+				hitBackWall.ImpactPoint -= locationOffset;
 				if (hitBackWall.bStartPenetrating)
 					continue;
-				FHitResult hitVault;
-				pt = hitBackWall.ImpactPoint + offset.GetSafeNormal() * inShapeDir.Length() + virtualSnap + virtualSnap.GetSafeNormal() * 0.1;
-				if (ComponentTraceSingle(hitVault, pt, chkSurfaceDirection.GetSafeNormal() * conditions.DepthRange.Y, status.Kinematics.AngularKinematic.Orientation, 0))
+				FHitResult hitHurdle;
+				FVector impactToImpactVector = FVector::VectorPlaneProject(surface.SurfacePoint - hitBackWall.ImpactPoint, chkSurfaceDirection.GetSafeNormal());
+				pt = hitBackWall.ImpactPoint + FVector::VectorPlaneProject(hitBackWall.ImpactPoint - location, chkSurfaceDirection.GetSafeNormal()).GetSafeNormal() * inShapeDir.Length();
+				if (impactToImpactVector.Length() > conditions.DepthRange.X)
 					continue;
-				response.VaultDepthVector = FVector::VectorPlaneProject(hitBackWall.ImpactPoint - surface.SurfacePoint, chkSurfaceDirection);
+				pt += virtualSnap + virtualSnap.GetSafeNormal() * 0.1;
+				response.HurdleApexDepthLocation = response.HurdleApexLocation - impactToImpactVector;
+				if (!ComponentTraceSingle(hitHurdle, pt, -virtualSnap.GetSafeNormal() * status.Kinematics.GetGravityScale(), status.Kinematics.AngularKinematic.Orientation, 0))
+					continue;
+				if ((hitHurdle.Location - pt).Length() < conditions.DepthRange.Y)
+					continue;
+				response.HurdleLandLocation = hitHurdle.Location;
+				if (conditions.DepthRange.Z > 0)
+				{
+					FHitResult hitVault;
+					pt = hitHurdle.Location - chkSurfaceDirection.GetSafeNormal() * 0.125;
+					if (ComponentTraceSingle(hitVault, pt, offset.GetSafeNormal() * conditions.DepthRange.Z, status.Kinematics.AngularKinematic.Orientation, 0))
+						continue;
+				}
 			}
 		}
 		if (checkDones)

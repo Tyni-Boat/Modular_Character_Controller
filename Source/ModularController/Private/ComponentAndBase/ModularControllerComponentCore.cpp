@@ -94,7 +94,9 @@ void UModularControllerComponent::Initialize()
 
 	//Action behaviors
 	_onActionMontageEndedCallBack.Unbind();
+	_OnActionMontageBlendingOutStartedCallBack.Unbind();
 	_onActionMontageEndedCallBack.BindUObject(this, &UModularControllerComponent::OnActionMontageEnds);
+	_OnActionMontageBlendingOutStartedCallBack.BindUObject(this, &UModularControllerComponent::OnActionMontageBlendOutStarted);
 	ActionInstances.Empty();
 	{
 		ActionMontageInstance = NewObject<UActionMontage>();
@@ -110,7 +112,7 @@ void UModularControllerComponent::Initialize()
 
 	//Traversal watchers
 	WatcherInstances.Empty();
-	_watcherTickChrono = WatcherTickInterval;
+	_watcherTickChrono = CurrentPerformanceProfile.TraversalTickInterval;
 	{
 		for (int i = WatcherClasses.Num() - 1; i >= 0; i--)
 		{
@@ -145,6 +147,27 @@ void UModularControllerComponent::TickComponent(float DeltaTime, ELevelTick Tick
 		return;
 
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	//Count time elapsed
+	_timeElapsed += DeltaTime;
+
+	if (CurrentPerformanceProfile.TickInterval > 0)
+	{
+		if (_mainTickChrono < CurrentPerformanceProfile.TickInterval)
+		{
+			_mainTickChrono += DeltaTime;
+			bool skipReturn = false;
+			if (_mainTickChrono >= CurrentPerformanceProfile.TickInterval)
+			{
+				_mainTickChrono = 0;
+				skipReturn = true;
+			}
+
+			if (!skipReturn)
+				return;
+		}
+		DeltaTime = CurrentPerformanceProfile.TickInterval;
+	}
 
 	if (ThisTickFunction->TickGroup == TG_PrePhysics)
 	{
@@ -208,12 +231,9 @@ void UModularControllerComponent::ComputeTickComponent(float delta)
 	//Extract Root motion
 	ExtractRootMotions(delta);
 
-	//Count time elapsed
-	_timeElapsed += delta;
-
 	//Solve collisions
 	int maxDepth = 64;
-	OverlapSolver(maxDepth, delta, &_contactHits, ApplyedControllerStatus.CustomSolverCheckParameters, nullptr,
+	OverlapSolver(_tempOverlapSolverHits, maxDepth, delta, &_contactHits, ApplyedControllerStatus.CustomSolverCheckParameters, nullptr,
 	              [this](FVector location)-> void { UpdatedPrimitive->SetWorldLocation(location); });
 
 	//Handle tracked surfaces
@@ -370,7 +390,9 @@ void UActionMontageEvent::Activate()
 		return;
 	}
 
+	_OnActionMontageLaunched();
 	_controller->OnActionMontageCompleted.AddDynamic(this, &UActionMontageEvent::_OnActionMontageCompleted);
+	_controller->OnActionMontageBlendingOut.AddDynamic(this, &UActionMontageEvent::_OnActionMontageBlendOutStart);
 }
 
 
@@ -393,6 +415,7 @@ void UActionMontageEvent::CleanUp()
 		return;
 	}
 	_controller->OnActionMontageCompleted.RemoveDynamic(this, &UActionMontageEvent::_OnActionMontageCompleted);
+	_controller->OnActionMontageBlendingOut.RemoveDynamic(this, &UActionMontageEvent::_OnActionMontageBlendOutStart);
 }
 
 
@@ -403,11 +426,21 @@ void UActionMontageEvent::_OnActionMontageCompleted()
 	SetReadyToDestroy();
 }
 
+void UActionMontageEvent::_OnActionMontageBlendOutStart()
+{
+	OnActionMontageBlendingOut.Broadcast();
+}
+
 void UActionMontageEvent::_OnActionMontageFailed()
 {
 	OnActionMontageFailed.Broadcast();
 	CleanUp();
 	SetReadyToDestroy();
+}
+
+void UActionMontageEvent::_OnActionMontageLaunched()
+{
+	OnActionMontageLaunched.Broadcast();
 }
 
 

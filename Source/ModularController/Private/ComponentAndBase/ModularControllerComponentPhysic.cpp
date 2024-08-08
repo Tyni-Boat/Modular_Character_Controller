@@ -49,11 +49,12 @@ void UModularControllerComponent::TrackShapeChanges()
 }
 
 
-void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits, const FVector4 scanParameters, FTransform* customTransform,
-                                                std::function<void(FVector)> OnLocationSet)
+void UModularControllerComponent::OverlapSolver(TArray<FHitResultExpanded>& tempOverlapSolverHits, int& maxDepth, float DeltaTime, TArray<FHitResultExpanded>* touchedHits,
+                                                const FVector4 scanParameters, FTransform* customTransform,
+                                                std::function<void(FVector)> OnLocationSet) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("OverlapSolver");
-	_tempOverlapSolverHits.Empty();
+	tempOverlapSolverHits.Empty();
 	if (touchedHits)
 		touchedHits->Empty();
 	if (!UpdatedPrimitive || !GetWorld())
@@ -71,7 +72,7 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 	const FVector scanDirection = FVector(scanParameters.X, scanParameters.Y, scanParameters.Z);
 	const float scanMaxOffset = scanParameters.W;
 	const FVector cardinalPoint = GetWorldSpaceCardinalPoint(-scanDirection) + locationOffset;
-	FVector offset = scanDirection.GetClampedToMaxSize((cardinalPoint - location).Length() * 2) + scanDirection.GetSafeNormal() * detectionInflation;
+	FVector offset = scanDirection; //.GetClampedToMaxSize((cardinalPoint - location).Length() * 2) + scanDirection.GetSafeNormal() * detectionInflation;
 	if (offset.SquaredLength() > 0)
 	{
 		FHitResult hit;
@@ -87,14 +88,14 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 	}
 	FCollisionQueryParams query = FCollisionQueryParams::DefaultQueryParam;
 	query.AddIgnoredComponents(IgnoredCollisionComponents);
-	if (ComponentTraceMulti_internal(_tempOverlapSolverHits, location - offset, scanDirection + offset, rotation, detectionInflation, bUseComplexCollision,
+	if (ComponentTraceMulti_internal(tempOverlapSolverHits, location - offset, scanDirection + offset, rotation, detectionInflation, bUseComplexCollision,
 	                                 query, scanMaxOffset))
 	{
 		FMTDResult penetrationInfos;
 		FVector displacement = FVector(0);
-		for (int i = 0; i < _tempOverlapSolverHits.Num(); i++)
+		for (int i = 0; i < tempOverlapSolverHits.Num(); i++)
 		{
-			auto& overlapHit = _tempOverlapSolverHits[i];
+			auto& overlapHit = tempOverlapSolverHits[i];
 
 			const bool isBlocking = overlapHit.QueryResponse == ECollisionResponse::ECR_Block;
 			if (touchedHits)
@@ -120,7 +121,7 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 		if (displacement.IsZero())
 			return;
 
-		if(OnLocationSet == nullptr)
+		if (OnLocationSet == nullptr)
 			return;
 
 		//Try to go to that location
@@ -133,7 +134,7 @@ void UModularControllerComponent::OverlapSolver(int& maxDepth, float DeltaTime, 
 				UpdatedPrimitive->SetWorldLocation(location + displacement);
 				maxDepth--;
 				if (maxDepth >= 0 && !customTransform)
-					modularComp->OverlapSolver(maxDepth, DeltaTime);
+					modularComp->OverlapSolver(modularComp->_tempOverlapSolverHits, maxDepth, DeltaTime);
 			}
 			else
 			{
@@ -226,6 +227,7 @@ void UModularControllerComponent::HandleTrackedSurface(FControllerStatus& fromSt
 		}
 	}
 }
+
 
 void UModularControllerComponent::UpdateMovementHistory(FControllerStatus& status, const float delta)
 {

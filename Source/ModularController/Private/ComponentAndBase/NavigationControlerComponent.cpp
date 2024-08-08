@@ -118,9 +118,28 @@ int UNavigationControlerComponent::SearchPath(AActor* target, FVector location, 
 	FVector initialLocation = GetCurrentNavLocation().Location;
 	FVector moveLocation = target ? target->GetActorLocation() : location;
 	const auto navSys = UNavigationSystemV1::GetCurrent(GetWorld());
+	if(!navSys)
+	{
+		if (IsDebug)
+		{
+			FName compName = FName(this->GetReadableName());
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Imposible to search for a path: NULL NAV SYSTEM")), true, true, FColor::Red, 2, compName);
+		}
+		return - 1;
+	}
 	const auto navData = navSys->GetDefaultNavDataInstance();
 	bool validStartLocation = false;
 
+	if(!navData)
+	{
+		if (IsDebug)
+		{
+			FName compName = FName(this->GetReadableName());
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("[PathFinding] - Imposible to search for a path: NULL NAV DATA")), true, true, FColor::Red, 2, compName);
+		}
+		return - 1;
+	}
+	
 	//Find the start navigation point
 	if (navData->ProjectPoint(initialLocation, navStartPt, FVector(1, 1, maxOffNavDistance)))
 	{

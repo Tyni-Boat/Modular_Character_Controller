@@ -195,7 +195,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FVector2D HeightRange = FVector2D(-1);
 
-	// The range of depths of the surface (X: Min step depth, Y: Min Vault fall height, Z: MaxDepthCheckDistance) (cm)
+	// The range of depths of the surface (X: Min step depth, also Max Obstacle Depth for Hurdles, Y: Min Hurdle/Vault floor height, Z: Min space available after vault/Hurdle obstacle) (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FVector DepthRange = FVector(-1, -1, 1);
 
@@ -257,15 +257,31 @@ struct FSurfaceCheckResponse
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
 	FVector LocationOffset = FVector(NAN);
 
-	// The vault depth vector (cm)
+	// The hit impact normal projected on the scan surface direction 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
-	FVector VaultDepthVector = FVector(NAN);
+	FVector HitPlanedNormal = FVector(NAN);
+
+	// The vault start location
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector HurdleStartLocation = FVector(NAN);
+
+	// The vault apex location
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector HurdleApexLocation = FVector(NAN);
+
+	// The vault depth location
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector HurdleApexDepthLocation = FVector(NAN);
+
+	// The vault land location
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Params")
+	FVector HurdleLandLocation = FVector(NAN);
 };
 
 #pragma endregion
 
 
-#pragma region States and Actions
+#pragma region States , Actions and Traversal
 
 // Keep live infos about an action
 USTRUCT(BlueprintType)
@@ -419,6 +435,8 @@ public:
 
 	bool HasChanged(FStatusParameters otherStatus) const;
 
+	void AppendCosmetics(const TMap<FName,float> &otherCosmetic, bool canReplace = true);
+
 	//The Index of the State used
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
 	int StateIndex = -1;
@@ -444,6 +462,21 @@ public:
 	// Cosmetic states and actions variables. useful for let say know the distance from the ground while airborne. 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
 	TMap<FName, float> StatusCosmeticVariables;
+};
+
+
+// The Traversal command params
+USTRUCT(BlueprintType)
+struct MODULARCONTROLLER_API FTraversalCommandParams
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
+	FName ParamKey = NAME_None;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StatusParameters")
+	TArray<FTransform> PathPoints;
 };
 
 
@@ -834,5 +867,41 @@ public:
 
 #pragma region Animation
 
+
+#pragma endregion
+
+
+#pragma region Core
+
+
+USTRUCT(BlueprintType)
+struct MODULARCONTROLLER_API FControllerPerformanceLOD
+{
+	GENERATED_BODY()
+	
+	//The main tick interval
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ticking")
+	float TickInterval = 0;
+	
+	//The tick interval of traversal logic
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ticking")
+	float TraversalTickInterval = 0;
+	
+	//Disable the animation blueprint linking
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	bool bDisableAnimationLinking = false;
+	
+	//Use multi-threaded State detection
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	bool bUseMultiThreadState = false;
+	
+	//Use multi-threaded Action detection
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	bool bUseMultiThreadAction = false;
+	
+	//Use multi-threaded Traversal detection
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	bool bUseMultiThreadTraversal = false;
+};
 
 #pragma endregion

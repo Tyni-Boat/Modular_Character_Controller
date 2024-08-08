@@ -39,11 +39,11 @@ TSoftObjectPtr<USkeletalMeshComponent> UModularControllerComponent::GetSkeletalM
 
 
 double UModularControllerComponent::PlayAnimationMontage_Internal(FActionMotionMontage Montage, float customAnimStartTime
-                                                                  , bool useMontageEndCallback, FOnMontageEnded endCallBack)
+                                                                  , bool useMontageEndCallback, FOnMontageEnded endCallBack, FOnMontageBlendingOutStarted blendOutCallBack)
 {
 	if (UAnimInstance* animInstance = GetAnimInstance())
 	{
-		return PlayAnimMontageSingle(animInstance, Montage, customAnimStartTime, useMontageEndCallback, endCallBack);
+		return PlayAnimMontageSingle(animInstance, Montage, customAnimStartTime, useMontageEndCallback, endCallBack, blendOutCallBack);
 	}
 
 	return -1;
@@ -51,7 +51,7 @@ double UModularControllerComponent::PlayAnimationMontage_Internal(FActionMotionM
 
 
 double UModularControllerComponent::PlayAnimationMontageOnState_Internal(FActionMotionMontage Montage, FName stateName, float customAnimStartTime
-                                                                         , bool useMontageEndCallback, FOnMontageEnded endCallBack)
+                                                                         , bool useMontageEndCallback, FOnMontageEnded endCallBack, FOnMontageBlendingOutStarted blendOutCallBack)
 {
 	if (UAnimInstance* animInstance = GetAnimInstance(stateName))
 	{
@@ -149,12 +149,13 @@ bool UModularControllerComponent::TryGetMotionWarpTransform(FName warpKey, FTran
 
 void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMeshComponent> skeletalMeshReference, FName key, TSubclassOf<UAnimInstance> animClass)
 {
+	if (CurrentPerformanceProfile.bDisableAnimationLinking)
+		return;
+
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR("LinkAnimBlueprint");
 	if (!skeletalMeshReference.IsValid())
 		return;
-
 	FQuat lookDir = skeletalMeshReference->GetComponentRotation().Quaternion();
-
 
 	//The mesh is not Listed.
 	if (!_linkedAnimClasses.Contains(skeletalMeshReference))
@@ -183,7 +184,8 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 		skeletalMeshReference->LinkAnimClassLayers(animClass);
 		if (DebugType == EControllerDebugType::AnimationDebug)
 		{
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to new %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked %s to new %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true,
+			                                  false);
 		}
 
 		//Register
@@ -220,7 +222,8 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 		skeletalMeshReference->LinkAnimClassLayers(animClass);
 		if (DebugType == EControllerDebugType::AnimationDebug)
 		{
-			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked new %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true, false);
+			UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("Animation Linking: linked new %s to %s"), *animClass->GetName(), *skeletalMeshReference->GetName()), true,
+			                                  false);
 		}
 
 		//Register
@@ -253,7 +256,7 @@ void UModularControllerComponent::LinkAnimBlueprint(TSoftObjectPtr<USkeletalMesh
 
 
 double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animInstance, FActionMotionMontage montage, float customAnimStartTime
-                                                          , bool useMontageEndCallback, FOnMontageEnded endCallBack)
+                                                          , bool useMontageEndCallback, FOnMontageEnded endCallBack, FOnMontageBlendingOutStarted blendOutCallBack)
 {
 	if (animInstance == nullptr)
 	{
@@ -279,6 +282,7 @@ double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animIns
 	if (useMontageEndCallback)
 	{
 		animInstance->Montage_SetEndDelegate(endCallBack, montage.Montage);
+		animInstance->Montage_SetBlendingOutDelegate(blendOutCallBack, montage.Montage);
 	}
 
 	if (duration <= 0)
@@ -286,7 +290,7 @@ double UModularControllerComponent::PlayAnimMontageSingle(UAnimInstance* animIns
 		return -1;
 	}
 
-	if (!montage.MontageSection.IsNone())
+	if (!montage.MontageSection.IsNone() && montage.Montage->GetSectionIndex(montage.MontageSection) != INDEX_NONE)
 	{
 		//Jumps to a section
 		animInstance->Montage_JumpToSection(montage.MontageSection, montage.Montage);
@@ -330,10 +334,32 @@ void UModularControllerComponent::OnActionMontageEnds(UAnimMontage* Montage, boo
 }
 
 
+void UModularControllerComponent::OnActionMontageBlendOutStarted(UAnimMontage* Montage, bool Interrupted)
+{
+	if (!Montage)
+		return;
+	if (!_montageOnActionBound.Contains(Montage))
+		return;
+	if (_montageOnActionBound[Montage].Num() <= 0)
+		return;
+	for (int i = 0; i < _montageOnActionBound[Montage].Num(); i++)
+	{
+		if (!_montageOnActionBound[Montage][i].IsValid())
+			continue;
+		if (!ActionInfos.Contains(_montageOnActionBound[Montage][i]))
+			continue;
+		auto infos = ActionInfos[_montageOnActionBound[Montage][i]];
+		if (infos.GetRemainingActivationTime() <= 0)
+			continue;
+		OnActionMontageBlendingOut.Broadcast();
+	}
+}
+
+
 void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematics, const FVector fallbackVelocity, const ERootMotionType rootMotionMode, float surfaceFriction,
                                                  float weight) const
 {
-	if (rootMotionMode != ERootMotionType::NoRootMotion)
+	if (rootMotionMode != ERootMotionType::NoRootMotion && weight > 0)
 	{
 		//Rotation
 		const FQuat rotDiff = GetRootMotionQuat();
@@ -353,7 +379,8 @@ void UModularControllerComponent::ReadRootMotion(FKinematicComponents& kinematic
 		default:
 			{
 				const FVector translation = GetRootMotionTranslation(rootMotionMode, fallbackVelocity);
-				UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, FMath::Lerp(fallbackVelocity, translation, weight), -surfaceFriction, 0);
+				if (weight > 0)
+					UFunctionLibrary::AddCompositeMovement(kinematics.LinearKinematic, FMath::Lerp(fallbackVelocity, translation, weight), -surfaceFriction, 0);
 			}
 			break;
 	}
@@ -473,7 +500,7 @@ FControllerStatus UModularControllerComponent::EvaluateRootMotionOverride(const 
 			for (int i = 1; i < command->WarpTransform_Path.Num(); i++)
 			{
 				UKismetSystemLibrary::DrawDebugArrow(this, command->WarpTransform_Path[i - 1].GetLocation(), command->WarpTransform_Path[i].GetLocation()
-					, 50, FColor::Red, inDelta * 1.2);
+				                                     , 50, FColor::Red, inDelta * 1.2);
 			}
 		}
 	}

@@ -203,23 +203,54 @@ FControllerStatus UModularControllerComponent::CheckControllerStates(FController
 
 		if (selectedStateIndex < 0)
 		{
-			for (int i = 0; i < StatesInstances.Num(); i++)
+			if (CurrentPerformanceProfile.bUseMultiThreadState)
 			{
-				if (!StatesInstances[i].IsValid())
-					continue;
-
-				const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, overrideNewState ? false : endStatus.StatusParams.StateIndex == i);
-				endStatus.StatusParams.StatusCosmeticVariables = checkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
-
-				//Select the highest priority only
-				if (StatesInstances[i]->GetPriority() < maxStatePriority)
-					continue;
-
-				if (checkResult.CheckedCondition)
+				TQueue<TTuple<int, FControllerCheckResult>> res = TQueue<TTuple<int, FControllerCheckResult>>();
+				ParallelFor(StatesInstances.Num(), [&](int32 i)
 				{
-					selectedStateIndex = i;
-					selectedStatus = checkResult.ProcessResult;
-					maxStatePriority = StatesInstances[i]->GetPriority();
+					if (StatesInstances.IsValidIndex(i) && StatesInstances[i].IsValid())
+					{
+						const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, overrideNewState ? false : endStatus.StatusParams.StateIndex == i);
+						res.Enqueue(TTuple<int, FControllerCheckResult>(i, checkResult));
+					}
+				});
+				TTuple<int, FControllerCheckResult> item;
+				while (res.Dequeue(item))
+				{
+					endStatus.StatusParams.AppendCosmetics(item.Value.ProcessResult.StatusParams.StatusCosmeticVariables);
+
+					//Select the highest priority only
+					if (StatesInstances[item.Key]->GetPriority() < maxStatePriority)
+						continue;
+
+					if (item.Value.CheckedCondition)
+					{
+						selectedStateIndex = item.Key;
+						selectedStatus = item.Value.ProcessResult;
+						maxStatePriority = StatesInstances[item.Key]->GetPriority();
+					}
+				}
+			}
+			else
+			{
+				for (int i = 0; i < StatesInstances.Num(); i++)
+				{
+					if (!StatesInstances[i].IsValid())
+						continue;
+
+					const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, overrideNewState ? false : endStatus.StatusParams.StateIndex == i);
+					endStatus.StatusParams.AppendCosmetics(checkResult.ProcessResult.StatusParams.StatusCosmeticVariables);
+
+					//Select the highest priority only
+					if (StatesInstances[i]->GetPriority() < maxStatePriority)
+						continue;
+
+					if (checkResult.CheckedCondition)
+					{
+						selectedStateIndex = i;
+						selectedStatus = checkResult.ProcessResult;
+						maxStatePriority = StatesInstances[i]->GetPriority();
+					}
 				}
 			}
 		}
@@ -239,16 +270,40 @@ FControllerStatus UModularControllerComponent::CosmeticCheckState(FControllerSta
 
 	//Check if a State's check have success state
 	{
-		for (int i = 0; i < StatesInstances.Num(); i++)
+		if (CurrentPerformanceProfile.bUseMultiThreadState)
 		{
-			if (!StatesInstances[i].IsValid())
-				continue;
-
-			const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, currentControllerStatus.StatusParams.StateIndex == i);
-			endStatus.StatusParams.StatusCosmeticVariables = checkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
-			if (currentControllerStatus.StatusParams.StateIndex == i)
+			TQueue<TTuple<int, FControllerCheckResult>> res = TQueue<TTuple<int, FControllerCheckResult>>();
+			ParallelFor(StatesInstances.Num(), [&](int32 i)
 			{
-				endStatus = checkResult.ProcessResult;
+				if (StatesInstances.IsValidIndex(i) && StatesInstances[i].IsValid())
+				{
+					const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, currentControllerStatus.StatusParams.StateIndex == i);
+					res.Enqueue(TTuple<int, FControllerCheckResult>(i, checkResult));
+				}
+			});
+			TTuple<int, FControllerCheckResult> item;
+			while (res.Dequeue(item))
+			{
+				endStatus.StatusParams.AppendCosmetics(item.Value.ProcessResult.StatusParams.StatusCosmeticVariables);
+				if (currentControllerStatus.StatusParams.StateIndex == item.Key)
+				{
+					endStatus = item.Value.ProcessResult;
+				}
+			}
+		}
+		else
+		{
+			for (int i = 0; i < StatesInstances.Num(); i++)
+			{
+				if (!StatesInstances[i].IsValid())
+					continue;
+
+				const auto checkResult = StatesInstances[i]->CheckState(this, endStatus, inDelta, currentControllerStatus.StatusParams.StateIndex == i);
+				endStatus.StatusParams.AppendCosmetics(checkResult.ProcessResult.StatusParams.StatusCosmeticVariables);
+				if (currentControllerStatus.StatusParams.StateIndex == i)
+				{
+					endStatus = checkResult.ProcessResult;
+				}
 			}
 		}
 	}
@@ -366,6 +421,16 @@ FActionInfos UModularControllerComponent::GetCurrentControllerActionInfos() cons
 	if (!curAction)
 		return FActionInfos();
 	return ActionInfos.Contains(curAction) ? ActionInfos[curAction] : FActionInfos();
+}
+
+bool UModularControllerComponent::IsActionMontagePlaying() const
+{
+	const auto curAction = GetCurrentControllerAction();
+	if (!curAction)
+		return false;
+	if (curAction->GetDescriptionName() == "BuiltIn_ActionMontage")
+		return true;
+	return false;
 }
 
 
@@ -558,54 +623,122 @@ FControllerStatus UModularControllerComponent::CheckControllerActions(FControlle
 	}
 
 	//Check actions
-	for (int i = 0; i < ActionInstances.Num(); i++)
 	{
-		if (selectedActionIndex == i)
-			continue;
-
-		if (!ActionInstances[i].IsValid())
-			continue;
-		if (!ActionInfos.Contains(ActionInstances[i]))
-			continue;
-
-		if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid())
+		if (CurrentPerformanceProfile.bUseMultiThreadAction)
 		{
-			if (ActionInstances[i]->GetPriority() <= ActionInstances[selectedActionIndex]->GetPriority())
+			TQueue<TTuple<int, FControllerCheckResult>> res = TQueue<TTuple<int, FControllerCheckResult>>();
+			ParallelFor(StatesInstances.Num(), [&](int32 i)
 			{
-				if (ActionInstances[i]->GetPriority() != ActionInstances[selectedActionIndex]->GetPriority())
-					continue;
-				if (ActionInstances[i]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
-					&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
-					&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
+				if (selectedActionIndex == i)
+					return;
+
+				if (!ActionInstances.IsValidIndex(i))
+					return;
+				if (!ActionInstances[i].IsValid())
+					return;
+				if (!ActionInfos.Contains(ActionInstances[i]))
+					return;
+
+				const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
+				if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
+					return;
+				if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
+					return;
+				if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
+					return;
+
+				if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
 				{
-					continue;
+					const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
+					res.Enqueue(TTuple<int, FControllerCheckResult>(i, chkResult));
+				}
+			});
+			TTuple<int, FControllerCheckResult> item;
+			while (res.Dequeue(item))
+			{
+				if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid())
+				{
+					if (ActionInstances[item.Key]->GetPriority() <= ActionInstances[selectedActionIndex]->GetPriority())
+					{
+						if (ActionInstances[item.Key]->GetPriority() != ActionInstances[selectedActionIndex]->GetPriority())
+							continue;
+						if (ActionInstances[item.Key]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
+							&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
+							&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
+						{
+							continue;
+						}
+					}
+				}
+
+				endStatus.StatusParams.AppendCosmetics(item.Value.ProcessResult.StatusParams.StatusCosmeticVariables);
+				if (item.Value.CheckedCondition)
+				{
+					selectedActionIndex = item.Key;
+					selectedStatus = item.Value.ProcessResult;
+
+					if (DebugType == EControllerDebugType::StatusDebug)
+					{
+						UKismetSystemLibrary::PrintString(
+							GetWorld(), FString::Printf(TEXT("Action (%s) was checked as active. Remaining Time: %f"), *ActionInstances[item.Key]->DebugString(),
+							                            ActionInfos[ActionInstances[item.Key]].GetRemainingActivationTime()), true, false, FColor::Silver, 0
+							, FName(FString::Printf(TEXT("CheckControllerActions_%s"), *ActionInstances[item.Key]->GetDescriptionName().ToString())));
+					}
 				}
 			}
 		}
-
-		const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
-		if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
-			continue;
-		if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
-			continue;
-		if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
-			continue;
-
-		if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
+		else
 		{
-			const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
-			endStatus.StatusParams.StatusCosmeticVariables = chkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
-			if (chkResult.CheckedCondition)
+			for (int i = 0; i < ActionInstances.Num(); i++)
 			{
-				selectedActionIndex = i;
-				selectedStatus = chkResult.ProcessResult;
+				if (selectedActionIndex == i)
+					continue;
 
-				if (DebugType == EControllerDebugType::StatusDebug)
+				if (!ActionInstances[i].IsValid())
+					continue;
+				if (!ActionInfos.Contains(ActionInstances[i]))
+					continue;
+
+				if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid())
 				{
-					UKismetSystemLibrary::PrintString(
-						GetWorld(), FString::Printf(TEXT("Action (%s) was checked as active. Remaining Time: %f"), *ActionInstances[i]->DebugString(),
-						                            ActionInfos[ActionInstances[i]].GetRemainingActivationTime()), true, false, FColor::Silver, 0
-						, FName(FString::Printf(TEXT("CheckControllerActions_%s"), *ActionInstances[i]->GetDescriptionName().ToString())));
+					if (ActionInstances[i]->GetPriority() <= ActionInstances[selectedActionIndex]->GetPriority())
+					{
+						if (ActionInstances[i]->GetPriority() != ActionInstances[selectedActionIndex]->GetPriority())
+							continue;
+						if (ActionInstances[i]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
+							&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
+							&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
+						{
+							continue;
+						}
+					}
+				}
+
+				const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
+				if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
+					continue;
+				if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
+					continue;
+				if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
+					continue;
+
+				if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
+				{
+					const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
+					endStatus.StatusParams.AppendCosmetics(chkResult.ProcessResult.StatusParams.StatusCosmeticVariables);
+					if (chkResult.CheckedCondition)
+					{
+						selectedActionIndex = i;
+						selectedStatus = chkResult.ProcessResult;
+
+						if (DebugType == EControllerDebugType::StatusDebug)
+						{
+							UKismetSystemLibrary::PrintString(
+								GetWorld(), FString::Printf(TEXT("Action (%s) was checked as active. Remaining Time: %f"), *ActionInstances[i]->DebugString(),
+								                            ActionInfos[ActionInstances[i]].GetRemainingActivationTime()), true, false, FColor::Silver, 0
+								, FName(FString::Printf(TEXT("CheckControllerActions_%s"), *ActionInstances[i]->GetDescriptionName().ToString())));
+						}
+					}
 				}
 			}
 		}
@@ -639,43 +772,97 @@ FControllerStatus UModularControllerComponent::CosmeticCheckActions(FControllerS
 	}
 
 	//Check actions
-	for (int i = 0; i < ActionInstances.Num(); i++)
 	{
-		if (selectedActionIndex == i)
-			continue;
-
-		if (!ActionInstances[i].IsValid())
-			continue;
-		if (!ActionInfos.Contains(ActionInstances[i]))
-			continue;
-
-		if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid())
+		if (CurrentPerformanceProfile.bUseMultiThreadAction)
 		{
-			if (ActionInstances[i]->GetPriority() <= ActionInstances[selectedActionIndex]->GetPriority())
+			TQueue<TTuple<int, FControllerCheckResult>> res = TQueue<TTuple<int, FControllerCheckResult>>();
+			ParallelFor(StatesInstances.Num(), [&](int32 i)
 			{
-				if (ActionInstances[i]->GetPriority() != ActionInstances[selectedActionIndex]->GetPriority())
-					continue;
-				if (ActionInstances[i]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
-					&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
-					&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
+				if (selectedActionIndex == i)
+					return;
+
+				if (!ActionInstances.IsValidIndex(i))
+					return;
+				if (!ActionInstances[i].IsValid())
+					return;
+				if (!ActionInfos.Contains(ActionInstances[i]))
+					return;
+
+				const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
+				if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
+					return;
+				if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
+					return;
+				if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
+					return;
+
+				if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
 				{
-					continue;
+					const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
+					res.Enqueue(TTuple<int, FControllerCheckResult>(i, chkResult));
 				}
+			});
+			TTuple<int, FControllerCheckResult> item;
+			while (res.Dequeue(item))
+			{
+				if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid())
+				{
+					if (ActionInstances[item.Key]->GetPriority() <= ActionInstances[selectedActionIndex]->GetPriority())
+					{
+						if (ActionInstances[item.Key]->GetPriority() != ActionInstances[selectedActionIndex]->GetPriority())
+							continue;
+						if (ActionInstances[item.Key]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
+							&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
+							&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
+						{
+							continue;
+						}
+					}
+				}
+				endStatus.StatusParams.AppendCosmetics(item.Value.ProcessResult.StatusParams.StatusCosmeticVariables);
 			}
 		}
-
-		const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
-		if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
-			continue;
-		if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
-			continue;
-		if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
-			continue;
-
-		if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
+		else
 		{
-			const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
-			endStatus.StatusParams.StatusCosmeticVariables = chkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
+			for (int i = 0; i < ActionInstances.Num(); i++)
+			{
+				if (selectedActionIndex == i)
+					continue;
+
+				if (!ActionInstances[i].IsValid())
+					continue;
+				if (!ActionInfos.Contains(ActionInstances[i]))
+					continue;
+
+				if (ActionInstances.IsValidIndex(selectedActionIndex) && ActionInstances[selectedActionIndex].IsValid())
+				{
+					if (ActionInstances[i]->GetPriority() <= ActionInstances[selectedActionIndex]->GetPriority())
+					{
+						if (ActionInstances[i]->GetPriority() != ActionInstances[selectedActionIndex]->GetPriority())
+							continue;
+						if (ActionInstances[i]->GetPriority() == ActionInstances[selectedActionIndex]->GetPriority()
+							&& ActionInfos.Contains(ActionInstances[selectedActionIndex])
+							&& ActionInfos[ActionInstances[selectedActionIndex]].CurrentPhase != EActionPhase::Recovery)
+						{
+							continue;
+						}
+					}
+				}
+
+				const auto currentPhase = ActionInfos[ActionInstances[i]].CurrentPhase;
+				if (currentPhase == EActionPhase::Anticipation || currentPhase == EActionPhase::Active)
+					continue;
+				if (currentPhase == EActionPhase::Recovery && !ActionInstances[i]->bCanTransitionToSelf)
+					continue;
+				if (ActionInfos[ActionInstances[i]].GetRemainingCoolDownTime() > 0 && !ActionInstances[i]->bCanTransitionToSelf)
+					continue;
+
+				if (CheckActionCompatibility(ActionInstances[i], endStatus.StatusParams.StateIndex, endStatus.StatusParams.ActionIndex))
+				{
+					const auto chkResult = ActionInstances[i]->CheckAction(this, endStatus, inDelta, i == endStatus.StatusParams.ActionIndex);
+					endStatus.StatusParams.StatusCosmeticVariables = chkResult.ProcessResult.StatusParams.StatusCosmeticVariables;
+				}
+			}
 		}
 	}
 
@@ -835,6 +1022,10 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 		{
 			if (UActionMontage* asActionMontage = Cast<UActionMontage>(ActionInstances[fromActionIndex].Get()))
 			{
+				if (ActionMontageLibraryMap.Contains(asActionMontage->GetDescriptionName()))
+				{
+					ActionMontageLibraryMap.Remove(asActionMontage->GetDescriptionName());
+				}
 				asActionMontage->Reset();
 				OnActionMontageCompleted.Broadcast();
 			}
@@ -883,11 +1074,12 @@ void UModularControllerComponent::ChangeControllerAction(FControllerStatus toAct
 			{
 				if (const auto currentState = GetCurrentControllerState())
 					montageDuration = PlayAnimationMontageOnState_Internal(actionMontage, currentState->GetDescriptionName(), -1, actionMontage.bUseMontageLenght,
-					                                                       _onActionMontageEndedCallBack);
+					                                                       _onActionMontageEndedCallBack, _OnActionMontageBlendingOutStartedCallBack);
 			}
 			else
 			{
-				montageDuration = PlayAnimationMontage_Internal(actionMontage, -1, actionMontage.bUseMontageLenght, _onActionMontageEndedCallBack);
+				montageDuration = PlayAnimationMontage_Internal(actionMontage, -1, actionMontage.bUseMontageLenght, _onActionMontageEndedCallBack,
+				                                                _OnActionMontageBlendingOutStartedCallBack);
 			}
 
 			if (actionMontage.bUseMontageLenght && montageDuration > 0)
@@ -1113,19 +1305,68 @@ void UModularControllerComponent::RemoveTraversalWatcherByPriority_Implementatio
 
 void UModularControllerComponent::CheckControllerTraversalWatcher(FControllerStatus currentControllerStatus, const float inDelta)
 {
-	if (_watcherTickChrono > 0)
+	if (CurrentPerformanceProfile.TraversalTickInterval > 0)
 	{
-		_watcherTickChrono -= inDelta;
-		if (_watcherTickChrono <= 0)
+		if (_watcherTickChrono < CurrentPerformanceProfile.TraversalTickInterval)
 		{
-			_watcherTickChrono = WatcherTickInterval;
-			TRACE_CPUPROFILER_EVENT_SCOPE_STR("CheckControllerTraversalWatcher");
-			int selectedWatcherIndex = -1;
-			TMap<FName, TMap<FName, TArray<bool>>> _motherTraversalDebug;
-			if (DebugType == EControllerDebugType::TraversalDebug)
-				_motherTraversalDebug = TMap<FName, TMap<FName, TArray<bool>>>();
+			_watcherTickChrono += inDelta;
+			bool skipReturn = false;
+			if (_watcherTickChrono >= CurrentPerformanceProfile.TraversalTickInterval)
+			{
+				_watcherTickChrono = 0;
+				skipReturn = true;
+			}
 
-			//Check transversal watcher
+			if (!skipReturn)
+				return;
+		}
+	}
+
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR("CheckControllerTraversalWatcher");
+	TQueue<FTraversalCommandParams> commandsQueue;
+	int selectedWatcherIndex = -1;
+	TMap<FName, TMap<FName, TArray<bool>>> _motherTraversalDebug;
+	if (DebugType == EControllerDebugType::TraversalDebug)
+		_motherTraversalDebug = TMap<FName, TMap<FName, TArray<bool>>>();
+	bool actionMontageActive = IsActionMontagePlaying();
+
+	//Check transversal watcher
+	{
+		if (CurrentPerformanceProfile.bUseMultiThreadTraversal)
+		{
+			ParallelFor(StatesInstances.Num(), [&](int32 i)
+			{
+				if (!WatcherInstances.IsValidIndex(i))
+					return;
+
+				if (!WatcherInstances[i].IsValid())
+					return;
+
+				if(actionMontageActive && !WatcherInstances[i]->bIgnoreActionMontage)
+					return;
+
+				if (CheckTraversalWatcherCompatibility(WatcherInstances[i], currentControllerStatus.StatusParams.StateIndex, currentControllerStatus.StatusParams.ActionIndex))
+				{
+					if (DebugType == EControllerDebugType::TraversalDebug)
+						_motherTraversalDebug.Add(WatcherInstances[i]->GetDescriptionName(), TMap<FName, TArray<bool>>());
+
+					if (WatcherInstances[i]->CheckWatcher(commandsQueue, this, currentControllerStatus, inDelta,
+					                                      DebugType == EControllerDebugType::TraversalDebug
+						                                      ? &_motherTraversalDebug[WatcherInstances[i]->GetDescriptionName()]
+						                                      : nullptr))
+					{
+						if (DebugType == EControllerDebugType::StatusDebug)
+						{
+							UKismetSystemLibrary::PrintString(
+								GetWorld(), FString::Printf(TEXT("Traversal Watcher (%s) was checked as active."), *WatcherInstances[i]->DebugString()), true, false, FColor::Silver
+								, 0, FName(FString::Printf(TEXT("CheckControllerWatcher_%s"), *WatcherInstances[i]->GetDescriptionName().ToString())));
+						}
+					}
+				}
+			}, EParallelForFlags::BackgroundPriority);
+		}
+		else
+		{
 			for (int i = 0; i < WatcherInstances.Num(); i++)
 			{
 				if (selectedWatcherIndex == i)
@@ -1133,6 +1374,9 @@ void UModularControllerComponent::CheckControllerTraversalWatcher(FControllerSta
 
 				if (!WatcherInstances[i].IsValid())
 					continue;
+				
+				if(actionMontageActive && !WatcherInstances[i]->bIgnoreActionMontage)
+					continue;;
 
 				if (CheckTraversalWatcherCompatibility(WatcherInstances[i], currentControllerStatus.StatusParams.StateIndex, currentControllerStatus.StatusParams.ActionIndex))
 				{
@@ -1147,7 +1391,7 @@ void UModularControllerComponent::CheckControllerTraversalWatcher(FControllerSta
 					if (DebugType == EControllerDebugType::TraversalDebug)
 						_motherTraversalDebug.Add(WatcherInstances[i]->GetDescriptionName(), TMap<FName, TArray<bool>>());
 
-					if (WatcherInstances[i]->CheckWatcher(this, currentControllerStatus, inDelta,
+					if (WatcherInstances[i]->CheckWatcher(commandsQueue, this, currentControllerStatus, inDelta,
 					                                      DebugType == EControllerDebugType::TraversalDebug
 						                                      ? &_motherTraversalDebug[WatcherInstances[i]->GetDescriptionName()]
 						                                      : nullptr))
@@ -1162,39 +1406,45 @@ void UModularControllerComponent::CheckControllerTraversalWatcher(FControllerSta
 					}
 				}
 			}
+		}
+	}
 
-			if (DebugType == EControllerDebugType::StatusDebug)
-			{
-				UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Watchers: selected Index (%d)"), selectedWatcherIndex), true, false, FColor::Silver, 0
-				                                  , TEXT("CheckControllerWatcher"));
-			}
+	FTraversalCommandParams command;
+	while (commandsQueue.Dequeue(command))
+	{
+		OnControllerTriggerTraversalEvent.Broadcast(command.ParamKey, command.PathPoints);
+	}
 
-			if (DebugType == EControllerDebugType::TraversalDebug)
+	if (DebugType == EControllerDebugType::StatusDebug)
+	{
+		UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Watchers: selected Index (%d)"), selectedWatcherIndex), true, false, FColor::Silver, 0
+		                                  , TEXT("CheckControllerWatcher"));
+	}
+
+	if (DebugType == EControllerDebugType::TraversalDebug)
+	{
+		float duration = 60;
+		for (auto motherItem : _motherTraversalDebug)
+		{
+			auto debugName = FString::Printf(TEXT("CheckControllerWatcher_%s"), *motherItem.Key.ToString());
+			FString innerContent = FString();
+			for (auto childItem : motherItem.Value)
 			{
-				float duration = 60;
-				for (auto motherItem : _motherTraversalDebug)
-				{
-					auto debugName = FString::Printf(TEXT("CheckControllerWatcher_%s"), *motherItem.Key.ToString());
-					FString innerContent = FString();
-					for (auto childItem : motherItem.Value)
-					{
-						innerContent = FString::Printf(
-							TEXT(
-								"Key(%s)  Tested(%d)  AsPrediction(%d)  SurfaceCount(%d)  SurfaceValid(%d)  ColResponse(%d)  canStep(%d)  Height(%d)  nAngle(%d)  iAngle(%d)  awayTest(%d)  orientation(%d)  depth(%d)  axisSpeed(%d)  surfaceDirSpeed(%d)  SurfaceSpeed(%d)  Cosmetic(%d)")
-							, *childItem.Key.ToString(), childItem.Value[1], childItem.Value[2], childItem.Value[3], childItem.Value[4], childItem.Value[5], childItem.Value[6],
-							childItem.Value[7],
-							childItem.Value[8], childItem.Value[9], childItem.Value[10], childItem.Value[11], childItem.Value[12], childItem.Value[13], childItem.Value[14],
-							childItem.Value[15],
-							childItem.Value[16]
-						);
-						auto nameKey = debugName;
-						UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("%s:"), *innerContent), true, false, childItem.Value[0] ? FColor::Green : FColor::Silver
-						                                  , duration, FName(nameKey.Append(childItem.Key.ToString())));
-					}
-					UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Watchers full status Tab for %s:")
-					                                                              , *motherItem.Key.ToString()), true, false, FColor::White, duration, FName(debugName));
-				}
+				innerContent = FString::Printf(
+					TEXT(
+						"Key(%s)  Tested(%d)  AsPrediction(%d)  SurfaceCount(%d)  SurfaceValid(%d)  ColResponse(%d)  canStep(%d)  Height(%d)  nAngle(%d)  iAngle(%d)  awayTest(%d)  orientation(%d)  depth(%d)  axisSpeed(%d)  surfaceDirSpeed(%d)  SurfaceSpeed(%d)  Cosmetic(%d)")
+					, *childItem.Key.ToString(), childItem.Value[1], childItem.Value[2], childItem.Value[3], childItem.Value[4], childItem.Value[5], childItem.Value[6],
+					childItem.Value[7],
+					childItem.Value[8], childItem.Value[9], childItem.Value[10], childItem.Value[11], childItem.Value[12], childItem.Value[13], childItem.Value[14],
+					childItem.Value[15],
+					childItem.Value[16]
+				);
+				auto nameKey = debugName;
+				UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("%s:"), *innerContent), true, false, childItem.Value[0] ? FColor::Green : FColor::Silver
+				                                  , duration, FName(nameKey.Append(childItem.Key.ToString())));
 			}
+			UKismetSystemLibrary::PrintString(GetWorld(), FString::Printf(TEXT("Check Watchers full status Tab for %s:")
+			                                                              , *motherItem.Key.ToString()), true, false, FColor::White, duration, FName(debugName));
 		}
 	}
 }

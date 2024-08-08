@@ -497,6 +497,21 @@ bool FStatusParameters::HasChanged(FStatusParameters otherStatus) const
 	return stateChange || stateFlagChange || actionChange || actionFlagChange;
 }
 
+void FStatusParameters::AppendCosmetics(const TMap<FName, float>& otherCosmetic, bool canReplace)
+{
+	for (auto cosmetic : otherCosmetic)
+	{
+		if (StatusCosmeticVariables.Contains(cosmetic.Key))
+		{
+			if (canReplace)
+				StatusCosmeticVariables[cosmetic.Key] = cosmetic.Value;
+		}else
+		{
+			StatusCosmeticVariables.Add(cosmetic);
+		}
+	}
+}
+
 #pragma endregion
 
 
@@ -635,7 +650,7 @@ FAngularKinematicCondition FAngularKinematicCondition::GetFinalCondition(double 
 
 	finalCondition.RotationSpeed = FVector(velx, vely, velz);
 	const FQuat angularSpeed = finalCondition.GetAngularSpeedQuat(deltaTime);
-	if(rotDiff)
+	if (rotDiff)
 	{
 		*rotDiff = angularSpeed;
 	}
